@@ -5,7 +5,7 @@ import {
   publishTelegramNotification
 } from "../src/telegram";
 
-function response(status = 200, body = { ok: true, result: {} }): Response {
+function response(status = 200, body: unknown = { ok: true, result: {} }): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json" }
@@ -14,13 +14,14 @@ function response(status = 200, body = { ok: true, result: {} }): Response {
 
 function config(): Env {
   return {
+    NTFY_TOPIC: "legacy_local_topic",
     TELEGRAM_BOT_TOKEN: "123456:TEST_BOT_TOKEN",
     TELEGRAM_CHAT_ID: "456789",
     TELEGRAM_USER_ID: "123456789",
     TELEGRAM_WEBHOOK_SECRET: "webhook_secret_abcdefghijklmnopqrstuvwxyz",
     NOFAX_REMOTE_KEY: "super-secret-remote-key",
     REQUESTS: {} as DurableObjectNamespace
-  } as Env;
+  } as unknown as Env;
 }
 
 describe("Telegram remote publisher", () => {
@@ -30,7 +31,7 @@ describe("Telegram remote publisher", () => {
       env: config(),
       title: "Nofax",
       message: "Hello",
-      fetchImpl: async (input, init) => {
+      fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
         calls.push({ url: String(input), init: init ?? {} });
         return response();
       }
@@ -58,7 +59,7 @@ describe("Telegram remote publisher", () => {
       ],
       includeRefine: true,
       origin: "https://nofax.example",
-      fetchImpl: async (_input, init) => {
+      fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
         payload = JSON.parse(String(init?.body));
         return response();
       }
@@ -88,7 +89,7 @@ describe("Telegram remote publisher", () => {
       ],
       includeRefine: false,
       origin: "https://nofax.example",
-      fetchImpl: async (_input, init) => {
+      fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
         payload = JSON.parse(String(init?.body));
         return response();
       }
