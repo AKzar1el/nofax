@@ -1,13 +1,14 @@
 {
   "name": "nofax",
-  "version": "0.1.0",
-  "description": "Remote approvals and actionable phone notifications for coding agents via ntfy.",
+  "version": "0.2.0",
+  "description": "Remote approvals, refinements, and actionable phone notifications for coding agents via ntfy and MCP.",
   "type": "module",
   "bin": {
     "nofax": "./bin/nofax.mjs"
   },
   "exports": {
-    ".": "./src/index.mjs"
+    ".": "./src/index.mjs",
+    "./mcp": "./src/mcp-server.mjs"
   },
   "files": [
     "bin/",
@@ -18,10 +19,14 @@
   ],
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "check": "node --check bin/nofax.mjs && node --check src/cli.mjs && node --check src/config.mjs && node --check src/protocol.mjs && node --check src/ntfy.mjs && node --check src/adapters/claude.mjs && node --check src/adapters/codex.mjs && node --check src/adapters/gemini.mjs"
+    "check": "node --check bin/nofax.mjs && node --check src/cli.mjs && node --check src/config.mjs && node --check src/protocol.mjs && node --check src/ntfy.mjs && node --check src/requests.mjs && node --check src/mcp-tools.mjs && node --check src/mcp-server.mjs && node --check src/adapters/claude.mjs && node --check src/adapters/codex.mjs && node --check src/adapters/gemini.mjs"
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "zod": "4.4.3"
   },
   "keywords": [
     "ai-agent",
@@ -29,6 +34,8 @@
     "claude-code",
     "codex",
     "gemini-cli",
+    "human-in-the-loop",
+    "mcp",
     "ntfy",
     "notifications",
     "remote"
