@@ -5,8 +5,6 @@ import type { Env } from "../src/env";
 function env(): Env {
   return {
     REQUESTS: {} as DurableObjectNamespace,
-    NTFY_TOPIC: "topic",
-    NTFY_SERVER: "https://ntfy.sh",
     NOFAX_REMOTE_KEY: "remote_key_abcdefghijklmnopqrstuvwxyz123456"
   };
 }
