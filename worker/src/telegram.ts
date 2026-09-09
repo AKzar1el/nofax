@@ -268,7 +268,8 @@ export async function editTelegramTerminalMessage({
       payload: {
         chat_id: targetChatId,
         message_id: messageId,
-        text: `${boundText(originalText, 3600, "MESSAGE")}\n\n${boundText(statusText, 240, "MESSAGE")}`
+        text: `${boundText(originalText, 3600, "MESSAGE")}\n\n${boundText(statusText, 240, "MESSAGE")}`,
+        reply_markup: { inline_keyboard: [] }
       },
       fetchImpl,
       errorPrefix: "NOFAX_TELEGRAM_EDIT"
