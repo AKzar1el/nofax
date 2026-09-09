@@ -5,18 +5,15 @@ import type { Env } from "../src/env";
 function env(): Env {
   return {
     REQUESTS: {} as DurableObjectNamespace,
-    NTFY_TOPIC: "topic",
-    NTFY_SERVER: "https://ntfy.sh",
     NOFAX_REMOTE_KEY: "remote_key_abcdefghijklmnopqrstuvwxyz123456"
   };
 }
 
 const ctx = {} as ExecutionContext;
 
-describe("remote Worker router", () => {
+describe("read-only remote Worker router", () => {
   it("serves a secret-free health check", async () => {
     const response = await routeRequest(new Request("https://nofax.example/healthz"), env(), ctx, {
-      callbackImpl: async () => new Response("unexpected", { status: 500 }),
       mcpImpl: async () => new Response("unexpected", { status: 500 })
     });
     expect(response.status).toBe(200);
@@ -26,7 +23,6 @@ describe("remote Worker router", () => {
 
   it("returns 404 for unknown routes without leaking secrets", async () => {
     const response = await routeRequest(new Request("https://nofax.example/nope"), env(), ctx, {
-      callbackImpl: async () => new Response("unexpected", { status: 500 }),
       mcpImpl: async () => new Response("unexpected", { status: 500 })
     });
     expect(response.status).toBe(404);
@@ -36,7 +32,6 @@ describe("remote Worker router", () => {
   it("requires Bearer auth on /mcp and returns 401 without invoking MCP", async () => {
     let calls = 0;
     const response = await routeRequest(new Request("https://nofax.example/mcp"), env(), ctx, {
-      callbackImpl: async () => new Response("unexpected", { status: 500 }),
       mcpImpl: async () => { calls += 1; return new Response("mcp"); }
     });
     expect(response.status).toBe(401);
@@ -49,7 +44,6 @@ describe("remote Worker router", () => {
     const response = await routeRequest(new Request("https://nofax.example/mcp", {
       headers: { authorization: `Bearer ${env().NOFAX_REMOTE_KEY}` }
     }), env(), ctx, {
-      callbackImpl: async () => new Response("unexpected", { status: 500 }),
       mcpImpl: async (request) => {
         seenPath = new URL(request.url).pathname;
         return new Response("mcp-ok");
@@ -64,7 +58,6 @@ describe("remote Worker router", () => {
     let seenUrl = "";
     const key = env().NOFAX_REMOTE_KEY;
     const response = await routeRequest(new Request(`https://nofax.example/mcp/${encodeURIComponent(key)}`), env(), ctx, {
-      callbackImpl: async () => new Response("unexpected", { status: 500 }),
       mcpImpl: async (request) => {
         seenUrl = request.url;
         return new Response("mcp-ok");
@@ -78,52 +71,35 @@ describe("remote Worker router", () => {
   it("rejects a wrong capability path without invoking MCP", async () => {
     let calls = 0;
     const response = await routeRequest(new Request("https://nofax.example/mcp/wrong_key_abcdefghijklmnopqrstuvwxyz123456"), env(), ctx, {
-      callbackImpl: async () => new Response("unexpected", { status: 500 }),
       mcpImpl: async () => { calls += 1; return new Response("mcp"); }
     });
     expect(response.status).toBe(404);
     expect(calls).toBe(0);
   });
 
-  it("routes phone callback capabilities without requiring the MCP key", async () => {
-    let callbackCalls = 0;
-    const token = "callback_token_abcdefghijklmnopqrstuvwxyz123456";
-    const response = await routeRequest(new Request(`https://nofax.example/r/${token}`), env(), ctx, {
-      callbackImpl: async (request) => {
-        callbackCalls += 1;
-        expect(new URL(request.url).pathname).toBe(`/r/${token}`);
-        return new Response("callback-ok");
-      },
+  it("hard-rejects former phone callback and Telegram webhook routes", async () => {
+    let sideEffectCalls = 0;
+    const overrides = {
+      callbackImpl: async () => { sideEffectCalls += 1; return new Response("callback-ok"); },
+      telegramWebhookImpl: async () => { sideEffectCalls += 1; return new Response("telegram-ok"); },
       mcpImpl: async () => new Response("unexpected", { status: 500 })
-    });
-    expect(response.status).toBe(200);
-    expect(callbackCalls).toBe(1);
-    expect(await response.text()).toBe("callback-ok");
-  });
+    } as any;
 
-  it("routes only POST /telegram/webhook without requiring the MCP key", async () => {
-    let webhookCalls = 0;
-    const response = await routeRequest(new Request("https://nofax.example/telegram/webhook", {
-      method: "POST"
-    }), env(), ctx, {
-      callbackImpl: async () => new Response("unexpected", { status: 500 }),
-      telegramWebhookImpl: async (request) => {
-        webhookCalls += 1;
-        expect(new URL(request.url).pathname).toBe("/telegram/webhook");
-        return new Response("telegram-ok");
-      },
-      mcpImpl: async () => new Response("unexpected", { status: 500 })
-    });
-    expect(response.status).toBe(200);
-    expect(webhookCalls).toBe(1);
-    expect(await response.text()).toBe("telegram-ok");
+    const refine = await routeRequest(
+      new Request("https://nofax.example/r/callback_token_abcdefghijklmnopqrstuvwxyz123456"),
+      env(),
+      ctx,
+      overrides
+    );
+    const telegram = await routeRequest(
+      new Request("https://nofax.example/telegram/webhook", { method: "POST" }),
+      env(),
+      ctx,
+      overrides
+    );
 
-    const getResponse = await routeRequest(new Request("https://nofax.example/telegram/webhook"), env(), ctx, {
-      callbackImpl: async () => new Response("unexpected", { status: 500 }),
-      telegramWebhookImpl: async () => { webhookCalls += 1; return new Response("unexpected", { status: 500 }); },
-      mcpImpl: async () => new Response("unexpected", { status: 500 })
-    });
-    expect(getResponse.status).toBe(404);
-    expect(webhookCalls).toBe(1);
+    expect(refine.status).toBe(404);
+    expect(telegram.status).toBe(404);
+    expect(sideEffectCalls).toBe(0);
   });
 });
