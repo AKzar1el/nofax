@@ -6,6 +6,7 @@ const MAX_DEPTH = 5;
 const MAX_ARRAY = 20;
 const MAX_OBJECT_KEYS = 30;
 const MAX_SUMMARY = 2200;
+const MAX_RESPONSE_TEXT = 2000;
 
 function randomBase64Url(bytes) {
   return randomBytes(bytes).toString('base64url');
@@ -79,7 +80,7 @@ export function buildAgentSummary({ source, toolName, cwd, toolInput, message })
   return `${result.slice(0, MAX_SUMMARY - 14)}\n…[truncated]`;
 }
 
-export function parseDecisionMessage(message, { requestId, allowed }) {
+export function parseResponseMessage(message, { requestId, allowed }) {
   if (typeof message !== 'string') return null;
   let parsed;
   try {
@@ -90,5 +91,18 @@ export function parseDecisionMessage(message, { requestId, allowed }) {
   if (!parsed || parsed.v !== 1 || parsed.requestId !== requestId || typeof parsed.decision !== 'string') {
     return null;
   }
-  return allowed.includes(parsed.decision) ? parsed.decision : null;
+  if (!allowed.includes(parsed.decision)) return null;
+
+  if (parsed.decision === 'refine') {
+    if (typeof parsed.text !== 'string') return null;
+    const text = parsed.text.trim();
+    if (!text) return null;
+    return { decision: 'refine', text: boundString(text).slice(0, MAX_RESPONSE_TEXT) };
+  }
+
+  return { decision: parsed.decision };
+}
+
+export function parseDecisionMessage(message, { requestId, allowed }) {
+  return parseResponseMessage(message, { requestId, allowed })?.decision ?? null;
 }

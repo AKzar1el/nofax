@@ -2,44 +2,141 @@
 
 ## Purpose
 
-Nofax is a provider-neutral human-interaction bridge for coding agents and automations. It sends actionable notifications to a phone through ntfy and translates the user's remote answer back into the originating agent's native approval contract.
+Nofax is a provider-neutral human-interaction bridge for coding agents and automations. It sends actionable notifications through ntfy and returns explicit human decisions to the originating workflow without requiring a hosted Nofax backend, inbound callback server, paid model API, SMS, WhatsApp, or Viber.
 
-The first release is deliberately small: one core interaction model, one ntfy transport, a generic CLI, native bidirectional adapters for Claude Code and Codex PermissionRequest hooks, and a notification-only Gemini CLI adapter. No paid API, hosted Nofax backend, database, account system, or persistent auto-approval policy is required.
+Version 0.2 adds a local stdio MCP server and durable human-response state while retaining the v0.1 Claude Code, Codex, Gemini, and generic CLI adapters.
 
 ## Design principles
 
-1. **Provider-neutral core.** Agent-specific schemas stay in adapters. The transport only understands Nofax requests and decisions.
-2. **No silent authority expansion.** Nofax can answer an approval request only when the originating agent has explicitly delegated that decision to its hook contract.
-3. **Fail back to native UI.** Timeout, malformed response, or transport failure must not auto-approve. Claude Code and Codex adapters return no decision so their native approval flow can continue.
-4. **No persistent "always approve" in v1.** Every remote approval is single-use.
-5. **Secret-by-capability topics.** The phone topic and every response topic are generated from cryptographically random values. The public ntfy service treats topic names as bearer secrets; self-hosted ntfy is supported for sensitive environments.
-6. **Minimal data exposure.** Known secret-bearing keys are redacted and payloads are bounded before leaving the machine. Commands or free-form text can still contain secrets, so public ntfy must not be treated as an end-to-end encrypted channel.
-7. **Zero mandatory dependencies.** Runtime uses Node.js built-ins and the documented ntfy HTTP API.
+1. **Provider-neutral core.** Agent-specific schemas stay in adapters. MCP/CLI callers use the same interaction core.
+2. **Pending is not authority.** A request remains non-authorizing until a matching terminal response is persisted.
+3. **Durable human gates.** MCP/client disconnects must not erase an unresolved approval/refinement request.
+4. **Bounded transport calls.** Nofax does not rely on an infinite HTTP/MCP request. It uses repeated bounded long-polls over a durable handle.
+5. **No silent authority expansion.** An Allow result only permits what the originating caller was already authorized to do.
+6. **Fail closed.** Timeout, network failure, malformed responses, or process interruption never become approval.
+7. **Single-use response capabilities.** Every human request gets a fresh random response topic and request ID.
+8. **Minimal exposure.** Secret response topics remain local and never appear in MCP tool results.
+9. **Best-effort confirmation only.** A phone confirmation is UX feedback, not part of decision authority.
+10. **Free baseline.** Public ntfy or a self-hosted ntfy instance is sufficient; no paid AI or messaging API is required.
 
-## Interaction model
+## Components
 
-Nofax exposes three v1 interaction kinds:
+```text
+Agent hook / CLI / MCP host
+          |
+          v
++-------------------------+
+| Nofax interaction core  |
+|                         |
+| protocol                |
+| ntfy transport          |
+| durable request store   |
+| provider adapters       |
++------------+------------+
+             |
+             v
+           ntfy
+             |
+             v
+           phone
+      Allow / Deny /
+      Choice / Refine
+             |
+             v
+  one-time response topic
+             |
+             v
+   durable terminal result
+```
 
-- `notify`: one-way informational message.
-- `approval`: two choices, `allow` or `deny`.
-- `choice`: up to three explicit options, matching ntfy's notification-action limit.
+## Interaction kinds
 
-Text-entry/refinement is intentionally not claimed as native v1 functionality because ntfy action buttons do not provide an inline text field. The core protocol leaves room for a future reply surface (for example, an iOS Shortcut or a small self-hosted reply UI) without changing agent adapters.
+- `notify`: one-way information; no wait contract.
+- `approval`: Allow/Deny; MCP may optionally add Refine as the third action.
+- `choice`: 1-3 explicit choices.
+- `refinement`: free-text human input through the `Nofax Refine` iOS Shortcut.
+
+Native Claude/Codex permission hooks remain Allow/Deny only. Refine belongs to generic/MCP workflows that can actually consume revised instructions.
 
 ## ntfy transport
 
-A user runs `nofax init` once and subscribes the ntfy iOS/Android app to the generated topic.
+For an actionable request:
 
-For an approval request:
+1. Generate a random request ID and one-time response topic.
+2. Publish a notification to the user's private phone topic.
+3. HTTP action buttons POST structured JSON directly to the one-time response topic.
+4. A Refine `view` action opens `shortcuts://run-shortcut`, passing only the request ID and callback URL to the local Shortcut.
+5. Nofax polls the response topic for a matching structured response.
+6. The first valid terminal response is persisted.
+7. Nofax sends a low-priority best-effort confirmation notification.
 
-1. Nofax creates a request ID and a fresh high-entropy response topic.
-2. Nofax publishes a JSON notification to the configured ntfy server.
-3. The notification contains HTTP action buttons. Each button POSTs a small signed-by-capability response body to the unique response topic.
-4. Nofax polls the response topic for a matching request ID until the configured timeout.
-5. The adapter maps the result into the originating agent's exact hook output.
-6. The response topic expires naturally with ntfy's cache; Nofax stores no approval history in v1.
+No inbound port on the user's computer is required.
 
-No callback server, inbound port, Tailscale, SMS provider, WhatsApp API, or AI API is required.
+## Durable MCP model
+
+### Why not wait forever in one MCP call?
+
+MCP hosts and aggregators commonly impose per-tool and HTTP tunnel timeouts. Keeping a single request open indefinitely is therefore less robust than storing the human gate and polling it through bounded calls.
+
+Nofax uses this state machine:
+
+```text
+request_* -> PENDING
+                |
+                v
+        wait <= 240 seconds
+           /          \
+      no answer       answer
+         |              |
+         v              v
+      PENDING        RESOLVED
+         |
+         +--> caller MUST invoke wait again
+```
+
+Every pending MCP result contains both `mustWait: true` and a mandatory instruction naming `nofax_wait_for_response`. The server-level MCP instructions repeat the same rule.
+
+The portable v0.2 contract is deliberate: Nofax does not claim that an MCP server can universally wake or re-run an arbitrary model host after an unsolicited phone event. Future host-specific wake adapters or MCP Tasks integration can optimize scheduling without changing the persisted request contract.
+
+## MCP tools
+
+`nofax mcp` exposes seven stdio tools:
+
+- `nofax_notify`
+- `nofax_request_approval`
+- `nofax_request_choice`
+- `nofax_request_refinement`
+- `nofax_wait_for_response`
+- `nofax_get_request`
+- `nofax_list_pending`
+
+The server uses the official stable MCP TypeScript server SDK v2 and Zod v4. Stdout is MCP protocol traffic only.
+
+## Durable request state
+
+Default request directory:
+
+```text
+~/.nofax/requests/
+```
+
+A pending file contains bounded recovery metadata:
+
+```json
+{
+  "version": 1,
+  "requestId": "nfx_...",
+  "kind": "approval",
+  "responseTopic": "nofax_r_...",
+  "allowed": ["allow", "deny"],
+  "status": "pending",
+  "createdAt": "..."
+}
+```
+
+The phone prompt body is intentionally not persisted. Resolved files add the terminal response and timestamp. Response topics are never included in MCP projections.
+
+Writes use a temporary file followed by rename so a crash does not intentionally publish a partially-written JSON document. User-only permissions are requested where the OS supports POSIX mode semantics.
 
 ## Adapter contracts
 
@@ -47,52 +144,43 @@ No callback server, inbound port, Tailscale, SMS provider, WhatsApp API, or AI A
 
 Input: `PermissionRequest` hook JSON on stdin.
 
-Remote `allow` -> `hookSpecificOutput.PermissionRequest.decision.behavior = "allow"`.
-
-Remote `deny` -> the same structure with `behavior = "deny"` and a human-readable message.
-
-Timeout or transport error -> no decision output, allowing Claude Code's normal permission dialog to continue.
+- remote Allow -> native `allow` hook decision;
+- remote Deny -> native `deny` hook decision;
+- timeout/transport error -> no hook decision, allowing native approval fallback.
 
 ### Codex
 
 Input: `PermissionRequest` hook JSON on stdin.
 
-Remote `allow` / `deny` map to Codex's documented PermissionRequest hook output. Nofax never emits reserved `updatedInput`, `updatedPermissions`, or `interrupt` fields.
-
-Timeout or transport error -> no decision output, allowing Codex's normal approval path to continue.
+Nofax emits only the currently documented decision fields. It does not emit reserved permission/input mutation fields.
 
 ### Gemini CLI
 
-Gemini's `Notification` hook is observability-only. Nofax forwards the notification to the phone and returns an empty hook response. It does not claim remote approval for Gemini until Gemini exposes a documented decision-capable hook path suitable for this use case.
+The documented notification hook is treated as observability-only. Nofax forwards the phone notification without pretending it can grant permission.
 
 ### Generic CLI
 
-Any script can call `nofax notify` or `nofax approve`. The latter prints a stable JSON decision to stdout for scripting.
+`nofax notify`, `nofax approve`, and `nofax refine` expose the same transport without MCP.
 
-## Configuration
+## Codexify bridge
 
-Default home: `~/.nofax`, overrideable with `NOFAX_HOME`.
+Codexify is the initial MCP aggregation target. It launches `nofax mcp` over stdio in direct mode. Nofax's wait call is capped at 240 seconds; the recommended Codexify `toolTimeoutSec` is 270 seconds so the bridge timeout remains outside the Nofax long-poll window.
 
-`config.json` fields:
-
-- `version`: config schema version, currently `1`.
-- `server`: ntfy base URL, default `https://ntfy.sh`.
-- `topic`: cryptographically generated phone topic.
-- `timeoutSeconds`: approval timeout, default `300`.
-
-The config file is created with user-only permissions where supported.
+If a Codexify/ChatGPT conversation rolls over or a call is interrupted, `nofax_get_request` and `nofax_list_pending` provide bounded recovery while the secret response topic stays local.
 
 ## Security boundaries
 
-- Nofax is not an authorization policy engine; the agent remains authoritative about when approval is required.
-- Nofax never turns a timeout into approval.
-- Random topics are capabilities. Anyone who learns a topic can read or publish to it unless the ntfy server adds authentication.
-- Public ntfy is convenient but not end-to-end encrypted application storage. Sensitive teams should self-host ntfy behind authentication/TLS.
-- Adapter input is untrusted. Parsing is strict enough to reject wrong hook event types while preserving unknown tool-input fields for display only.
-- Secret-like object keys are redacted before notification rendering; free-form strings are bounded, not semantically inspected.
+- Nofax is not an authorization policy engine.
+- Pending is never equivalent to Allow.
+- Anonymous ntfy topics are bearer capabilities.
+- Public ntfy is not application-level end-to-end encrypted storage.
+- Secret-like object keys are redacted, but free-form strings are not semantically secret-scanned.
+- The `Nofax Refine` callback URL is a one-time bearer capability.
+- Only the first accepted terminal response should govern the durable request.
+- Self-hosted authenticated ntfy is preferred for sensitive production content.
 
-## Compatibility and roadmap
+See `SECURITY.md` for operational guidance.
 
-V1 is useful without an MCP server because hook commands and the generic CLI already cover agent and automation workflows. A later MCP wrapper should call the same core interfaces rather than create a second protocol or transport implementation.
+## Future compatibility
 
-Likewise, future OpenCode/Hermes adapters should be thin translators around the same `notify`, `approval`, and `choice` operations and must only claim bidirectional behavior when the upstream tool exposes a documented response contract.
+The durable request store is intentionally independent of any one MCP host. MCP Tasks or host-specific wake mechanisms may later reference the same request IDs instead of repeated polling. OpenCode, Hermes, or other agent adapters should remain thin translators and must not claim bidirectional behavior until their upstream decision contracts are pinned and tested.
