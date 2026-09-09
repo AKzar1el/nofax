@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "nofax-remote",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-09",
+  "durable_objects": {
+    "bindings": [
+      { "name": "REQUESTS", "class_name": "NofaxRequestStore" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["NofaxRequestStore"] }
+  ],
+  "vars": {
+    "NTFY_SERVER": "https://ntfy.sh"
+  }
+}
