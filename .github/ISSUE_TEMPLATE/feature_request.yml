@@ -1,0 +1,30 @@
+name: Feature request
+description: Propose a focused improvement or agent adapter.
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow is currently difficult or impossible?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: input
+    id: upstream
+    attributes:
+      label: Upstream contract
+      description: For agent adapters, link the official hook/API documentation or canonical schema.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety properties
+      options:
+        - label: A timeout or transport failure will not silently approve an action.
+          required: true
