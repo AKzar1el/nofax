@@ -2,13 +2,16 @@ import { authorizeMcpRequest } from "./auth";
 import { handleCallback } from "./callbacks";
 import type { Env } from "./env";
 import { createRemoteMcpHandler } from "./mcp";
+import { handleTelegramWebhook } from "./telegram-webhook";
 export { NofaxRequestStore } from "./request-store";
 
 type CallbackImpl = (request: Request, env: Env) => Promise<Response>;
+type TelegramWebhookImpl = (request: Request, env: Env) => Promise<Response>;
 type McpImpl = (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
 
 type RouterOverrides = {
   callbackImpl?: CallbackImpl;
+  telegramWebhookImpl?: TelegramWebhookImpl;
   mcpImpl?: McpImpl;
 };
 
@@ -57,6 +60,11 @@ export async function routeRequest(
         "x-content-type-options": "nosniff"
       }
     });
+  }
+
+  if (url.pathname === "/telegram/webhook") {
+    if (request.method !== "POST") return notFound();
+    return (overrides.telegramWebhookImpl ?? handleTelegramWebhook)(request, env);
   }
 
   if (url.pathname.startsWith("/r/")) {
