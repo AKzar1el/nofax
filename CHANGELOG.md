@@ -2,7 +2,7 @@
 
 All notable changes to Nofax will be documented here.
 
-## 0.3.0 - 2026-09-09
+## 0.3.0 - Unreleased
 
 ### Added
 
