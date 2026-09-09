@@ -1,10 +1,10 @@
 import { initConfig, loadConfig } from './config.mjs';
-import { requestApproval, sendNotification } from './ntfy.mjs';
+import { requestApproval, requestRefinement, sendNotification } from './ntfy.mjs';
 import { handleClaudePermissionRequest } from './adapters/claude.mjs';
 import { handleCodexPermissionRequest } from './adapters/codex.mjs';
 import { handleGeminiNotification } from './adapters/gemini.mjs';
 
-const HELP = `nofax - remote approvals and notifications for coding agents\n\nUsage:\n  nofax init [--server URL] [--topic TOPIC] [--timeout SECONDS] [--force]\n  nofax test\n  nofax notify [--title TITLE] MESSAGE...\n  nofax approve [--title TITLE] MESSAGE...\n  nofax config\n  nofax hook claude\n  nofax hook codex\n  nofax hook gemini\n\nEnvironment:\n  NOFAX_HOME   Override ~/.nofax\n`;
+const HELP = `nofax - remote approvals and notifications for coding agents\n\nUsage:\n  nofax init [--server URL] [--topic TOPIC] [--timeout SECONDS] [--force]\n  nofax test\n  nofax notify [--title TITLE] MESSAGE...\n  nofax approve [--title TITLE] MESSAGE...\n  nofax refine [--title TITLE] MESSAGE...\n  nofax mcp\n  nofax config\n  nofax hook claude\n  nofax hook codex\n  nofax hook gemini\n\nEnvironment:\n  NOFAX_HOME   Override ~/.nofax\n`;
 
 function parseArgs(args) {
   const flags = {};
@@ -77,7 +77,12 @@ export async function runCli(args, overrides = {}) {
     initConfigImpl: overrides.initConfigImpl ?? initConfig,
     loadConfigImpl: overrides.loadConfigImpl ?? loadConfig,
     requestApprovalImpl: overrides.requestApprovalImpl ?? requestApproval,
-    sendNotificationImpl: overrides.sendNotificationImpl ?? sendNotification
+    requestRefinementImpl: overrides.requestRefinementImpl ?? requestRefinement,
+    sendNotificationImpl: overrides.sendNotificationImpl ?? sendNotification,
+    runMcpServerImpl: overrides.runMcpServerImpl ?? (async () => {
+      const { runMcpServer } = await import('./mcp-server.mjs');
+      await runMcpServer();
+    })
   };
 
   try {
@@ -144,6 +149,27 @@ export async function runCli(args, overrides = {}) {
       });
       writeJson(deps.stdout, { decision: result.decision });
       return result.decision === 'timeout' ? 3 : 0;
+    }
+
+    if (command === 'refine') {
+      const { flags, positionals } = parseArgs(args.slice(1));
+      if (positionals.length === 0) throw new Error('NOFAX_MESSAGE_REQUIRED');
+      const config = await deps.loadConfigImpl({ env: deps.env });
+      const result = await deps.requestRefinementImpl({
+        config,
+        title: flags.title ?? 'Nofax refinement',
+        message: positionals.join(' ')
+      });
+      writeJson(deps.stdout, {
+        decision: result.decision,
+        ...(result.text === undefined ? {} : { text: result.text })
+      });
+      return result.decision === 'timeout' ? 3 : 0;
+    }
+
+    if (command === 'mcp') {
+      await deps.runMcpServerImpl();
+      return 0;
     }
 
     if (command === 'hook') {
