@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createRemoteToolHandlers, WAIT_REQUIRED } from "../src/mcp-tools";
 import type { Env } from "../src/env";
 
@@ -89,11 +89,11 @@ describe("remote MCP tool handlers", () => {
       createRequestIdImpl: () => "nfx_abcdefghijklmnopqrstuvwx",
       createCallbackTokenImpl: () => "callback_token_abcdefghijklmnopqrstuvwxyz123456",
       hashCallbackTokenImpl: async () => "a".repeat(64),
-      publishInteractiveNotificationImpl: async () => { throw new Error("NOFAX_NTFY_PUBLISH_429"); },
+      publishInteractiveNotificationImpl: async () => { throw new Error("NOFAX_TELEGRAM_PUBLISH_429"); },
       nowImpl: () => 1_000,
       sleepImpl: async () => {}
     });
-    await expect(handlers.requestApproval({ message: "Release ready" })).rejects.toThrow(/NOFAX_NTFY_PUBLISH_429/);
+    await expect(handlers.requestApproval({ message: "Release ready" })).rejects.toThrow(/NOFAX_TELEGRAM_PUBLISH_429/);
     expect(deleted).toEqual(["nfx_abcdefghijklmnopqrstuvwx"]);
   });
 
@@ -184,5 +184,31 @@ describe("remote MCP tool handlers", () => {
 
     const listed = await handlers.listPending({ limit: 10 });
     expect(listed.requests).toEqual([single.request]);
+  });
+
+  it("uses Telegram as the production remote notify transport", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response(JSON.stringify({ ok: true, result: {} }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+    try {
+      const telegramEnv = {
+        ...env(),
+        TELEGRAM_BOT_TOKEN: "123456:TEST_BOT_TOKEN",
+        TELEGRAM_CHAT_ID: "456789",
+        REQUESTS: {
+          getByName() { return {}; }
+        } as unknown as DurableObjectNamespace
+      };
+      const handlers = createRemoteToolHandlers(telegramEnv, "https://nofax.example");
+      expect(await handlers.notify({ title: "Build", message: "Done" })).toEqual({ status: "sent" });
+      expect(calls).toEqual(["https://api.telegram.org/bot123456:TEST_BOT_TOKEN/sendMessage"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
