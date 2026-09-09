@@ -58,12 +58,12 @@ function update({
   };
 }
 
-function request(body: unknown, secret = env().TELEGRAM_WEBHOOK_SECRET): Request {
+function request(body: unknown, secret: string | null = env().TELEGRAM_WEBHOOK_SECRET ?? null): Request {
   return new Request("https://nofax.example/telegram/webhook", {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      ...(secret === undefined ? {} : { "x-telegram-bot-api-secret-token": secret })
+      ...(secret === null ? {} : { "x-telegram-bot-api-secret-token": secret })
     },
     body: JSON.stringify(body)
   });
@@ -77,7 +77,7 @@ describe("Telegram webhook", () => {
       async resolveByCallbackHash() { calls += 1; return null; }
     };
 
-    const missing = await handleTelegramWebhook(request(update(), undefined), env(), { storeImpl: store });
+    const missing = await handleTelegramWebhook(request(update(), null), env(), { storeImpl: store });
     expect(missing.status).toBe(401);
     const wrong = await handleTelegramWebhook(request(update(), "wrong-secret"), env(), { storeImpl: store });
     expect(wrong.status).toBe(401);
