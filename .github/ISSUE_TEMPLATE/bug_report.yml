@@ -1,0 +1,47 @@
+name: Bug report
+description: Report reproducible incorrect behavior in Nofax.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not include private ntfy topics, credentials, or sensitive hook payloads."
+  - type: input
+    id: version
+    attributes:
+      label: Nofax version
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: adapter
+    attributes:
+      label: Adapter
+      options:
+        - Generic CLI
+        - Claude Code
+        - Codex
+        - Gemini CLI
+        - ntfy transport
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Provide the smallest safe reproduction.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
