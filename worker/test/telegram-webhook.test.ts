@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Env } from "../src/env";
 import { handleTelegramWebhook } from "../src/telegram-webhook";
-import type { ResolveResult, StoredRequest } from "../src/request-store";
+import type { ResolveInput, ResolveResult, StoredRequest } from "../src/request-store";
 
 const token = "callback_token_abcdefghijklmnopqrstuvwxyz123456";
 const callbackHash = "a".repeat(64);
@@ -98,7 +98,7 @@ describe("Telegram webhook", () => {
 
   it("durably resolves Allow and gives best-effort Telegram feedback", async () => {
     const current = stored();
-    let resolveInput: Record<string, unknown> | undefined;
+    let resolveInput: ResolveInput | undefined;
     const calls: Array<{ url: string; body: any }> = [];
     const resolved = stored({ status: "resolved", decision: "allow", resolvedAt: 2_000 });
     const store = {
@@ -106,7 +106,7 @@ describe("Telegram webhook", () => {
         expect(hash).toBe(callbackHash);
         return current;
       },
-      async resolveByCallbackHash(input: Record<string, unknown>): Promise<ResolveResult> {
+      async resolveByCallbackHash(input: ResolveInput): Promise<ResolveResult> {
         resolveInput = input;
         return { request: resolved, newlyResolved: true };
       }
