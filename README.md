@@ -6,7 +6,7 @@ Nofax is a small, open-source human-attention bridge. The current local package 
 
 No Nofax account. No paid AI API. No Nofax-operated SaaS. No inbound port on your machine.
 
-> **Status:** local Nofax `0.2.0` is the current package version. The optional read-only Cloudflare MCP Worker is the `0.3.0` release candidate and remains unreleased until final deployed qualification is complete.
+> **Status:** local Nofax `0.2.0` is the current package version. The optional read-only Cloudflare MCP Worker is the `0.3.0` release candidate. Source/CI qualification is complete; an existing older Worker deployment must be redeployed before its live tool surface reflects this read-only build.
 
 ## Local Nofax
 
@@ -333,7 +333,7 @@ npm ci
 npm run check
 ```
 
-The Worker gate includes TypeScript, Vitest, and a Wrangler deployment dry-run.
+The Worker gate includes TypeScript, Vitest, a production-dependency audit in CI, and a Wrangler deployment dry-run.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md), [`docs/architecture.md`](docs/architecture.md), and [`docs/remote-mcp.md`](docs/remote-mcp.md).
 
