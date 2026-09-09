@@ -6,6 +6,8 @@ It is designed for a private, single-user deployment in your own Cloudflare acco
 
 The local Nofax CLI and stdio MCP server remain separate and can still use ntfy for interactive human approvals. The remote Worker deliberately does not expose those actions.
 
+> Upgrading from an earlier v0.3 development deployment requires redeploying this Worker before the live endpoint reflects the read-only tool surface.
+
 ## Public surface
 
 The Worker exposes only:
@@ -129,6 +131,8 @@ npm test
 npx wrangler deploy --dry-run
 ```
 
-The final protocol qualification should also use an MCP client/Inspector to verify that the deployed endpoint exposes exactly the two expected read-only tools and that unauthenticated `/mcp` requests are rejected.
+CI also runs `npm audit --omit=dev --audit-level=high` against the production dependency graph.
+
+The final protocol qualification should use an MCP client/Inspector to verify that the deployed endpoint exposes exactly the two expected read-only tools and that unauthenticated `/mcp` requests are rejected.
 
 See [`../docs/remote-mcp.md`](../docs/remote-mcp.md) and [`../SECURITY.md`](../SECURITY.md).
