@@ -177,6 +177,7 @@ export class NofaxRequestStore extends DurableObject<Env> {
 
   createRequest(input: PendingRequestInput): StoredRequest {
     const request = normalizePending(input);
+    this.cleanup(request.createdAt);
     this.ctx.storage.sql.exec(
       `INSERT INTO requests (
         request_id, kind, status, title, message, allowed_json, callback_hash,
@@ -252,6 +253,7 @@ export class NofaxRequestStore extends DurableObject<Env> {
   listPending(limit = 20, nowMs = Date.now()): StoredRequest[] {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("NOFAX_REQUEST_LIMIT_INVALID");
     const now = validateTimestamp(nowMs, "NOW");
+    this.cleanup(now);
     return this.ctx.storage.sql.exec<RequestRow>(
       `SELECT * FROM requests
        WHERE status = 'pending' AND expires_at >= ?
