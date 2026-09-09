@@ -221,19 +221,24 @@ export class NofaxRequestStore extends DurableObject<Env> {
       text = input.text.trim().slice(0, 2000);
     }
 
-    const cursor = this.ctx.storage.sql.exec(
+    const writtenRows = this.ctx.storage.sql.exec<RequestRow>(
       `UPDATE requests
        SET status = 'resolved', decision = ?, text = ?, resolved_at = ?
-       WHERE callback_hash = ? AND status = 'pending' AND expires_at >= ?`,
+       WHERE callback_hash = ? AND status = 'pending' AND expires_at >= ?
+       RETURNING *`,
       input.decision,
       text,
       nowMs,
       callbackHash,
       nowMs
-    );
+    ).toArray();
+    if (writtenRows.length === 1) {
+      return { request: rowToRequest(writtenRows[0]), newlyResolved: true };
+    }
+
     const resolved = this.selectByCallbackHash(callbackHash);
     if (resolved === null || resolved.status !== "resolved") return null;
-    return { request: resolved, newlyResolved: cursor.rowsWritten === 1 };
+    return { request: resolved, newlyResolved: false };
   }
 
   deleteRequest(requestId: string): boolean {
