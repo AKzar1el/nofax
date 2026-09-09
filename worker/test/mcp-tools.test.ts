@@ -149,9 +149,10 @@ describe("remote MCP tool handlers", () => {
       });
       const result = await handlers.waitForResponse({ requestId: request.requestId, waitSeconds: 1 });
       expect(result.status).toBe("resolved");
-      expect(result.decision).toBe(decision);
-      expect(result.instruction).toBe(instruction);
-      if (decision === "refine") expect(result.text).toBe(text);
+      const terminal = result as Record<string, unknown>;
+      expect(terminal.decision).toBe(decision);
+      expect(terminal.instruction).toBe(instruction);
+      if (decision === "refine") expect(terminal.text).toBe(text);
     }
   });
 
