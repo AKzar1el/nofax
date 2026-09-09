@@ -100,4 +100,30 @@ describe("remote Worker router", () => {
     expect(callbackCalls).toBe(1);
     expect(await response.text()).toBe("callback-ok");
   });
+
+  it("routes only POST /telegram/webhook without requiring the MCP key", async () => {
+    let webhookCalls = 0;
+    const response = await routeRequest(new Request("https://nofax.example/telegram/webhook", {
+      method: "POST"
+    }), env(), ctx, {
+      callbackImpl: async () => new Response("unexpected", { status: 500 }),
+      telegramWebhookImpl: async (request) => {
+        webhookCalls += 1;
+        expect(new URL(request.url).pathname).toBe("/telegram/webhook");
+        return new Response("telegram-ok");
+      },
+      mcpImpl: async () => new Response("unexpected", { status: 500 })
+    });
+    expect(response.status).toBe(200);
+    expect(webhookCalls).toBe(1);
+    expect(await response.text()).toBe("telegram-ok");
+
+    const getResponse = await routeRequest(new Request("https://nofax.example/telegram/webhook"), env(), ctx, {
+      callbackImpl: async () => new Response("unexpected", { status: 500 }),
+      telegramWebhookImpl: async () => { webhookCalls += 1; return new Response("unexpected", { status: 500 }); },
+      mcpImpl: async () => new Response("unexpected", { status: 500 })
+    });
+    expect(getResponse.status).toBe(404);
+    expect(webhookCalls).toBe(1);
+  });
 });
