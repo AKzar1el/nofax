@@ -138,6 +138,7 @@ export function buildRemoteMcpServer({ handlers }: { handlers: RemoteToolHandler
 }
 
 export function createRemoteMcpHandler(env: Env, origin: string) {
-  const server = buildRemoteMcpServer({ handlers: createRemoteToolHandlers(env, origin) });
-  return createMcpHandler(server);
+  return createMcpHandler(() =>
+    buildRemoteMcpServer({ handlers: createRemoteToolHandlers(env, origin) })
+  );
 }
