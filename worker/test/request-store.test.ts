@@ -157,4 +157,41 @@ describe("NofaxRequestStore", () => {
     expect(await stub.deleteRequest("nfx_aaaaaaaaaaaaaaaaaaaaaaaa")).toBe(true);
     expect(await stub.getRequest("nfx_aaaaaaaaaaaaaaaaaaaaaaaa")).toBeNull();
   });
+
+  it("lazily deletes expired pending and old resolved rows during create/list", async () => {
+    const stub = store("lazy-cleanup");
+    const expiredId = "nfx_expiredaaaaaaaaaaaaaaaaa";
+    const resolvedId = "nfx_resolvedbbbbbbbbbbbbbbbb";
+
+    await stub.createRequest(pending({
+      requestId: expiredId,
+      callbackHash: "c".repeat(64),
+      createdAt: 1_000,
+      expiresAt: 2_000
+    }));
+
+    await stub.createRequest(pending({
+      requestId: "nfx_freshcccccccccccccccccccc",
+      callbackHash: "d".repeat(64),
+      createdAt: 3_000,
+      expiresAt: 90_000_000
+    }));
+    expect(await stub.getRequest(expiredId)).toBeNull();
+
+    const resolved = pending({
+      requestId: resolvedId,
+      callbackHash: "e".repeat(64),
+      createdAt: 4_000,
+      expiresAt: 999_999_999
+    });
+    await stub.createRequest(resolved);
+    await stub.resolveByCallbackHash({
+      callbackHash: resolved.callbackHash,
+      decision: "allow",
+      nowMs: 5_000
+    });
+
+    await stub.listPending(10, 5_000 + 7 * 24 * 60 * 60 * 1000 + 1);
+    expect(await stub.getRequest(resolvedId)).toBeNull();
+  });
 });
