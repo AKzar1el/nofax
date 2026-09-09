@@ -2,105 +2,164 @@
 
 ## Purpose
 
-Nofax is a provider-neutral human-interaction bridge for coding agents and automations. It sends actionable notifications through ntfy and returns explicit human decisions to the originating workflow without requiring a hosted Nofax backend, inbound callback server, paid model API, SMS, WhatsApp, or Viber.
+Nofax is a provider-neutral human-interaction bridge for coding agents and automations. It sends actionable notifications through ntfy and returns explicit human decisions without coupling the approval transport to one model vendor.
 
-Version 0.2 adds a local stdio MCP server and durable human-response state while retaining the v0.1 Claude Code, Codex, Gemini, and generic CLI adapters.
+Version 0.3 supports two MCP transports:
+
+- **Local:** the existing Node.js stdio MCP server and local durable request files.
+- **Remote:** an optional self-deployed Cloudflare Worker using stateless Streamable HTTP plus a SQLite-backed Durable Object for human-response state.
+
+The remote Worker is deployed in the user's own Cloudflare account. Nofax does not require or operate a hosted Nofax SaaS backend.
 
 ## Design principles
 
-1. **Provider-neutral core.** Agent-specific schemas stay in adapters. MCP/CLI callers use the same interaction core.
-2. **Pending is not authority.** A request remains non-authorizing until a matching terminal response is persisted.
-3. **Durable human gates.** MCP/client disconnects must not erase an unresolved approval/refinement request.
-4. **Bounded transport calls.** Nofax does not rely on an infinite HTTP/MCP request. It uses repeated bounded long-polls over a durable handle.
-5. **No silent authority expansion.** An Allow result only permits what the originating caller was already authorized to do.
-6. **Fail closed.** Timeout, network failure, malformed responses, or process interruption never become approval.
-7. **Single-use response capabilities.** Every human request gets a fresh random response topic and request ID.
-8. **Minimal exposure.** Secret response topics remain local and never appear in MCP tool results.
-9. **Best-effort confirmation only.** A phone confirmation is UX feedback, not part of decision authority.
-10. **Free baseline.** Public ntfy or a self-hosted ntfy instance is sufficient; no paid AI or messaging API is required.
+1. **Provider-neutral core.** Agent-specific schemas stay in thin adapters. MCP/CLI callers share the same decision vocabulary.
+2. **Pending is not authority.** A request remains non-authorizing until a matching terminal human response is persisted.
+3. **Durable human gates.** MCP/client interruption must not erase an unresolved approval/refinement request.
+4. **Bounded waits.** Nofax never requires an infinite MCP/HTTP request; callers repeat bounded waits over a durable request ID.
+5. **No silent authority expansion.** Allow permits only what the originating caller was already authorized to do.
+6. **Fail closed.** Timeout, network failure, malformed input, missing state, and expiry never become approval.
+7. **Single-use capabilities.** Every interactive request gets fresh high-entropy callback material.
+8. **Minimal exposure.** Raw callback capabilities are never returned through MCP request projections.
+9. **First terminal response wins.** Later callbacks cannot replace the accepted decision.
+10. **Free baseline.** Public/self-hosted ntfy plus local Nofax or a SQLite-backed Cloudflare Durable Object is sufficient; no paid AI or messaging API is introduced.
 
-## Components
+## High-level topology
 
 ```text
-Agent hook / CLI / MCP host
-          |
-          v
-+-------------------------+
-| Nofax interaction core  |
-|                         |
-| protocol                |
-| ntfy transport          |
-| durable request store   |
-| provider adapters       |
-+------------+------------+
-             |
-             v
-           ntfy
-             |
-             v
-           phone
-      Allow / Deny /
-      Choice / Refine
-             |
-             v
-  one-time response topic
-             |
-             v
-   durable terminal result
+                    +------------------+
+                    |   MCP / agent    |
+                    |      caller      |
+                    +---------+--------+
+                              |
+                 +------------+-------------+
+                 |                          |
+                 v                          v
+        +----------------+         +------------------+
+        | Local Nofax    |         | Remote Worker    |
+        | stdio MCP/CLI  |         | Streamable HTTP  |
+        +-------+--------+         +--------+---------+
+                |                           |
+                | durable request           | durable request
+                v                           v
+        local request files          SQLite Durable Object
+                |                           |
+                +------------+--------------+
+                             |
+                             v
+                           ntfy
+                             |
+                             v
+                           phone
+                  Allow / Deny / Choice / Refine
+                             |
+                 +-----------+-----------+
+                 |                       |
+                 v                       v
+          local ntfy response      Worker callback
+          topic / Shortcut         /r/<capability>
+                 |                       |
+                 +-----------+-----------+
+                             |
+                             v
+                    durable terminal result
 ```
 
 ## Interaction kinds
 
 - `notify`: one-way information; no wait contract.
-- `approval`: Allow/Deny; MCP may optionally add Refine as the third action.
-- `choice`: 1-3 explicit choices.
-- `refinement`: free-text human input through the `Nofax Refine` iOS Shortcut.
+- `approval`: Allow/Deny; generic/MCP workflows may optionally include Refine as a third action.
+- `choice`: one to three explicit choices.
+- `refinement`: free-text human input.
 
-Native Claude/Codex permission hooks remain Allow/Deny only. Refine belongs to generic/MCP workflows that can actually consume revised instructions.
+Native Claude Code and Codex permission hooks remain Allow/Deny only. Gemini CLI remains notification-only where its upstream hook contract is advisory.
 
-## ntfy transport
+## Local transport
 
-For an actionable request:
+The local implementation under `src/` remains the default zero-backend mode.
 
-1. Generate a random request ID and one-time response topic.
-2. Publish a notification to the user's private phone topic.
-3. HTTP action buttons POST structured JSON directly to the one-time response topic.
-4. A Refine `view` action opens `shortcuts://run-shortcut`, passing only the request ID and callback URL to the local Shortcut.
-5. Nofax polls the response topic for a matching structured response.
-6. The first valid terminal response is persisted.
-7. Nofax sends a low-priority best-effort confirmation notification.
+### Local ntfy flow
+
+1. Generate a random request ID and one-time ntfy response topic.
+2. Publish an actionable notification to the user's private phone topic.
+3. Allow/Deny/choice actions publish structured JSON to that response topic.
+4. Local Refine opens the `Nofax Refine` iOS Shortcut, which asks for text and posts it to the one-time response topic.
+5. Nofax polls the response topic for a matching request.
+6. The first valid terminal response is persisted locally.
+7. A low-priority phone confirmation is sent best-effort.
 
 No inbound port on the user's computer is required.
 
-## Durable MCP model
+### Local durable state
 
-### Why not wait forever in one MCP call?
-
-MCP hosts and aggregators commonly impose per-tool and HTTP tunnel timeouts. Keeping a single request open indefinitely is therefore less robust than storing the human gate and polling it through bounded calls.
-
-Nofax uses this state machine:
+Pending MCP request metadata lives under:
 
 ```text
-request_* -> PENDING
-                |
-                v
-        wait <= 240 seconds
-           /          \
-      no answer       answer
-         |              |
-         v              v
-      PENDING        RESOLVED
-         |
-         +--> caller MUST invoke wait again
+~/.nofax/requests/
 ```
 
-Every pending MCP result contains both `mustWait: true` and a mandatory instruction naming `nofax_wait_for_response`. The server-level MCP instructions repeat the same rule.
+The files contain only bounded recovery metadata plus the one-time response topic required to resume the wait. MCP projections omit that topic.
 
-The portable v0.2 contract is deliberate: Nofax does not claim that an MCP server can universally wake or re-run an arbitrary model host after an unsolicited phone event. Future host-specific wake adapters or MCP Tasks integration can optimize scheduling without changing the persisted request contract.
+Local `nofax_wait_for_response` is bounded to at most 240 seconds per call.
 
-## MCP tools
+## Remote Worker transport
 
-`nofax mcp` exposes seven stdio tools:
+The optional `worker/` package adds remote Streamable HTTP MCP without replacing the local implementation.
+
+### Protocol layer
+
+The Worker uses Cloudflare's stateless `createMcpHandler()` path for MCP. The MCP protocol itself is not stored in a Durable Object.
+
+The authenticated endpoint is:
+
+```text
+/mcp
+```
+
+A private capability-URL compatibility form is also supported:
+
+```text
+/mcp/<NOFAX_REMOTE_KEY>
+```
+
+See `docs/remote-mcp.md` for connection details.
+
+### Remote durable state
+
+Human-response state is stored in one SQLite-backed Durable Object namespace. Each row contains:
+
+- request ID;
+- kind/status;
+- bounded title/message;
+- allowed terminal decisions;
+- SHA-256 callback-token hash;
+- created/expiry timestamps;
+- terminal decision/text/timestamp after resolution.
+
+The raw callback token is never persisted.
+
+Pending callback capabilities expire after 24 hours. Expired pending rows and resolved rows beyond the recovery window are lazily deleted during normal create/list operations.
+
+### Remote phone flow
+
+1. Generate request ID + fresh callback token.
+2. Hash the callback token.
+3. Persist the request before notification delivery.
+4. Publish ntfy actions containing only the raw per-request callback capability.
+5. Discard the raw callback token after publication.
+6. Phone action reaches `/r/<token>/...`.
+7. Worker hashes the supplied token and resolves state through the Durable Object.
+8. First valid terminal response wins.
+9. Confirmation notification is sent best-effort.
+10. `nofax_wait_for_response` observes the terminal durable row.
+
+Remote Allow/Deny are one tap. Remote Refine opens a no-JavaScript Worker-hosted HTML form rather than the Apple Shortcut.
+
+Remote wait calls are capped at 20 seconds.
+
+## MCP semantic parity
+
+Both local and remote transports expose the same seven public tool names:
 
 - `nofax_notify`
 - `nofax_request_approval`
@@ -110,33 +169,61 @@ The portable v0.2 contract is deliberate: Nofax does not claim that an MCP serve
 - `nofax_get_request`
 - `nofax_list_pending`
 
-The server uses the official stable MCP TypeScript server SDK v2 and Zod v4. Stdout is MCP protocol traffic only.
+Both use the same terminal semantics:
 
-## Durable request state
+- `allow`: human approved; caller may continue only within existing authority;
+- `deny`: guarded action must not execute;
+- `refine`: apply the human text and request a fresh approval if the resulting action still requires approval;
+- explicit choice: apply only the selected value.
 
-Default request directory:
+The wait duration differs by transport, but pending/result semantics do not.
+
+## Durable wait model
+
+Nofax intentionally does not keep one MCP call open forever.
 
 ```text
-~/.nofax/requests/
+request_* -> PENDING
+                |
+                v
+        bounded wait call
+           /          \
+      no answer       answer
+         |              |
+         v              v
+      PENDING        RESOLVED
+         |
+         +--> caller MUST invoke wait again
 ```
 
-A pending file contains bounded recovery metadata:
+Every pending result contains `mustWait: true` plus an explicit instruction naming `nofax_wait_for_response`.
 
-```json
-{
-  "version": 1,
-  "requestId": "nfx_...",
-  "kind": "approval",
-  "responseTopic": "nofax_r_...",
-  "allowed": ["allow", "deny"],
-  "status": "pending",
-  "createdAt": "..."
-}
-```
+There is no portable assumption that a remote MCP server can force every host/model to begin a new turn after an unsolicited phone event. Host-specific wake integration or MCP Tasks may later optimize this without replacing Nofax's durable request contract.
 
-The phone prompt body is intentionally not persisted. Resolved files add the terminal response and timestamp. Response topics are never included in MCP projections.
+## Authentication and capability separation
 
-Writes use a temporary file followed by rename so a crash does not intentionally publish a partially-written JSON document. User-only permissions are requested where the OS supports POSIX mode semantics.
+Remote Nofax deliberately separates deployment authentication from per-request phone capabilities.
+
+- `NOFAX_REMOTE_KEY` protects only the private MCP endpoint.
+- Each phone interaction gets an independent callback token.
+- Phone callback URLs never contain `NOFAX_REMOTE_KEY`.
+- The Durable Object stores only callback-token hashes.
+- Authenticated MCP requests are normalized to `/mcp` before protocol handling.
+
+For private clients that support headers, use `Authorization: Bearer <key>`. Capability-URL mode exists only for clients that cannot attach headers. OAuth 2.1 is the expected hardening path before multi-user/public hosting.
+
+## Browser Refine security
+
+The remote Refine page is server-rendered and mobile-first. It loads no external JavaScript, analytics, fonts, or third-party assets.
+
+Responses use restrictive security headers including:
+
+- `Content-Security-Policy`;
+- `Cache-Control: no-store`;
+- `X-Content-Type-Options: nosniff`;
+- `Referrer-Policy: no-referrer`.
+
+All user-controlled content is escaped and bounded. Refine text is capped before durable persistence.
 
 ## Adapter contracts
 
@@ -144,43 +231,41 @@ Writes use a temporary file followed by rename so a crash does not intentionally
 
 Input: `PermissionRequest` hook JSON on stdin.
 
-- remote Allow -> native `allow` hook decision;
-- remote Deny -> native `deny` hook decision;
+- remote Allow -> native `allow` decision;
+- remote Deny -> native `deny` decision;
 - timeout/transport error -> no hook decision, allowing native approval fallback.
 
 ### Codex
 
 Input: `PermissionRequest` hook JSON on stdin.
 
-Nofax emits only the currently documented decision fields. It does not emit reserved permission/input mutation fields.
+Nofax emits only documented allow/deny fields and does not fabricate reserved permission/input mutation behavior.
 
 ### Gemini CLI
 
-The documented notification hook is treated as observability-only. Nofax forwards the phone notification without pretending it can grant permission.
+The documented Notification hook is treated as observability-only. Nofax forwards the phone notification without pretending it grants permission.
 
 ### Generic CLI
 
-`nofax notify`, `nofax approve`, and `nofax refine` expose the same transport without MCP.
-
-## Codexify bridge
-
-Codexify is the initial MCP aggregation target. It launches `nofax mcp` over stdio in direct mode. Nofax's wait call is capped at 240 seconds; the recommended Codexify `toolTimeoutSec` is 270 seconds so the bridge timeout remains outside the Nofax long-poll window.
-
-If a Codexify/ChatGPT conversation rolls over or a call is interrupted, `nofax_get_request` and `nofax_list_pending` provide bounded recovery while the secret response topic stays local.
+`nofax notify`, `nofax approve`, and `nofax refine` expose the local transport without MCP.
 
 ## Security boundaries
 
 - Nofax is not an authorization policy engine.
 - Pending is never equivalent to Allow.
 - Anonymous ntfy topics are bearer capabilities.
-- Public ntfy is not application-level end-to-end encrypted storage.
+- Public ntfy is not application-level end-to-end encrypted from the service operator.
+- Cloudflare is an additional infrastructure trust boundary in remote mode.
 - Secret-like object keys are redacted, but free-form strings are not semantically secret-scanned.
-- The `Nofax Refine` callback URL is a one-time bearer capability.
-- Only the first accepted terminal response should govern the durable request.
+- Local one-time response topics and remote callback tokens are bearer capabilities.
+- Remote `NOFAX_REMOTE_KEY` and the full capability-URL MCP endpoint are bearer secrets.
+- Only the first accepted terminal response governs the durable request.
 - Self-hosted authenticated ntfy is preferred for sensitive production content.
 
 See `SECURITY.md` for operational guidance.
 
 ## Future compatibility
 
-The durable request store is intentionally independent of any one MCP host. MCP Tasks or host-specific wake mechanisms may later reference the same request IDs instead of repeated polling. OpenCode, Hermes, or other agent adapters should remain thin translators and must not claim bidirectional behavior until their upstream decision contracts are pinned and tested.
+The durable human-response contract is intentionally independent of any one MCP host. MCP Tasks or host-specific wake mechanisms may later reference the same request IDs instead of repeated polling.
+
+OpenCode, Hermes, or other agent adapters should remain thin translators and must not claim bidirectional behavior until their upstream decision contracts are pinned and tested.
