@@ -1,6 +1,6 @@
 import type { Env } from "./env";
 import { renderRefineForm, renderResultPage } from "./mobile";
-import { publishConfirmation } from "./ntfy";
+import { publishTelegramConfirmation as publishConfirmation } from "./telegram";
 import { hashCallbackToken } from "./protocol";
 import type { ResolveResult, StoredRequest } from "./request-store";
 
