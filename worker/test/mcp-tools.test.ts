@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { createRemoteToolHandlers, WAIT_REQUIRED } from "../src/mcp-tools";
+import { describe, expect, it } from "vitest";
+import { createRemoteToolHandlers } from "../src/mcp-tools";
 import type { Env } from "../src/env";
 
 type Stored = {
@@ -20,8 +20,6 @@ type Stored = {
 function env(): Env {
   return {
     REQUESTS: {} as DurableObjectNamespace,
-    NTFY_TOPIC: "topic",
-    NTFY_SERVER: "https://ntfy.sh",
     NOFAX_REMOTE_KEY: "remote-key"
   };
 }
@@ -41,174 +39,75 @@ function pending(overrides: Partial<Stored> = {}): Stored {
   };
 }
 
-describe("remote MCP tool handlers", () => {
-  it("persists an approval before publishing and never returns callback capability material", async () => {
-    const order: string[] = [];
-    let stored: Stored | undefined;
-    let published: Record<string, unknown> | undefined;
-    const store = {
-      async createRequest(input: Stored) { order.push("persist"); stored = { ...input, status: "pending" }; return stored; },
-      async deleteRequest() { return true; },
-      async getRequest() { return stored ?? null; },
-      async listPending() { return stored ? [stored] : []; }
-    };
-    const handlers = createRemoteToolHandlers(env(), "https://nofax.example", {
-      storeImpl: store,
-      createRequestIdImpl: () => "nfx_abcdefghijklmnopqrstuvwx",
-      createCallbackTokenImpl: () => "callback_token_abcdefghijklmnopqrstuvwxyz123456",
-      hashCallbackTokenImpl: async () => "a".repeat(64),
-      publishInteractiveNotificationImpl: async (input) => { order.push("publish"); published = input as unknown as Record<string, unknown>; },
-      nowImpl: () => 1_000,
-      sleepImpl: async () => {}
-    });
-
-    const result = await handlers.requestApproval({ title: "Deploy?", message: "Release ready", allowRefine: true });
-    expect(order).toEqual(["persist", "publish"]);
-    expect(stored?.allowed).toEqual(["allow", "refine", "deny"]);
-    expect(stored?.expiresAt).toBe(86_401_000);
-    expect(published?.callbackToken).toBe("callback_token_abcdefghijklmnopqrstuvwxyz123456");
-    expect(result).toEqual({
-      status: "pending",
-      requestId: "nfx_abcdefghijklmnopqrstuvwx",
-      mustWait: true,
-      instruction: WAIT_REQUIRED("nfx_abcdefghijklmnopqrstuvwx")
-    });
-    expect(JSON.stringify(result)).not.toMatch(/callback|hash|remote-key/i);
-  });
-
-  it("deletes an orphaned request if phone delivery fails", async () => {
-    const deleted: string[] = [];
-    const store = {
-      async createRequest(input: Stored) { return { ...input, status: "pending" }; },
-      async deleteRequest(requestId: string) { deleted.push(requestId); return true; },
-      async getRequest() { return null; },
-      async listPending() { return []; }
-    };
-    const handlers = createRemoteToolHandlers(env(), "https://nofax.example", {
-      storeImpl: store,
-      createRequestIdImpl: () => "nfx_abcdefghijklmnopqrstuvwx",
-      createCallbackTokenImpl: () => "callback_token_abcdefghijklmnopqrstuvwxyz123456",
-      hashCallbackTokenImpl: async () => "a".repeat(64),
-      publishInteractiveNotificationImpl: async () => { throw new Error("NOFAX_TELEGRAM_PUBLISH_429"); },
-      nowImpl: () => 1_000,
-      sleepImpl: async () => {}
-    });
-    await expect(handlers.requestApproval({ message: "Release ready" })).rejects.toThrow(/NOFAX_TELEGRAM_PUBLISH_429/);
-    expect(deleted).toEqual(["nfx_abcdefghijklmnopqrstuvwx"]);
-  });
-
-  it("returns a mandatory repeat-wait instruction while a durable request remains pending", async () => {
-    let now = 1_000;
-    const request = pending();
-    const store = {
-      async createRequest() { return request; },
-      async deleteRequest() { return false; },
-      async getRequest() { return request; },
-      async listPending() { return [request]; }
-    };
-    const handlers = createRemoteToolHandlers(env(), "https://nofax.example", {
-      storeImpl: store,
-      nowImpl: () => now,
-      sleepImpl: async (ms) => { now += ms; }
-    });
-    const result = await handlers.waitForResponse({ requestId: request.requestId, waitSeconds: 1 });
-    expect(result).toEqual({
-      status: "pending",
-      requestId: request.requestId,
-      mustWait: true,
-      instruction: WAIT_REQUIRED(request.requestId)
-    });
-  });
-
-  it("returns local-v0.2-compatible terminal allow, deny, refine, and choice semantics", async () => {
-    const cases = [
-      ["allow", undefined, "Human approved this request. The caller may continue only within its existing authority."],
-      ["deny", undefined, "Human denied this request. Do not perform the guarded action."],
-      ["refine", "Make it shorter.", "Apply the human refinement. If the resulting action still requires approval, create a new approval request and wait for that new terminal response before acting."],
-      ["staging", undefined, "Human choice received. Apply only that explicit choice within the caller's existing authority."]
-    ] as const;
-
-    for (const [decision, text, instruction] of cases) {
-      const request = pending({
-        kind: decision === "staging" ? "choice" : decision === "refine" ? "refinement" : "approval",
-        status: "resolved",
-        allowed: [decision],
-        decision,
-        ...(text ? { text } : {}),
-        resolvedAt: 2_000
-      });
-      const handlers = createRemoteToolHandlers(env(), "https://nofax.example", {
-        storeImpl: {
-          async createRequest() { return request; },
-          async deleteRequest() { return false; },
-          async getRequest() { return request; },
-          async listPending() { return []; }
-        },
-        nowImpl: () => 3_000,
-        sleepImpl: async () => {}
-      });
-      const result = await handlers.waitForResponse({ requestId: request.requestId, waitSeconds: 1 });
-      expect(result.status).toBe("resolved");
-      const terminal = result as Record<string, unknown>;
-      expect(terminal.decision).toBe(decision);
-      expect(terminal.instruction).toBe(instruction);
-      if (decision === "refine") expect(terminal.text).toBe(text);
-    }
-  });
-
-  it("exposes safe request projections and one-way notify without creating a wait", async () => {
-    const request = pending();
-    let notified: Record<string, unknown> | undefined;
+describe("read-only remote MCP tool handlers", () => {
+  it("exposes only getRequest and listPending", () => {
     const handlers = createRemoteToolHandlers(env(), "https://nofax.example", {
       storeImpl: {
-        async createRequest() { return request; },
-        async deleteRequest() { return false; },
-        async getRequest() { return request; },
-        async listPending() { return [request]; }
-      },
-      publishNotificationImpl: async (input) => { notified = input as unknown as Record<string, unknown>; },
-      nowImpl: () => 2_000,
-      sleepImpl: async () => {}
+        async getRequest() { return null; },
+        async listPending() { return []; }
+      } as never,
+      nowImpl: () => 2_000
     });
-    expect(await handlers.notify({ title: "Build", message: "Done" })).toEqual({ status: "sent" });
-    expect(notified).toMatchObject({ title: "Build", message: "Done" });
 
-    const single = await handlers.getRequest({ requestId: request.requestId });
-    expect(single.request).toEqual({
-      requestId: request.requestId,
-      kind: "approval",
-      status: "pending",
-      createdAt: new Date(1_000).toISOString()
-    });
-    expect(JSON.stringify(single)).not.toMatch(/callbackHash|allowed|message|title/);
-
-    const listed = await handlers.listPending({ limit: 10 });
-    expect(listed.requests).toEqual([single.request]);
+    expect(Object.keys(handlers).sort()).toEqual(["getRequest", "listPending"]);
   });
 
-  it("uses Telegram as the production remote notify transport", async () => {
-    const calls: string[] = [];
-    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
-      calls.push(String(input));
-      return new Response(JSON.stringify({ ok: true, result: {} }), {
-        status: 200,
-        headers: { "content-type": "application/json" }
-      });
+  it("returns a safe request projection without callback or prompt material", async () => {
+    const request = pending({
+      status: "resolved",
+      decision: "allow",
+      resolvedAt: 2_000
     });
-    try {
-      const telegramEnv = {
-        ...env(),
-        TELEGRAM_BOT_TOKEN: "123456:TEST_BOT_TOKEN",
-        TELEGRAM_CHAT_ID: "456789",
-        REQUESTS: {
-          getByName() { return {}; }
-        } as unknown as DurableObjectNamespace
-      };
-      const handlers = createRemoteToolHandlers(telegramEnv, "https://nofax.example");
-      expect(await handlers.notify({ title: "Build", message: "Done" })).toEqual({ status: "sent" });
-      expect(calls).toEqual(["https://api.telegram.org/bot123456:TEST_BOT_TOKEN/sendMessage"]);
-    } finally {
-      vi.unstubAllGlobals();
-    }
+    const handlers = createRemoteToolHandlers(env(), "https://nofax.example", {
+      storeImpl: {
+        async getRequest() { return request; },
+        async listPending() { return []; }
+      } as never,
+      nowImpl: () => 3_000
+    });
+
+    const result = await handlers.getRequest({ requestId: request.requestId });
+    expect(result).toEqual({
+      status: "ok",
+      request: {
+        requestId: request.requestId,
+        kind: "approval",
+        status: "resolved",
+        createdAt: new Date(1_000).toISOString(),
+        resolvedAt: new Date(2_000).toISOString(),
+        decision: "allow"
+      }
+    });
+    expect(JSON.stringify(result)).not.toMatch(/callbackHash|allowed|message|title/);
+  });
+
+  it("lists bounded safe pending projections through read-only store methods", async () => {
+    const request = pending();
+    let seenLimit: number | undefined;
+    let seenNow: number | undefined;
+    const handlers = createRemoteToolHandlers(env(), "https://nofax.example", {
+      storeImpl: {
+        async getRequest() { return request; },
+        async listPending(limit?: number, nowMs?: number) {
+          seenLimit = limit;
+          seenNow = nowMs;
+          return [request];
+        }
+      } as never,
+      nowImpl: () => 2_000
+    });
+
+    const result = await handlers.listPending({ limit: 10 });
+    expect(seenLimit).toBe(10);
+    expect(seenNow).toBe(2_000);
+    expect(result).toEqual({
+      status: "ok",
+      requests: [{
+        requestId: request.requestId,
+        kind: "approval",
+        status: "pending",
+        createdAt: new Date(1_000).toISOString()
+      }]
+    });
   });
 });
