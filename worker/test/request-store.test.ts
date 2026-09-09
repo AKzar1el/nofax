@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import type { Env as NofaxEnv } from "../src/env";
 import type { NofaxRequestStore } from "../src/request-store";
 
 type PendingInput = {
@@ -38,8 +39,10 @@ type RequestStoreStub = {
   cleanup(nowMs: number): Promise<number>;
 };
 
-function rawStore(name: string): DurableObjectStub {
-  return env.REQUESTS.getByName(name);
+const testEnv = env as unknown as NofaxEnv;
+
+function rawStore(name: string): DurableObjectStub<NofaxRequestStore> {
+  return testEnv.REQUESTS.getByName(name) as unknown as DurableObjectStub<NofaxRequestStore>;
 }
 
 function store(name: string): RequestStoreStub {
