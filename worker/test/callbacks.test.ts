@@ -46,6 +46,10 @@ function envWithStore(store: FakeStore): Env {
     } as unknown as DurableObjectNamespace,
     NTFY_TOPIC: "nofax_private_topic",
     NTFY_SERVER: "https://ntfy.sh",
+    TELEGRAM_BOT_TOKEN: "123456:TEST_BOT_TOKEN",
+    TELEGRAM_CHAT_ID: "456789",
+    TELEGRAM_USER_ID: "123456789",
+    TELEGRAM_WEBHOOK_SECRET: "telegram_webhook_secret_abcdefghijklmnopqrstuvwxyz",
     NOFAX_REMOTE_KEY: "must-never-appear-here"
   };
 }
@@ -76,7 +80,7 @@ describe("remote phone callbacks", () => {
     expect(await response.text()).toContain("What should I change?");
   });
 
-  it("one-tap Allow resolves by hash and sends confirmation only after the first resolution", async () => {
+  it("one-tap Allow resolves by hash and sends Telegram confirmation only after the first resolution", async () => {
     const token = "callback_token_abcdefghijklmnopqrstuvwxyz123456";
     const expectedHash = await hashCallbackToken(token);
     const resolves: Array<Record<string, unknown>> = [];
@@ -102,16 +106,17 @@ describe("remote phone callbacks", () => {
         nowImpl: () => 2_000,
         fetchImpl: async (input, init) => {
           fetchCalls.push({ url: String(input), body: String(init?.body ?? "") });
-          return new Response("{}", { status: 200 });
+          return new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 });
         }
       }
     );
     expect(response.status).toBe(200);
     expect(resolves).toEqual([{ callbackHash: expectedHash, decision: "allow", nowMs: 2_000 }]);
     expect(fetchCalls).toHaveLength(1);
-    expect(fetchCalls[0].url).toBe("https://ntfy.sh/");
+    expect(fetchCalls[0].url).toBe("https://api.telegram.org/bot123456:TEST_BOT_TOKEN/sendMessage");
     expect(fetchCalls[0].body).not.toContain(token);
     expect(fetchCalls[0].body).not.toContain("must-never-appear-here");
+    expect(fetchCalls[0].body).not.toContain("allow_paid_broadcast");
     expect(await response.text()).toMatch(/Approved/i);
   });
 
@@ -136,7 +141,7 @@ describe("remote phone callbacks", () => {
         nowImpl: () => 3_000,
         fetchImpl: async () => {
           publishes += 1;
-          return new Response("{}", { status: 200 });
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
         }
       }
     );
@@ -166,7 +171,7 @@ describe("remote phone callbacks", () => {
       }
     };
     const env = envWithStore(store);
-    const fetchImpl = async () => new Response("{}", { status: 200 });
+    const fetchImpl = async () => new Response(JSON.stringify({ ok: true }), { status: 200 });
 
     const okBody = new URLSearchParams({ text: "  Make it shorter.  " });
     const ok = await handleCallback(
