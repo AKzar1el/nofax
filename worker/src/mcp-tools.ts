@@ -1,9 +1,9 @@
 import type { Env } from "./env";
 import {
-  publishInteractiveNotification,
-  publishNotification,
-  type NotificationOption
-} from "./ntfy";
+  publishTelegramInteractive as publishInteractiveNotification,
+  publishTelegramNotification as publishNotification,
+  type TelegramNotificationOption as NotificationOption
+} from "./telegram";
 import {
   boundText,
   createCallbackToken,
