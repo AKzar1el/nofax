@@ -43,3 +43,4 @@ jobs:
       - run: npm install --global npm@11.6.0
       - run: npm ci
       - run: npm test -- protocol.test.ts
+      - run: npm run typecheck
