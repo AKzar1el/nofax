@@ -1,5 +1,7 @@
 import { env } from "cloudflare:workers";
+import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import type { NofaxRequestStore } from "../src/request-store";
 
 type PendingInput = {
   requestId: string;
@@ -36,8 +38,12 @@ type RequestStoreStub = {
   cleanup(nowMs: number): Promise<number>;
 };
 
+function rawStore(name: string): DurableObjectStub {
+  return env.REQUESTS.getByName(name);
+}
+
 function store(name: string): RequestStoreStub {
-  return env.REQUESTS.getByName(name) as unknown as RequestStoreStub;
+  return rawStore(name) as unknown as RequestStoreStub;
 }
 
 function pending(overrides: Partial<PendingInput> = {}): PendingInput {
@@ -86,28 +92,35 @@ describe("NofaxRequestStore", () => {
   });
 
   it("rejects decisions outside the request allow-list", async () => {
-    const stub = store("allowed");
+    const raw = rawStore("allowed");
+    const stub = raw as unknown as RequestStoreStub;
     const input = pending();
     await stub.createRequest(input);
-    await expect(stub.resolveByCallbackHash({
-      callbackHash: input.callbackHash,
-      decision: "refine",
-      text: "change it",
-      nowMs: 2_000
-    })).rejects.toThrow(/NOFAX_REQUEST_DECISION_INVALID/);
+
+    await runInDurableObject(raw, async (instance: NofaxRequestStore) => {
+      expect(() => instance.resolveByCallbackHash({
+        callbackHash: input.callbackHash,
+        decision: "refine",
+        text: "change it",
+        nowMs: 2_000
+      })).toThrow(/NOFAX_REQUEST_DECISION_INVALID/);
+    });
   });
 
   it("requires non-empty text for refinement and stores bounded text", async () => {
-    const stub = store("refine");
+    const raw = rawStore("refine");
+    const stub = raw as unknown as RequestStoreStub;
     const input = pending({ kind: "refinement", allowed: ["refine"] });
     await stub.createRequest(input);
 
-    await expect(stub.resolveByCallbackHash({
-      callbackHash: input.callbackHash,
-      decision: "refine",
-      text: "   ",
-      nowMs: 2_000
-    })).rejects.toThrow(/NOFAX_REQUEST_TEXT_INVALID/);
+    await runInDurableObject(raw, async (instance: NofaxRequestStore) => {
+      expect(() => instance.resolveByCallbackHash({
+        callbackHash: input.callbackHash,
+        decision: "refine",
+        text: "   ",
+        nowMs: 2_000
+      })).toThrow(/NOFAX_REQUEST_TEXT_INVALID/);
+    });
 
     const result = await stub.resolveByCallbackHash({
       callbackHash: input.callbackHash,
