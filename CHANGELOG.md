@@ -7,40 +7,40 @@ All notable changes to Nofax will be documented here.
 ### Added
 
 - Optional self-deployed Cloudflare Workers remote MCP transport using stateless Streamable HTTP.
-- SQLite-backed Durable Object request state for remote approval, choice, and refinement workflows.
-- Free Telegram Bot API transport for remote phone delivery.
-- Telegram inline Allow/Deny/choice callbacks through a verified Worker webhook.
-- Telegram Refine URL button opening the Worker-hosted free-text form with no Apple Shortcut required in remote mode.
-- Telegram webhook authentication using `X-Telegram-Bot-Api-Secret-Token`, plus exact configured user/chat binding.
-- Private remote MCP authentication through a bearer header, plus an opt-in capability-URL compatibility mode.
-- Remote recovery tools with the same seven public MCP tool names and terminal decision semantics as local Nofax.
-- 20-second bounded remote waits with an explicit repeat-until-terminal contract.
-- Public remote deployment and qualification documentation.
+- SQLite-backed Durable Object compatibility for reading request state created by earlier remote-development builds.
+- Private remote MCP authentication through a bearer header, plus capability-URL compatibility mode for clients that cannot attach a static header.
+- Read-only remote tools:
+  - `nofax_get_request`
+  - `nofax_list_pending`
+- Public deployment, security, and qualification documentation for read-only remote mode.
 
 ### Changed
 
-- Nofax now has two MCP transports: the existing local stdio server and the optional remote Worker.
-- Local CLI/Claude/Codex workflows continue to use ntfy; the default Cloudflare remote Worker uses Telegram to avoid public ntfy shared-serverless-egress rate-limit failures.
-- Remote callback confirmation now uses Telegram.
-- Public documentation distinguishes the local iOS Shortcut refinement path from the remote browser refinement path.
-- Root CI qualifies both the Node package and the Cloudflare Worker, including a Wrangler deployment dry-run.
+- Remote v0.3 is now deliberately **inspection only** rather than a remote human-approval transport.
+- The remote MCP handler exposes exactly two read methods.
+- `nofax_list_pending` filters expired rows without performing lazy cleanup writes.
+- Both remote tools are annotated `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, and `openWorldHint: false`.
+- Root CI continues to qualify both the local Node package and the Cloudflare Worker, including a Wrangler deployment dry-run.
 
-### Free-only
+### Removed
 
-- Remote Telegram delivery never sends `allow_paid_broadcast=true` and does not use Telegram Stars.
-- Nofax has no paid notification fallback; provider/free-tier failures fail closed.
-- The remote state layer uses SQLite-backed Durable Objects supported by Cloudflare Workers Free, subject to current provider limits.
+- Remote `nofax_notify`.
+- Remote approval, choice, refinement, and wait tools.
+- Telegram remote transport and webhook.
+- Remote ntfy transport.
+- Browser phone-callback/Refine routes.
+- Remote phone-provider environment/configuration requirements.
+
+Local Nofax `0.2.0` behavior is unchanged by these removals.
 
 ### Security
 
-- Remote callback tokens are generated per request, expire after 24 hours, and are stored only as SHA-256 hashes.
-- Telegram callbacks must pass webhook-secret, user-ID, chat-ID, callback-capability, and allowed-decision validation before durable mutation.
-- Telegram callback acknowledgement/message editing is best-effort and never substitutes for durable terminal state.
-- The remote MCP key is never included in callback URLs, Telegram controls, or MCP tool results.
-- MCP bearer/capability authentication uses equal-length constant-time byte comparison.
-- Phone callback state is first-terminal-response-wins; later callbacks cannot replace the accepted result.
-- Refine HTML is server-rendered with strict security headers, no external scripts/assets, and bounded escaped content.
-- Stale remote request rows are lazily removed, including expired pending rows and resolved rows outside the recovery window.
+- Read-only behavior is enforced by the registered tool/handler/router surface rather than relying on MCP annotations as a security boundary.
+- Former `/telegram/webhook` and `/r/*` routes are absent and return 404.
+- Remote result projections omit callback hashes/capabilities, original request title/message content, and allowed-decision internals.
+- MCP bearer/capability authentication uses equal-length constant-time comparison.
+- The capability-path form is normalized to `/mcp` before MCP protocol handling.
+- Remote read operations perform no external messaging/provider calls.
 
 ## 0.2.0 - 2026-09-09
 
