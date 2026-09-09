@@ -1,0 +1,46 @@
+{
+  "name": "nofax",
+  "version": "0.1.0",
+  "description": "Remote approvals and actionable phone notifications for coding agents via ntfy.",
+  "type": "module",
+  "bin": {
+    "nofax": "./bin/nofax.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check bin/nofax.mjs && node --check src/cli.mjs && node --check src/config.mjs && node --check src/protocol.mjs && node --check src/ntfy.mjs && node --check src/adapters/claude.mjs && node --check src/adapters/codex.mjs && node --check src/adapters/gemini.mjs"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "ai-agent",
+    "approval",
+    "claude-code",
+    "codex",
+    "gemini-cli",
+    "ntfy",
+    "notifications",
+    "remote"
+  ],
+  "license": "MIT",
+  "author": "Tomi Šeregi",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AKzar1el/nofax.git"
+  },
+  "homepage": "https://github.com/AKzar1el/nofax#readme",
+  "bugs": {
+    "url": "https://github.com/AKzar1el/nofax/issues"
+  }
+}
