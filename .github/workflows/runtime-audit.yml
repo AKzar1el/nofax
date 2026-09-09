@@ -1,0 +1,42 @@
+name: Runtime Dependency Audit
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  worker-runtime-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm install --global npm@11.6.0
+      - run: npm ci
+      - name: Audit production dependency graph
+        shell: bash
+        run: |
+          set +e
+          npm audit --omit=dev --audit-level=high --json > /tmp/runtime-audit.json
+          audit_status=$?
+          set -e
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync('/tmp/runtime-audit.json', 'utf8'));
+          const counts = report.metadata?.vulnerabilities ?? {};
+          console.log(`runtime audit counts: ${JSON.stringify(counts)}`);
+          const vulns = Object.entries(report.vulnerabilities ?? {})
+            .filter(([, value]) => ['high', 'critical'].includes(value.severity))
+            .map(([name, value]) => ({ name, severity: value.severity, range: value.range, fixAvailable: value.fixAvailable }));
+          if (vulns.length) console.log(`runtime high/critical findings: ${JSON.stringify(vulns)}`);
+          if ((counts.high ?? 0) > 0 || (counts.critical ?? 0) > 0) process.exit(1);
+          NODE
+          test "$audit_status" -eq 0
