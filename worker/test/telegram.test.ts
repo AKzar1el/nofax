@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Env } from "../src/env";
 import {
+  editTelegramTerminalMessage,
   publishTelegramInteractive,
   publishTelegramNotification
 } from "../src/telegram";
@@ -101,6 +102,28 @@ describe("Telegram remote publisher", () => {
       "nfx:callback_token_abcdefghijklmnopqrstuvwxyz123456:1",
       "nfx:callback_token_abcdefghijklmnopqrstuvwxyz123456:2"
     ]);
+  });
+
+  it("removes the inline keyboard when editing a terminal Telegram message", async () => {
+    let payload: any;
+    const edited = await editTelegramTerminalMessage({
+      env: config(),
+      chatId: "456789",
+      messageId: 99,
+      originalText: "Deploy?\n\nRelease ready",
+      statusText: "✅ Approved",
+      fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
+        payload = JSON.parse(String(init?.body));
+        return response();
+      }
+    });
+
+    expect(edited).toBe(true);
+    expect(payload).toMatchObject({
+      chat_id: "456789",
+      message_id: 99,
+      reply_markup: { inline_keyboard: [] }
+    });
   });
 
   it("fails closed when Telegram rejects a publish", async () => {
