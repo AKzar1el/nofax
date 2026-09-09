@@ -55,6 +55,25 @@ async function publish(env: Env, payload: Record<string, unknown>, fetchImpl: Fe
   if (!response.ok) throw new Error(`NOFAX_NTFY_PUBLISH_${response.status}`);
 }
 
+export async function publishNotification({
+  env,
+  title,
+  message,
+  fetchImpl = fetch
+}: {
+  env: Env;
+  title: string;
+  message: string;
+  fetchImpl?: FetchLike;
+}): Promise<void> {
+  await publish(env, {
+    title: boundText(title, 120, "TITLE"),
+    message: boundText(message, 2200, "MESSAGE"),
+    priority: 4,
+    tags: ["bell"]
+  }, fetchImpl);
+}
+
 export async function publishInteractiveNotification({
   env,
   callbackToken,
