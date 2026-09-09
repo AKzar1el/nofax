@@ -38,6 +38,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
       - run: npm install --global npm@11.6.0
-      - run: npm install
+      - run: npm ci
       - run: npm test -- protocol.test.ts
