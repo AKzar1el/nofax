@@ -1,10 +1,8 @@
-# Remote MCP on Cloudflare Workers
+# Read-Only Remote MCP on Cloudflare Workers
 
-Nofax v0.3 adds an optional remote MCP transport for users who want the same phone approval workflow without launching a local stdio Nofax process.
+Nofax v0.3 adds an optional, self-deployed remote MCP endpoint for **inspection only**.
 
-The remote runtime is self-deployed to your own Cloudflare account. It does not replace the local CLI/MCP implementation and it is not a Nofax-operated SaaS.
-
-Local Nofax continues to use ntfy. The remote Worker uses Telegram by default because public ntfy free-tier traffic can be rate-limited by shared serverless egress IPs.
+It does not replace the local Nofax CLI/stdio server and it does not expose local phone-approval capabilities remotely.
 
 ## Architecture
 
@@ -13,147 +11,103 @@ MCP client
    |
    | private Streamable HTTP
    v
-Cloudflare Worker /mcp
+Cloudflare Worker
    |
-   +--> Nofax tool handler
-   |       |
-   |       +--> SQLite Durable Object: pending request
-   |       |
-   |       +--> Telegram Bot API: phone message
-   |
-Telegram on phone
-   |
-   | Allow / Deny / Choice -> callback_query
-   | Refine -> Worker-hosted form
-   v
-POST /telegram/webhook  or  /r/<callback-token>/refine
-   |
-   v
-SQLite Durable Object: terminal result
-   |
-   v
-nofax_wait_for_response
+   +--> authenticated MCP router
+            |
+            +--> nofax_get_request
+            |
+            +--> nofax_list_pending
+                     |
+                     v
+             SQLite Durable Object
 ```
 
-The MCP protocol is stateless Streamable HTTP. Human-response state is separate and durable.
+The Worker has no messaging-provider integration and no human-response callback route.
 
-## Free-only constraint
+## Public routes
 
-The default remote path is intentionally free-only:
+Only these paths are intentional:
 
-- Telegram normal Bot API messaging is used within its ordinary free limits.
-- Nofax never sends `allow_paid_broadcast=true` and does not use Telegram Stars.
-- The Worker uses Cloudflare Workers Free-compatible primitives and a SQLite-backed Durable Object.
-- Nofax has no paid fallback. Provider/limit failures fail closed instead of silently incurring charges.
+```text
+GET|HEAD /healthz
+/mcp
+/mcp/<NOFAX_REMOTE_KEY>
+```
 
-Always check current provider limits before relying on a free tier in production.
+The `/mcp` routes still enforce the deployment key. The capability-path form exists only for MCP clients that cannot attach a static Authorization header.
 
-## Why a Durable Object
+Former experimental routes such as `/telegram/webhook` and `/r/<token>` are not registered and return 404.
 
-A remote MCP request may end before a human responds. Nofax therefore never treats one long HTTP connection as the source of truth.
+## MCP tools
 
-Each interactive request is persisted before notification delivery. The stored row contains:
+The remote server exposes exactly two tools.
 
-- request ID;
-- interaction kind;
-- bounded title and message;
-- allowed terminal decisions;
-- SHA-256 hash of the callback capability;
-- creation/expiry timestamps;
-- terminal decision/refinement after resolution.
+### `nofax_get_request`
 
-The raw callback token is discarded after Telegram publication. It is not returned by any MCP tool.
-
-Pending callback capabilities expire after 24 hours. Resolved rows are retained for a bounded recovery period and then removed by lazy cleanup.
-
-## Human-response contract
-
-Interactive request tools return immediately with a durable handle:
+Input:
 
 ```json
 {
-  "status": "pending",
-  "requestId": "nfx_...",
-  "mustWait": true,
-  "instruction": "WAIT REQUIRED: ..."
+  "requestId": "nfx_..."
 }
 ```
 
-The caller then invokes:
+It retrieves the safe public projection for one existing durable request.
 
-```text
-nofax_wait_for_response
+The response may include:
+
+- request ID;
+- interaction kind;
+- status;
+- creation timestamp;
+- terminal timestamp/decision when already resolved;
+- terminal refinement text when it exists in historical state.
+
+It does not return the original title/message, callback hash, callback capability, or allowed-decision list.
+
+### `nofax_list_pending`
+
+Optional input:
+
+```json
+{
+  "limit": 20
+}
 ```
 
-A remote wait lasts at most 20 seconds. If the result is still pending, the caller must invoke the same wait tool again with the same request ID.
+It lists a bounded set of unresolved, unexpired request projections. The limit is 1-100.
 
-This repetition is intentional. Nofax does not assume a remote MCP server can universally force every host/model to start a new model turn after an unsolicited phone event.
+The query is observational only. It filters expired rows but does not delete them or perform lazy cleanup as a side effect of the read.
 
-Terminal semantics match local Nofax:
+## Read-only enforcement
 
-- `allow`: continue only within the authority the caller already had;
-- `deny`: do not perform the guarded action;
-- `refine`: apply the human text and request a fresh approval if the revised action still requires approval;
-- explicit choice: use exactly the selected value.
+Both tools declare MCP annotations equivalent to:
 
-Timeout, network failure, missing state, malformed callbacks, and expired capabilities never become approval.
-
-## Telegram phone UX
-
-### Allow / Deny
-
-Approval messages use one inline keyboard row:
-
-```text
-[ Allow ] [ Refine ] [ Deny ]
+```json
+{
+  "readOnlyHint": true,
+  "destructiveHint": false,
+  "idempotentHint": true,
+  "openWorldHint": false
+}
 ```
 
-When Refine is not enabled, the middle button is omitted. Allow and Deny are Telegram callback buttons, so one tap sends a `callback_query` to Nofax.
+Those annotations improve client risk/confirmation UX, but Nofax does not treat them as enforcement.
 
-### Choice
+The actual read-only boundary is structural:
 
-Choice requests support up to three explicit callback buttons. Telegram callback data contains only the one-time Nofax callback capability and a compact option index. The authoritative allowed values remain in the Durable Object.
+- only the two read tools are registered with MCP;
+- the handler object exposes only two read methods;
+- the Worker router has no notification, approval, choice, refinement, wait, callback, or webhook route;
+- no Telegram, ntfy, WhatsApp, SMS, or other phone transport exists in the remote Worker source;
+- list operations do not perform hidden state cleanup.
 
-### Refine
-
-Refine is a Telegram URL button opening:
-
-```text
-GET /r/<callback-token>
-```
-
-The page is rendered server-side and contains one bounded textarea. It uses no external JavaScript, analytics, fonts, or third-party assets. Submission posts to:
-
-```text
-POST /r/<callback-token>/refine
-```
-
-Remote Refine therefore requires no Apple Shortcut.
-
-## Telegram webhook security
-
-Telegram callbacks arrive at:
-
-```text
-POST /telegram/webhook
-```
-
-Nofax requires all of the following before changing durable state:
-
-1. `X-Telegram-Bot-Api-Secret-Token` matches `TELEGRAM_WEBHOOK_SECRET` using equal-length constant-time comparison;
-2. `callback_query.from.id` matches `TELEGRAM_USER_ID`;
-3. `callback_query.message.chat.id` matches `TELEGRAM_CHAT_ID`;
-4. callback data has the Nofax grammar;
-5. the callback capability is live and unexpired;
-6. the requested decision is explicitly allowed by the stored request.
-
-After a durable terminal result is written, Nofax best-effort calls Telegram `answerCallbackQuery` and edits the original message to show the terminal state. If that UI feedback fails, the durable terminal result remains authoritative.
-
-First terminal response wins. A replay cannot replace an existing result.
+The existing Durable Object schema is preserved to avoid destructive migration of deployments that previously created request rows during development. Legacy storage methods are not reachable from the public Worker route or MCP tool surface.
 
 ## MCP authentication
 
-The v0.3 remote Worker is designed for private single-user use.
+The v0.3 Worker is intended for a private single-user deployment.
 
 ### Preferred: Authorization header
 
@@ -162,91 +116,43 @@ https://<worker>.workers.dev/mcp
 Authorization: Bearer <NOFAX_REMOTE_KEY>
 ```
 
-### Compatibility: private capability URL
-
-For MCP clients that cannot attach a static header:
+### Compatibility: capability URL
 
 ```text
 https://<worker>.workers.dev/mcp/<NOFAX_REMOTE_KEY>
 ```
 
-The path form is a bearer capability. Treat the complete URL like a password. Do not publish it, paste it into issues, expose it to analytics, or share screenshots containing it.
+The complete capability URL is equivalent to a password. Do not publish it, paste it into issues, expose it to analytics, or include it in screenshots.
 
-After successful authentication, Nofax normalizes the request internally to `/mcp` and removes the Authorization header before MCP protocol handling.
+After successful authentication, Nofax normalizes the request internally to `/mcp` before protocol handling.
 
-`/telegram/webhook` and `/r/...` callback routes do **not** require `NOFAX_REMOTE_KEY`; they have separate verification/capability boundaries.
+For a future shared/multi-user service, a single deployment-wide bearer key is not sufficient; use delegated authentication/authorization instead.
 
-OAuth 2.1 remains the hardening path before any multi-user/public hosted deployment.
+## Deployment
 
-## Telegram setup and deployment
+### 1. Generate a remote key
 
-### 1. Create a private bot
-
-Open the official `@BotFather` account and send:
-
-```text
-/newbot
-```
-
-After BotFather creates the bot, open it and send `/start`.
-
-Keep the returned bot token private.
-
-### 2. Discover IDs before registering a webhook
-
-Call Telegram `getUpdates` with the bot token and inspect the `/start` message:
-
-```text
-message.from.id -> TELEGRAM_USER_ID
-message.chat.id -> TELEGRAM_CHAT_ID
-```
-
-### 3. Generate secrets
-
-Generate high-entropy values for:
-
-```text
-TELEGRAM_WEBHOOK_SECRET
-NOFAX_REMOTE_KEY
-```
-
-Example:
+Generate a high-entropy secret outside the repository. For example:
 
 ```bash
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
 ```
 
-### 4. Store Worker secrets and deploy
+### 2. Store the secret and deploy
 
 From `worker/`:
 
 ```bash
 npm ci
 npx wrangler login
-npx wrangler secret put TELEGRAM_BOT_TOKEN
-npx wrangler secret put TELEGRAM_CHAT_ID
-npx wrangler secret put TELEGRAM_USER_ID
-npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
 npx wrangler secret put NOFAX_REMOTE_KEY
 npm run check
 npm run deploy
 ```
 
-No Telegram secret belongs in `wrangler.jsonc`, source, `.env`, `.dev.vars`, screenshots, or issue text.
+No phone-provider secret is required.
 
-### 5. Register webhook
-
-Call Telegram `setWebhook` with:
-
-```text
-url = https://<worker>.workers.dev/telegram/webhook
-secret_token = <TELEGRAM_WEBHOOK_SECRET>
-allowed_updates = ["callback_query"]
-```
-
-For first setup, `drop_pending_updates=true` is reasonable.
-
-Then call `getWebhookInfo` and verify the expected URL and no current delivery error.
+Do not place the remote key in `wrangler.jsonc`, source files, `.env`, `.dev.vars`, screenshots, or issue text.
 
 ## Qualification checklist
 
@@ -254,51 +160,44 @@ A release-quality remote deployment should verify all of the following:
 
 1. `/healthz` returns only `{ "status": "ok" }`.
 2. `/mcp` rejects missing/wrong credentials.
-3. An authenticated MCP client discovers exactly seven Nofax tools.
-4. `nofax_notify` reaches the Telegram phone chat.
-5. `nofax_request_approval` + repeated waits returns terminal `allow` after tapping Allow.
-6. A new request returns terminal `deny` after tapping Deny.
-7. A Refine request opens the Worker form and returns exactly the submitted bounded text.
-8. A choice request maps the tapped button to the exact stored option.
-9. Pending requests remain recoverable by request ID after MCP/client interruption.
-10. A second callback cannot replace the first terminal response.
-11. Expired callback capabilities fail closed.
-12. Wrong webhook secret/user/chat cannot mutate request state.
+3. An authenticated MCP client discovers exactly:
+   - `nofax_get_request`
+   - `nofax_list_pending`
+4. Both tools carry accurate read-only/non-destructive/idempotent/closed-world annotations.
+5. `/telegram/webhook` returns 404.
+6. `/r/anything` returns 404.
+7. `nofax_list_pending` does not delete expired state while serving a read.
+8. MCP results do not expose callback hashes, callback capabilities, original prompt/message text, or allowed-decision internals.
+9. Worker TypeScript/tests/Wrangler dry-run pass.
+10. Production dependency audit has no findings.
 
-MCP Inspector is the protocol-level qualification tool. Client-specific tool scans are additional compatibility evidence, not a replacement for the protocol test.
-
-## Threat boundaries
-
-Remote mode adds hosted infrastructure that local mode does not require:
-
-- Cloudflare receives remote MCP requests, bounded request summaries, Telegram webhook callback requests, and Refine text.
-- Telegram receives notification/request summaries, inline callback capabilities, and Refine URLs.
-
-Neither boundary should be described as application-level end-to-end encryption by Nofax.
-
-The following values are secrets/capabilities:
-
-- `TELEGRAM_BOT_TOKEN`;
-- `TELEGRAM_CHAT_ID` / `TELEGRAM_USER_ID` as private deployment metadata;
-- `TELEGRAM_WEBHOOK_SECRET`;
-- `NOFAX_REMOTE_KEY`;
-- each raw callback token;
-- the full `/mcp/<key>` capability URL.
-
-If a bot token, webhook secret, or remote MCP key is exposed, rotate it. Callback tokens expire and are single-use, but should still never be logged or shared.
+MCP Inspector or another protocol-level MCP client should be used for the final deployed tool scan. A ChatGPT custom-app scan is useful compatibility evidence but is not a substitute for protocol qualification.
 
 ## Local versus remote
 
-| Capability | Local Nofax | Remote Worker |
+| Capability | Local Nofax 0.2 | Remote Worker 0.3 |
 | --- | --- | --- |
 | MCP transport | stdio | Streamable HTTP |
-| Human state | local request files | SQLite Durable Object |
-| Phone transport | ntfy | Telegram Bot API |
-| Allow/Deny | ntfy response topic | Telegram callback query |
-| Refine | iOS Shortcut callback | Worker-hosted HTML form opened from Telegram |
+| Phone notifications | ntfy | none |
+| Create approval/choice/refinement | yes | no |
+| Wait for human response | yes | no |
+| Read one request | yes | yes |
+| List unresolved requests | yes | yes |
+| Human-response state | local files | existing SQLite Durable Object rows |
 | Inbound port on PC | none | none |
-| Hosted Nofax service required | no | no; self-deploy Worker |
-| MCP auth | local process boundary | private bearer key |
-| Max wait per call | 240 s | 20 s |
+| Nofax-operated backend | none | none; self-deployed Worker |
+| Authentication | local process boundary | private bearer key |
 
-Both transports intentionally expose the same seven public tool names and terminal decision semantics.
+## Threat boundaries
+
+Remote mode adds a Cloudflare trust boundary: Cloudflare receives authenticated MCP requests and the read-only result data returned from the Durable Object.
+
+The Worker does not send request data to a phone/messaging provider.
+
+Treat these as sensitive:
+
+- `NOFAX_REMOTE_KEY`;
+- the complete `/mcp/<key>` capability URL;
+- request metadata returned by read tools.
+
+Read [`../SECURITY.md`](../SECURITY.md) before using the remote endpoint with sensitive metadata.
