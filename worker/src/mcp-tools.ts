@@ -20,7 +20,7 @@ export const WAIT_REQUIRED = (requestId: string): string =>
   `WAIT REQUIRED: human response for ${requestId} is still pending. Do not continue, infer approval, or complete the guarded action. Call nofax_wait_for_response with requestId "${requestId}" and repeat whenever it returns pending until a terminal response is returned.`;
 
 type StoreLike = {
-  createRequest(input: PendingRequestInput): Promise<StoredRequest>;
+  createRequest(input: PendingRequestInput): Promise<unknown>;
   deleteRequest(requestId: string): Promise<boolean>;
   getRequest(requestId: string): Promise<StoredRequest | null>;
   listPending(limit?: number, nowMs?: number): Promise<StoredRequest[]>;
