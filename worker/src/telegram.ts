@@ -63,9 +63,10 @@ async function telegramCall({
   fetchImpl: FetchLike;
   errorPrefix: string;
 }): Promise<unknown> {
+  const url = apiUrl(env, method);
   let response: Response;
   try {
-    response = await fetchImpl(apiUrl(env, method), {
+    response = await fetchImpl(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload)
