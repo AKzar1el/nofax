@@ -48,4 +48,24 @@ describe("remote ntfy publisher", () => {
       fetchImpl: (async () => new Response("unexpected")) as typeof fetch
     })).rejects.toThrow("NOFAX_NTFY_TOPIC_REQUIRED");
   });
+
+  it("preserves bounded ntfy rate-limit diagnostics", async () => {
+    const fetchImpl = async () => new Response(JSON.stringify({
+      code: 42901,
+      http: 429,
+      error: "limit reached: too many requests, please be nice"
+    }), {
+      status: 429,
+      headers: { "retry-after": "12" }
+    });
+
+    await expect(publishNotification({
+      env: env(),
+      title: "Alert",
+      message: "Action required",
+      fetchImpl: fetchImpl as typeof fetch
+    })).rejects.toThrow(
+      "NOFAX_NTFY_PUBLISH_429: code=42901 retry_after=12 detail=limit reached: too many requests, please be nice"
+    );
+  });
 });
