@@ -1,7 +1,7 @@
 {
   "name": "nofax",
   "version": "0.2.0",
-  "description": "Remote approvals, refinements, and actionable phone notifications for coding agents via ntfy and MCP.",
+  "description": "Human-in-the-loop approvals and notifications for AI coding agents via CLI, MCP, and agent hooks.",
   "type": "module",
   "bin": {
     "nofax": "./bin/nofax.mjs"
@@ -36,9 +36,11 @@
     "gemini-cli",
     "human-in-the-loop",
     "mcp",
+    "model-context-protocol",
     "ntfy",
     "notifications",
-    "remote"
+    "remote",
+    "developer-tools"
   ],
   "license": "MIT",
   "author": "Tomi Šeregi",

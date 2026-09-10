@@ -2,6 +2,45 @@
 
 All notable changes to Nofax will be documented here.
 
+## 0.3.0 - Unreleased
+
+### Added
+
+- Optional self-deployed Cloudflare Workers remote MCP transport using stateless Streamable HTTP.
+- SQLite-backed Durable Object compatibility for reading request state created by earlier remote-development builds.
+- Private remote MCP authentication through a bearer header, plus capability-URL compatibility mode for clients that cannot attach a static header.
+- Remote MCP tools:
+  - `nofax_notify` for one-way ntfy phone notifications;
+  - `nofax_get_request`
+  - `nofax_list_pending`
+- Public deployment, security, and qualification documentation for bounded remote notification + inspection mode.
+
+### Changed
+
+- Remote v0.3 is deliberately limited to **one-way notification plus inspection** rather than a remote human-approval transport.
+- The remote MCP handler exposes one notification method plus two read methods.
+- `nofax_list_pending` filters expired rows without performing lazy cleanup writes.
+- The two remote inspection tools are annotated `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, and `openWorldHint: false`; `nofax_notify` is explicitly side-effecting and non-idempotent.
+- ntfy publish failures now preserve bounded provider diagnostics such as ntfy error codes and `Retry-After` values when available.
+- Root CI continues to qualify both the local Node package and the Cloudflare Worker, including a Wrangler deployment dry-run.
+
+### Removed
+
+- Remote approval, choice, refinement, and wait tools.
+- Telegram remote transport and webhook.
+- Browser phone-callback/Refine routes.
+
+Local Nofax `0.2.0` behavior is unchanged by these removals.
+
+### Security
+
+- Remote side effects are structurally limited to authenticated one-way ntfy publication; approval/callback/state mutation remains unreachable.
+- Former `/telegram/webhook` and `/r/*` routes are absent and return 404.
+- Remote result projections omit callback hashes/capabilities, original request title/message content, and allowed-decision internals.
+- MCP bearer/capability authentication uses equal-length constant-time comparison.
+- The capability-path form is normalized to `/mcp` before MCP protocol handling.
+- Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
+
 ## 0.2.0 - 2026-09-09
 
 ### Added

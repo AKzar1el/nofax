@@ -10,7 +10,7 @@ body:
     id: version
     attributes:
       label: Nofax version
-      placeholder: 0.1.0
+      placeholder: 0.2.0 / remote Worker 0.3.0
     validations:
       required: true
   - type: dropdown
@@ -23,6 +23,7 @@ body:
         - Codex
         - Gemini CLI
         - ntfy transport
+        - Remote Cloudflare Worker / MCP
         - Other
     validations:
       required: true

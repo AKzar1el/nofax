@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { initConfig, loadConfig, normalizeServer, resolveNofaxHome } from '../src/config.mjs';
 
 test('initConfig creates and reuses a random phone topic', async (t) => {
@@ -32,5 +32,5 @@ test('normalizes server and rejects credentials/query fragments', () => {
 });
 
 test('NOFAX_HOME overrides default home', () => {
-  assert.equal(resolveNofaxHome({ env: { NOFAX_HOME: '/tmp/nofax-custom' } }), '/tmp/nofax-custom');
+  assert.equal(resolveNofaxHome({ env: { NOFAX_HOME: '/tmp/nofax-custom' } }), resolve('/tmp/nofax-custom'));
 });
