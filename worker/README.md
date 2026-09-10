@@ -1,12 +1,10 @@
 # Nofax Remote Worker
 
-This package is the optional **read-only** Cloudflare Workers MCP transport for Nofax.
+Optional, self-deployed Cloudflare Workers transport for Nofax remote MCP access.
 
-It is designed for a private, single-user deployment in your own Cloudflare account. Nofax does not operate this Worker as a hosted service.
+The Worker is designed for a **private, single-user deployment in your own Cloudflare account**. Nofax does not operate it as a hosted service.
 
-The local Nofax CLI and stdio MCP server remain separate and can still use ntfy for interactive human approvals. The remote Worker deliberately does not expose those actions.
-
-> Upgrading from an earlier v0.3 development deployment requires redeploying this Worker before the live endpoint reflects the read-only tool surface.
+Remote capabilities are intentionally narrower than local Nofax: the Worker can send a one-way notification and inspect existing request metadata, but it cannot create or resolve approvals, collect choices/refinements, wait for human responses, or accept callbacks/webhooks.
 
 ## Public surface
 
@@ -16,33 +14,27 @@ The Worker exposes only:
 - authenticated Streamable HTTP MCP at `/mcp`
 - authenticated capability-path compatibility at `/mcp/<NOFAX_REMOTE_KEY>`
 
-It exposes exactly two MCP tools:
+Remote MCP exposes exactly three tools:
 
-- `nofax_get_request`
-- `nofax_list_pending`
+- `nofax_notify` — one-way notification side effect;
+- `nofax_get_request` — read one safe request projection;
+- `nofax_list_pending` — read unresolved, unexpired request projections.
 
-Both tools are marked:
+The two inspection tools are marked read-only, non-destructive, idempotent, and closed-world. `nofax_notify` is explicitly marked side-effecting, non-idempotent, non-destructive, and open-world.
 
-```text
-readOnlyHint: true
-destructiveHint: false
-idempotentHint: true
-openWorldHint: false
-```
+MCP annotations are descriptive metadata, not the security boundary. The hard boundary is the actual registered tool/handler/router surface.
 
-These annotations are descriptive metadata, not the security boundary. The hard read-only guarantee comes from the Worker code: its MCP handler exposes only the two read methods and its router has no notification, approval, callback, webhook, or other side-effect route.
-
-## What it does not provide
+## What remote mode does not provide
 
 Remote v0.3 cannot:
 
-- send notifications;
-- request or resolve approvals;
-- create choices;
-- request refinements;
-- wait for phone responses;
-- call a messaging provider;
-- mutate remote account state.
+- create or resolve an approval;
+- create a choice;
+- request free-text refinement;
+- wait for a phone response;
+- accept human-response callbacks or webhooks;
+- mutate Durable Object request state through MCP;
+- expose an arbitrary remote shell or generic external-write primitive.
 
 Former phone callback and webhook paths are intentionally absent.
 
@@ -50,23 +42,24 @@ Former phone callback and webhook paths are intentionally absent.
 
 The Worker preserves the existing SQLite-backed `NofaxRequestStore` schema so an upgraded deployment can inspect durable request rows created by earlier experimental builds without a destructive migration.
 
-The MCP-facing path is read-only:
+The MCP-facing request-state path is observational:
 
 - `getRequest` reads one existing request by ID;
 - `listPending` selects only unresolved, unexpired rows;
-- listing does not perform lazy cleanup or another hidden write;
-- MCP projections omit callback hashes/capabilities, prompt text, titles, and allowed-decision internals.
+- listing performs no lazy cleanup write;
+- projections omit callback hashes/capabilities, prompt text, titles, and allowed-decision internals.
 
-Legacy mutation methods may remain inside the Durable Object implementation for schema/backward compatibility, but no remote route or MCP tool can reach them.
+Legacy internal mutation methods may remain for schema/backward compatibility, but no public Worker route or MCP handler exposes them.
 
 ## Requirements
 
-- Node.js 22 or newer for Worker development.
-- A Cloudflare account with Workers enabled.
-- Wrangler authentication.
-- One high-entropy `NOFAX_REMOTE_KEY` secret.
+- Node.js 22 or newer for Worker development
+- Cloudflare Workers enabled
+- Wrangler authentication
+- high-entropy `NOFAX_REMOTE_KEY` Worker secret
+- `NTFY_TOPIC` Worker secret when using the included ntfy notification transport
 
-No ntfy, Telegram, WhatsApp, SMS, or other phone-provider configuration is required for the remote Worker.
+The publisher defaults to `https://ntfy.sh` unless `NTFY_SERVER` is configured.
 
 ## Deploy
 
@@ -76,11 +69,12 @@ From `worker/`:
 npm ci
 npx wrangler login
 npx wrangler secret put NOFAX_REMOTE_KEY
+npx wrangler secret put NTFY_TOPIC
 npm run check
 npm run deploy
 ```
 
-Keep `NOFAX_REMOTE_KEY` out of source, `wrangler.jsonc`, `.env`, `.dev.vars`, CI output, screenshots, and issue text.
+Keep `NOFAX_REMOTE_KEY` and `NTFY_TOPIC` out of source, `wrangler.jsonc`, `.env`, `.dev.vars`, CI output, screenshots, and issue text.
 
 ## Connect an MCP client
 
@@ -91,30 +85,32 @@ https://<worker>.workers.dev/mcp
 Authorization: Bearer <NOFAX_REMOTE_KEY>
 ```
 
-Compatibility mode when a client cannot attach a static header:
+Compatibility mode for clients that cannot attach a static header:
 
 ```text
 https://<worker>.workers.dev/mcp/<NOFAX_REMOTE_KEY>
 ```
 
-The full capability URL is itself a bearer secret. Prefer the Authorization header when possible.
+The complete capability URL is itself a bearer secret. Prefer the Authorization header whenever the MCP host supports it.
 
-After authentication, Nofax normalizes the request internally to `/mcp` before handing it to the MCP server.
+## Public ntfy quota caveat
+
+The hosted `ntfy.sh` service applies publisher quotas independently of Cloudflare Workers. Cloudflare Workers may share outbound IP space with unrelated workloads, so ntfy can return `42908` (`daily message quota reached`) even when one Worker has published very little traffic.
+
+That response comes from ntfy, not from exhaustion of your Cloudflare Worker request allowance. Reliability-sensitive deployments should use a provider with account-scoped quota/identity or a trusted self-hosted transport.
 
 ## Security boundary
 
-The remote Worker is read-only by construction, not by prompt instruction:
+Remote mode is structurally bounded:
 
-1. only two MCP tools are registered;
-2. the handler object exposes only `getRequest` and `listPending`;
-3. the router exposes only health and MCP routes;
-4. no phone-provider transport exists in the Worker source;
-5. list reads do not delete expired rows;
+1. only `nofax_notify`, `nofax_get_request`, and `nofax_list_pending` are registered;
+2. only `nofax_notify` reaches the notification transport;
+3. request inspection cannot create, resolve, or delete request state;
+4. the public router exposes only health and authenticated MCP paths;
+5. callback/webhook routes are absent;
 6. returned request projections omit capability-bearing fields.
 
-`NOFAX_REMOTE_KEY` is still a sensitive bearer credential because it controls access to request metadata. Rotate it if exposed.
-
-The single deployment-wide key is intended only for private/single-user use. A public multi-user service would require a proper delegated authentication/authorization design instead.
+`NOFAX_REMOTE_KEY` remains a sensitive bearer credential. The single deployment-wide key is suitable only for private/single-user use; a shared service would require delegated per-user authentication and authorization.
 
 ## Development
 
@@ -131,8 +127,8 @@ npm test
 npx wrangler deploy --dry-run
 ```
 
-CI also runs `npm audit --omit=dev --audit-level=high` against the production dependency graph.
+CI also runs `npm audit --omit=dev --audit-level=high` against production dependencies.
 
-The final protocol qualification should use an MCP client/Inspector to verify that the deployed endpoint exposes exactly the two expected read-only tools and that unauthenticated `/mcp` requests are rejected.
+Final deployed qualification should use an MCP client/Inspector to verify the exact three-tool surface and reject unauthenticated `/mcp` requests.
 
 See [`../docs/remote-mcp.md`](../docs/remote-mcp.md) and [`../SECURITY.md`](../SECURITY.md).

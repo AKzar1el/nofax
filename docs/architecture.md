@@ -103,12 +103,13 @@ Former development callback/webhook paths are not routed and return 404.
 
 ### Remote MCP surface
 
-Exactly two tools are registered:
+Exactly three tools are registered:
 
-- `nofax_get_request`
-- `nofax_list_pending`
+- `nofax_notify` — one-way external notification side effect;
+- `nofax_get_request` — read-only request inspection;
+- `nofax_list_pending` — read-only request inspection.
 
-Both carry:
+The two inspection tools carry:
 
 ```text
 readOnlyHint: true
@@ -117,7 +118,7 @@ idempotentHint: true
 openWorldHint: false
 ```
 
-The annotations are not treated as enforcement. `createRemoteToolHandlers()` itself returns only the two read functions.
+The annotations are not treated as enforcement. `nofax_notify` is explicitly marked side-effecting/non-idempotent/open-world, while `createRemoteToolHandlers()` exposes only that bounded notification operation plus the two inspection functions.
 
 ### Request projections
 
@@ -173,10 +174,10 @@ A future shared/public service would need delegated per-user authentication/auth
 
 ### Remote
 
-- Cloudflare receives authenticated MCP requests and returned read-only request metadata.
-- the Worker does not forward request data to a messaging provider.
+- Cloudflare receives authenticated MCP requests and returned request metadata.
+- only explicit `nofax_notify` calls forward their bounded title/message to ntfy; request-inspection data is not forwarded automatically.
 - the remote MCP key and full capability URL are secrets.
 - MCP annotations improve client UX but are not considered a security control.
-- hard read-only behavior comes from the two-tool/two-handler/router structure.
+- hard capability boundaries come from the three-tool handler/router structure: one bounded notification side effect plus two read-only inspection tools, with no remote approval/callback/state-mutation route.
 
 See [`../SECURITY.md`](../SECURITY.md) and [`remote-mcp.md`](remote-mcp.md) for operational guidance.

@@ -170,6 +170,12 @@ npm run deploy
 
 Do not place the remote key in `wrangler.jsonc`, source files, `.env`, `.dev.vars`, screenshots, or issue text.
 
+### Public ntfy quota caveat
+
+The hosted `ntfy.sh` service enforces its own publish quotas independently of Cloudflare. Cloudflare Workers may share outbound IP space with unrelated workloads, so ntfy can return `42908` (`daily message quota reached`) even when one Worker has sent very little traffic.
+
+This is an upstream ntfy availability/quota boundary, not exhaustion of the Cloudflare Worker request allowance. For reliability-sensitive remote notifications, prefer an authenticated provider with account-scoped quota or a trusted self-hosted transport.
+
 ## Qualification checklist
 
 A release-quality remote deployment should verify all of the following:

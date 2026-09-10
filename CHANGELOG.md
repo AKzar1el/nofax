@@ -20,7 +20,8 @@ All notable changes to Nofax will be documented here.
 - Remote v0.3 is deliberately limited to **one-way notification plus inspection** rather than a remote human-approval transport.
 - The remote MCP handler exposes one notification method plus two read methods.
 - `nofax_list_pending` filters expired rows without performing lazy cleanup writes.
-- Both remote tools are annotated `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, and `openWorldHint: false`.
+- The two remote inspection tools are annotated `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, and `openWorldHint: false`; `nofax_notify` is explicitly side-effecting and non-idempotent.
+- ntfy publish failures now preserve bounded provider diagnostics such as ntfy error codes and `Retry-After` values when available.
 - Root CI continues to qualify both the local Node package and the Cloudflare Worker, including a Wrangler deployment dry-run.
 
 ### Removed

@@ -48,7 +48,7 @@ The Claude Code and Codex adapters fail closed. If the local transport times out
 
 Nofax redacts values under common secret-bearing object keys and bounds serialized payloads. It cannot reliably detect a credential embedded in arbitrary free-form command text. Treat all notification content accordingly.
 
-## Read-only remote Worker security
+## Remote Worker security
 
 The optional Cloudflare Worker in v0.3 is a **one-way notification plus inspection remote MCP endpoint**.
 
@@ -107,7 +107,7 @@ A single deployment-wide key is not sufficient for a shared/public multi-user se
 
 The v0.3 Worker preserves the existing SQLite request schema so upgrading from experimental pre-read-only Worker builds does not require destructive storage migration.
 
-Only read methods are reachable from the public MCP/router surface. Existing legacy rows may therefore be inspected after upgrade, but the read-only Worker cannot create, resolve, or delete them through MCP or HTTP routes.
+Only request-inspection methods are reachable for Durable Object state. Existing legacy rows may therefore be inspected after upgrade, but the Worker cannot create, resolve, or delete them through MCP or HTTP routes. The separate `nofax_notify` method can publish an explicitly requested one-way notification and does not mutate request state.
 
 ### Cloudflare is the remote trust boundary
 
@@ -116,6 +116,12 @@ Remote mode adds Cloudflare as an infrastructure boundary. For notification call
 The Worker does not automatically forward durable request records to ntfy. Only explicit `nofax_notify` content is published; Telegram, WhatsApp, SMS, and human-response callbacks remain absent remotely.
 
 Do not expose the deployment key in source, Wrangler vars, `.env`, `.dev.vars`, CI logs, PR text, screenshots, or issue reports. Use Wrangler secrets for production values and keep local secret files untracked.
+
+### Hosted ntfy quotas are an external availability boundary
+
+The public `ntfy.sh` service applies its own publisher limits independently of Cloudflare Workers quotas. Serverless egress may be shared between unrelated workloads, so a Cloudflare Worker can receive an ntfy `42908` daily-quota response even when that individual Worker has published little traffic.
+
+Treat public ntfy availability and quota policy as an external dependency. Reliability-sensitive deployments should use a transport with account-scoped quota/identity or a trusted self-hosted service rather than assuming anonymous public-topic capacity.
 
 ## Nofax is not a policy engine
 

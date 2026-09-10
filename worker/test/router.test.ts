@@ -12,7 +12,7 @@ function env(): Env {
 
 const ctx = {} as ExecutionContext;
 
-describe("read-only remote Worker router", () => {
+describe("bounded remote Worker router", () => {
   it("serves a secret-free health check", async () => {
     const response = await routeRequest(new Request("https://nofax.example/healthz"), env(), ctx, {
       mcpImpl: async () => new Response("unexpected", { status: 500 })

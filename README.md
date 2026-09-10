@@ -1,35 +1,51 @@
 # Nofax
 
-**Human approval for local AI agents, with an optional read-only remote MCP inspector.**
+[![CI](https://github.com/AKzar1el/nofax/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AKzar1el/nofax/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node.js >=20](https://img.shields.io/badge/node-%3E%3D20-339933?logo=node.js&logoColor=white)](package.json)
+[![MCP](https://img.shields.io/badge/MCP-compatible-6f42c1)](https://modelcontextprotocol.io/)
 
-Nofax is a small, open-source human-attention bridge. The current local package can notify a phone and collect explicit human decisions through ntfy. The optional Cloudflare Worker is deliberately narrower: it exposes only read-only inspection tools over remote MCP and has no notification, approval, callback, or external-write surface.
+**Human-in-the-loop approvals and notifications for AI coding agents, without running a Nofax SaaS.**
 
-No Nofax account. No paid AI API. No Nofax-operated SaaS. No inbound port on your machine.
+Nofax is a small open-source bridge between an agent and a human. Local mode can pause an AI workflow, notify your phone, and return an explicit decision. An optional self-deployed Cloudflare Worker exposes a deliberately narrower remote MCP surface for one-way notifications and safe request inspection.
 
-> **Status:** local Nofax `0.2.0` is the current package version. The optional read-only Cloudflare MCP Worker is the `0.3.0` release candidate. Source/CI qualification is complete; an existing older Worker deployment must be redeployed before its live tool surface reflects this read-only build.
+No Nofax account. No paid model API. No inbound port on your machine. MIT licensed.
 
-## Local Nofax
+> **Current status:** local Nofax is `0.2.0`. The optional Cloudflare Worker is the upcoming `0.3.0` remote surface and is developed alongside the local package.
 
-```text
-agent / MCP host -> local Nofax -> ntfy -> phone
-                         ^                 |
-                         | human response  |
-                         +-----------------+
-```
+## Why Nofax
 
-Local Nofax provides:
+Agent workflows increasingly need a clean answer to one question: **when automation reaches a human decision boundary, how does it ask without pretending that silence means approval?**
 
-- generic `notify`, `approve`, and `refine` CLI commands;
-- Claude Code `PermissionRequest` integration;
-- Codex `PermissionRequest` integration;
-- notification-only Gemini CLI integration;
-- a provider-neutral local stdio MCP server;
-- durable human-response state under `~/.nofax/requests/`;
-- explicit Allow/Deny and choices;
-- bounded repeat-until-terminal waits;
-- fail-closed behavior on timeout, malformed state, or transport failure.
+Nofax keeps that boundary explicit:
 
-### Install
+- pending is never approval;
+- timeout and transport failure fail closed;
+- the first accepted terminal response wins;
+- agent-specific hook schemas stay isolated in adapters;
+- remote access is intentionally narrower than local access;
+- Nofax does not grant authority the calling agent did not already have.
+
+## Two operating modes
+
+| Capability | Local Nofax `0.2` | Remote Worker `0.3` |
+| --- | --- | --- |
+| Transport | stdio / CLI hooks | MCP Streamable HTTP |
+| One-way notification | Yes | Yes |
+| Allow / Deny | Yes | No |
+| Explicit choices | Yes | No |
+| Free-text refinement | Yes | No |
+| Wait for human response | Yes | No |
+| Read request metadata | Yes | Yes |
+| Durable state | Local files | Existing SQLite Durable Object rows |
+| Hosted by Nofax | No | No — self-deployed Worker |
+| Remote authentication | Local process boundary | Private bearer key |
+
+The remote Worker is **not** a hosted remote-approval service. It can send an informational notification and inspect existing request state, but it has no approval callback, choice, refinement, wait, webhook, or arbitrary remote-write endpoint.
+
+## Quick start
+
+### 1. Install
 
 Until a registry release is published:
 
@@ -37,27 +53,23 @@ Until a registry release is published:
 npm install -g https://github.com/AKzar1el/nofax.git
 ```
 
-Requirements: Node.js 20 or newer and the ntfy app when using the default phone transport.
+Requires Node.js 20 or newer.
 
-### Initialize
+### 2. Initialize
 
 ```bash
 nofax init
 ```
 
-Nofax creates `~/.nofax/config.json` and generates a high-entropy topic. Subscribe to the displayed topic in the ntfy phone app, then test it:
+Nofax creates `~/.nofax/config.json` and generates a high-entropy notification topic. With the default transport, subscribe to the displayed topic in the ntfy mobile app.
+
+### 3. Test
 
 ```bash
 nofax test
 ```
 
-Treat an anonymous public ntfy topic as a bearer secret. Rotate an exposed topic with:
-
-```bash
-nofax init --force
-```
-
-### Generic CLI
+### 4. Use it
 
 ```bash
 nofax notify --title "Build finished" "All tests passed"
@@ -65,7 +77,7 @@ nofax approve --title "Deploy?" "Release 1.4.0 is ready"
 nofax refine --title "Refine draft" "Tell me what to change"
 ```
 
-An approval returns stable terminal JSON such as:
+An approval resolves to stable terminal JSON:
 
 ```json
 {"decision":"allow"}
@@ -77,17 +89,17 @@ or:
 {"decision":"deny"}
 ```
 
-Pending, timeout, network failure, malformed state, or client disconnect never imply approval.
+If the request is still pending, times out, disconnects, or hits a transport error, Nofax never converts that condition into approval.
 
-## Local MCP server
+## MCP
 
-Start the local stdio server with:
+Start the local stdio MCP server:
 
 ```bash
 nofax mcp
 ```
 
-The local server exposes seven tools:
+Local MCP exposes:
 
 - `nofax_notify`
 - `nofax_request_approval`
@@ -97,97 +109,13 @@ The local server exposes seven tools:
 - `nofax_get_request`
 - `nofax_list_pending`
 
-Interactive requests return a durable request ID. `nofax_wait_for_response` waits for at most 240 seconds per call; if the request is still pending, the caller must call it again with the same request ID instead of inferring approval.
+Interactive requests return a durable request ID. `nofax_wait_for_response` performs a bounded wait; callers must repeat the wait while the request remains pending rather than infer approval.
 
-## Optional remote MCP Worker — read-only v0.3
+## Agent integrations
 
-The `worker/` package is intentionally **read-only**.
+### Claude Code
 
-```text
-remote MCP client
-       |
-       | authenticated Streamable HTTP
-       v
-Cloudflare Worker
-       |
-       +--> nofax_notify ------> ntfy ------> phone
-       |
-       +--> SQLite Durable Object
-              |
-              +--> read existing request metadata
-              +--> list unresolved request handles
-```
-
-It exposes exactly three MCP tools:
-
-- `nofax_notify`
-- `nofax_get_request`
-- `nofax_list_pending`
-
-`nofax_notify` is a one-way external side effect. The two request-inspection tools remain read-only. Remote mode still has no approval, choice, refinement, wait, callback, or webhook capability.
-
-The Worker has only these public routes:
-
-- `GET|HEAD /healthz`
-- authenticated `/mcp`
-- authenticated `/mcp/<NOFAX_REMOTE_KEY>` compatibility mode
-
-Former `/telegram/webhook` and `/r/*` callback routes do not exist and return 404.
-
-### What remote mode cannot do
-
-Remote v0.3 cannot:
-
-- create an approval or choice;
-- request refinement;
-- wait for a human response;
-- resolve or delete request state;
-- accept human-response callbacks or webhooks;
-- mutate an external account or service other than publishing the explicitly requested one-way ntfy notification.
-
-Remote mode is intentionally limited to one-way notification plus request inspection. Local Nofax remains the interactive human-approval implementation.
-
-### Deploy remote read-only mode
-
-Requirements:
-
-- Node.js 22 or newer for Worker development;
-- a Cloudflare account with Workers enabled;
-- Wrangler authentication.
-
-From `worker/`:
-
-```bash
-npm ci
-npx wrangler login
-npx wrangler secret put NOFAX_REMOTE_KEY
-npx wrangler secret put NTFY_TOPIC
-npm run check
-npm run deploy
-```
-
-`NTFY_TOPIC` is treated as a secret because knowledge of an anonymous ntfy topic can be sufficient to publish or subscribe. Remote notifications default to `https://ntfy.sh`.
-
-Preferred MCP connection:
-
-```text
-https://<worker>.workers.dev/mcp
-Authorization: Bearer <NOFAX_REMOTE_KEY>
-```
-
-Compatibility mode for clients that cannot attach a static header:
-
-```text
-https://<worker>.workers.dev/mcp/<NOFAX_REMOTE_KEY>
-```
-
-The full capability URL is a bearer secret. Prefer the Authorization header when your MCP host supports one, and rotate the key if the complete URL is exposed.
-
-See [`docs/remote-mcp.md`](docs/remote-mcp.md) for the complete remote architecture and qualification checklist.
-
-## Claude Code
-
-Add Nofax to `~/.claude/settings.json` as a local `PermissionRequest` hook:
+Use Nofax as a local `PermissionRequest` hook in `~/.claude/settings.json`:
 
 ```json
 {
@@ -207,11 +135,9 @@ Add Nofax to `~/.claude/settings.json` as a local `PermissionRequest` hook:
 }
 ```
 
-Allow/Deny is returned through Claude Code's native hook contract. Nofax does not create persistent permission rules.
+### Codex
 
-## Codex
-
-Enable hooks in `~/.codex/config.toml` when needed:
+Enable hooks in `~/.codex/config.toml`:
 
 ```toml
 [features]
@@ -239,63 +165,100 @@ Then configure `~/.codex/hooks.json`:
 }
 ```
 
-If Nofax times out or its local transport fails, it emits no approval decision so the upstream tool can continue with its own normal permission flow.
+### Gemini CLI
 
-## Gemini CLI
+Gemini integration is notification-only where the upstream hook contract is advisory:
 
-Gemini's Notification hook is treated as notification-only by the current Nofax adapter:
-
-```text
+```bash
 nofax hook gemini
 ```
 
-Nofax does not claim bidirectional permission control where the upstream hook contract does not provide it cleanly.
+Nofax does not claim bidirectional permission control where the host does not expose a suitable decision contract.
 
-## Self-hosted ntfy for local mode
+## Optional remote Cloudflare Worker
 
-For sensitive local workflows:
+The `worker/` package provides a private, self-deployed MCP endpoint:
 
-```bash
-nofax init --server https://ntfy.example.com --force
+```text
+remote MCP client
+       |
+       | authenticated Streamable HTTP
+       v
+Cloudflare Worker
+       |
+       +--> nofax_notify ------> ntfy ------> phone
+       |
+       +--> SQLite Durable Object
+              |
+              +--> get request metadata
+              +--> list pending requests
 ```
 
-Use HTTPS over untrusted networks. Public anonymous ntfy topics are capabilities, not end-to-end encryption.
+It exposes exactly three tools:
+
+- `nofax_notify` — one-way notification only;
+- `nofax_get_request` — read one safe request projection;
+- `nofax_list_pending` — read unresolved, unexpired request projections.
+
+Deploy from `worker/`:
+
+```bash
+npm ci
+npx wrangler login
+npx wrangler secret put NOFAX_REMOTE_KEY
+npx wrangler secret put NTFY_TOPIC
+npm run check
+npm run deploy
+```
+
+Preferred MCP connection:
+
+```text
+https://<worker>.workers.dev/mcp
+Authorization: Bearer <NOFAX_REMOTE_KEY>
+```
+
+Clients that cannot attach a static authorization header can use the compatibility capability path:
+
+```text
+https://<worker>.workers.dev/mcp/<NOFAX_REMOTE_KEY>
+```
+
+Treat the complete capability URL like a password.
+
+See [`docs/remote-mcp.md`](docs/remote-mcp.md) for deployment, threat boundaries, and qualification details.
+
+### Important: public ntfy + serverless egress
+
+The default public `ntfy.sh` service applies publisher quotas. Serverless platforms such as Cloudflare Workers may use shared outbound IP space, so a Worker can receive an ntfy `42908` daily-quota response even when that individual Worker has sent very little traffic. That limit is imposed by ntfy, not by the Cloudflare Workers request quota.
+
+For reliability-sensitive deployments, use a notification provider whose quota is tied to your own authenticated account/identity, or operate a trusted self-hosted transport. Do not build a critical workflow around anonymous public-topic quota assumptions.
 
 ## Security model
 
-Nofax is a transport/inspection component, not an authorization policy engine.
+Nofax is a transport and human-interaction component, **not an authorization policy engine**.
 
 Local mode:
 
-- pending is never approval;
-- the first accepted terminal response wins;
-- an Allow result never expands the caller's existing authority;
-- local ntfy topics and one-time response topics are capabilities;
-- secret redaction is best-effort and cannot reliably detect credentials embedded in arbitrary free-form text.
+- pending, timeout, disconnect, malformed state, and network failure never mean approval;
+- the first valid terminal response wins;
+- notification topics and one-time response topics are capabilities;
+- public ntfy is not end-to-end encrypted from the provider;
+- redaction is best-effort and cannot reliably identify secrets embedded in arbitrary free-form text.
 
-Remote read-only mode:
+Remote mode:
 
-- only two read methods are registered;
-- MCP annotations accurately mark them read-only, non-destructive, idempotent, and closed-world;
-- hard enforcement does not depend on those annotations;
-- the Worker exposes no phone/provider/callback route;
-- list operations do not perform hidden cleanup writes;
-- `NOFAX_REMOTE_KEY` is a bearer credential and must remain private;
-- remote responses omit callback hashes, callback capabilities, request prompt text, and allowed-decision internals.
+- only explicit `nofax_notify` performs an external messaging side effect;
+- request-inspection operations are read-only and do not perform hidden cleanup writes;
+- remote approval, callback, webhook, refinement, choice, and wait surfaces are absent;
+- `NOFAX_REMOTE_KEY` is a bearer credential;
+- remote projections omit callback capabilities, prompt/message text, and internal allowed-decision lists.
 
 Read [`SECURITY.md`](SECURITY.md) before using Nofax with sensitive information.
 
-## Local configuration
+## Configuration
 
-Default local config: `~/.nofax/config.json`.
-
-Override its directory with `NOFAX_HOME`:
-
-```bash
-NOFAX_HOME=/path/to/nofax-home nofax config
-```
-
-Current local schema:
+Default local config lives at `~/.nofax/config.json`:
 
 ```json
 {
@@ -306,15 +269,17 @@ Current local schema:
 }
 ```
 
-## Deliberate non-goals
+Override the home directory with `NOFAX_HOME`:
 
-- No Nofax-operated approval SaaS.
-- No paid model API requirement.
-- No persistent `always approve` policy.
-- No arbitrary remote shell endpoint.
-- No claim that MCP annotations are a security boundary.
-- No remote phone/write action in the v0.3 Worker.
-- No public multi-user remote hosting under one shared deployment key.
+```bash
+NOFAX_HOME=/path/to/nofax-home nofax config
+```
+
+Use another ntfy-compatible server with:
+
+```bash
+nofax init --server https://ntfy.example.com --force
+```
 
 ## Development
 
@@ -327,7 +292,7 @@ npm test
 npm pack --dry-run
 ```
 
-Read-only Worker:
+Remote Worker:
 
 ```bash
 cd worker
@@ -335,10 +300,27 @@ npm ci
 npm run check
 ```
 
-The Worker gate includes TypeScript, Vitest, a production-dependency audit in CI, and a Wrangler deployment dry-run.
+CI qualifies Node.js 20, 22, and 24 for the local package. The Worker gate runs TypeScript, Vitest, a production-dependency audit, and a Wrangler deployment dry-run.
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md), [`docs/architecture.md`](docs/architecture.md), and [`docs/remote-mcp.md`](docs/remote-mcp.md).
+## Project docs
+
+- [`docs/architecture.md`](docs/architecture.md) — trust boundaries and data flow
+- [`docs/remote-mcp.md`](docs/remote-mcp.md) — remote Worker deployment and qualification
+- [`SECURITY.md`](SECURITY.md) — security assumptions and vulnerability reporting
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution and test expectations
+- [`CHANGELOG.md`](CHANGELOG.md) — release history
+
+## Non-goals
+
+Nofax deliberately does not provide:
+
+- a Nofax-operated approval SaaS;
+- a paid model API dependency;
+- persistent `always approve` policy;
+- an arbitrary remote shell endpoint;
+- a public multi-user Worker behind one shared deployment key;
+- a claim that MCP annotations themselves are a security boundary.
 
 ## License
 
-MIT. See [`LICENSE`](LICENSE).
+MIT © Tomi Šeregi. See [`LICENSE`](LICENSE).
