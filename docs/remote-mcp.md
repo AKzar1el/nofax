@@ -1,8 +1,8 @@
-# Read-Only Remote MCP on Cloudflare Workers
+# Remote Notification + Inspection MCP on Cloudflare Workers
 
-Nofax v0.3 adds an optional, self-deployed remote MCP endpoint for **inspection only**.
+Nofax v0.3 adds an optional, self-deployed remote MCP endpoint for **one-way phone notifications plus request inspection**.
 
-It does not replace the local Nofax CLI/stdio server and it does not expose local phone-approval capabilities remotely.
+It does not replace the local Nofax CLI/stdio server and it does not expose local phone-approval or callback capabilities remotely.
 
 ## Architecture
 
@@ -15,6 +15,8 @@ Cloudflare Worker
    |
    +--> authenticated MCP router
             |
+            +--> nofax_notify --> ntfy --> phone
+            |
             +--> nofax_get_request
             |
             +--> nofax_list_pending
@@ -23,7 +25,7 @@ Cloudflare Worker
              SQLite Durable Object
 ```
 
-The Worker has no messaging-provider integration and no human-response callback route.
+The Worker can publish one-way notifications to ntfy. It has no human-response callback route.
 
 ## Public routes
 
@@ -41,7 +43,20 @@ Former experimental routes such as `/telegram/webhook` and `/r/<token>` are not 
 
 ## MCP tools
 
-The remote server exposes exactly two tools.
+The remote server exposes exactly three tools.
+
+### `nofax_notify`
+
+Input:
+
+```json
+{
+  "title": "Optional title",
+  "message": "Required message"
+}
+```
+
+It publishes a one-way notification to the configured `NTFY_TOPIC`. It does not create durable request state and does not imply or wait for human approval.
 
 ### `nofax_get_request`
 
@@ -80,9 +95,9 @@ It lists a bounded set of unresolved, unexpired request projections. The limit i
 
 The query is observational only. It filters expired rows but does not delete them or perform lazy cleanup as a side effect of the read.
 
-## Read-only enforcement
+## Remote side-effect boundary
 
-Both tools declare MCP annotations equivalent to:
+The two inspection tools declare MCP annotations equivalent to:
 
 ```json
 {
@@ -95,12 +110,12 @@ Both tools declare MCP annotations equivalent to:
 
 Those annotations improve client risk/confirmation UX, but Nofax does not treat them as enforcement.
 
-The actual read-only boundary is structural:
+The actual boundary is structural:
 
-- only the two read tools are registered with MCP;
-- the handler object exposes only two read methods;
-- the Worker router has no notification, approval, choice, refinement, wait, callback, or webhook route;
-- no Telegram, ntfy, WhatsApp, SMS, or other phone transport exists in the remote Worker source;
+- only `nofax_notify` plus the two read tools are registered with MCP;
+- the handler object exposes only one-way notify plus two read methods;
+- the Worker router has no approval, choice, refinement, wait, callback, or webhook route;
+- ntfy publication is the only remote messaging transport;
 - list operations do not perform hidden state cleanup.
 
 The existing Durable Object schema is preserved to avoid destructive migration of deployments that previously created request rows during development. Legacy storage methods are not reachable from the public Worker route or MCP tool surface.
@@ -146,11 +161,12 @@ From `worker/`:
 npm ci
 npx wrangler login
 npx wrangler secret put NOFAX_REMOTE_KEY
+npx wrangler secret put NTFY_TOPIC
 npm run check
 npm run deploy
 ```
 
-No phone-provider secret is required.
+`NTFY_TOPIC` is a bearer-like capability and should be stored as a Worker secret. The publisher defaults to `https://ntfy.sh` unless `NTFY_SERVER` is configured.
 
 Do not place the remote key in `wrangler.jsonc`, source files, `.env`, `.dev.vars`, screenshots, or issue text.
 
@@ -161,9 +177,10 @@ A release-quality remote deployment should verify all of the following:
 1. `/healthz` returns only `{ "status": "ok" }`.
 2. `/mcp` rejects missing/wrong credentials.
 3. An authenticated MCP client discovers exactly:
+   - `nofax_notify`
    - `nofax_get_request`
    - `nofax_list_pending`
-4. Both tools carry accurate read-only/non-destructive/idempotent/closed-world annotations.
+4. `nofax_notify` is non-destructive but side-effecting/open-world; the two inspection tools carry accurate read-only/non-destructive/idempotent/closed-world annotations.
 5. `/telegram/webhook` returns 404.
 6. `/r/anything` returns 404.
 7. `nofax_list_pending` does not delete expired state while serving a read.
@@ -178,7 +195,7 @@ MCP Inspector or another protocol-level MCP client should be used for the final 
 | Capability | Local Nofax 0.2 | Remote Worker 0.3 |
 | --- | --- | --- |
 | MCP transport | stdio | Streamable HTTP |
-| Phone notifications | ntfy | none |
+| Phone notifications | ntfy | ntfy |
 | Create approval/choice/refinement | yes | no |
 | Wait for human response | yes | no |
 | Read one request | yes | yes |
@@ -190,9 +207,9 @@ MCP Inspector or another protocol-level MCP client should be used for the final 
 
 ## Threat boundaries
 
-Remote mode adds a Cloudflare trust boundary: Cloudflare receives authenticated MCP requests and the read-only result data returned from the Durable Object.
+Remote mode adds Cloudflare and ntfy trust boundaries for notification calls: Cloudflare receives authenticated MCP requests and ntfy receives the bounded title/message published to the configured topic. Request-inspection calls remain within Cloudflare/Durable Object state.
 
-The Worker does not send request data to a phone/messaging provider.
+The Worker sends only explicit `nofax_notify` title/message content to ntfy. Request-inspection results are not forwarded to the phone provider automatically.
 
 Treat these as sensitive:
 

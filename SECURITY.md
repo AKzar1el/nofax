@@ -50,22 +50,22 @@ Nofax redacts values under common secret-bearing object keys and bounds serializ
 
 ## Read-only remote Worker security
 
-The optional Cloudflare Worker in v0.3 is an **inspection-only remote MCP endpoint**.
+The optional Cloudflare Worker in v0.3 is a **one-way notification plus inspection remote MCP endpoint**.
 
-### Read-only is enforced structurally
+### Remote side effects are structurally bounded
 
 MCP tool annotations are descriptive metadata, not the security boundary.
 
-The remote Worker enforces read-only behavior in code:
+The remote Worker bounds side effects in code:
 
-- only `nofax_get_request` and `nofax_list_pending` are registered as MCP tools;
-- the remote handler object exposes only those two read operations;
-- there is no remote notification, approval, choice, refinement, wait, callback, webhook, or messaging-provider handler;
+- only `nofax_notify`, `nofax_get_request`, and `nofax_list_pending` are registered as MCP tools;
+- the remote handler object exposes one-way notification plus two read operations;
+- there is no remote approval, choice, refinement, wait, callback, or webhook handler;
 - public Worker routing is limited to health and authenticated MCP paths;
 - `/telegram/webhook` and `/r/*` are not routes and return 404;
 - pending-list reads filter expired rows without deleting them or performing hidden cleanup writes.
 
-The two tools are annotated with `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, and `openWorldHint: false` so compatible MCP clients can present accurate risk UX.
+The two inspection tools are annotated with `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, and `openWorldHint: false`. `nofax_notify` is accurately marked side-effecting/non-idempotent/open-world and non-destructive.
 
 ### Remote response minimization
 
@@ -111,9 +111,9 @@ Only read methods are reachable from the public MCP/router surface. Existing leg
 
 ### Cloudflare is the remote trust boundary
 
-Remote mode adds Cloudflare as an infrastructure boundary. Cloudflare receives authenticated MCP requests and the read-only result data returned by the Worker.
+Remote mode adds Cloudflare as an infrastructure boundary. For notification calls, ntfy is an additional provider boundary and receives the bounded notification title/message plus the configured topic identifier.
 
-The read-only Worker does not forward request data to ntfy, Telegram, WhatsApp, SMS, or another phone provider.
+The Worker does not automatically forward durable request records to ntfy. Only explicit `nofax_notify` content is published; Telegram, WhatsApp, SMS, and human-response callbacks remain absent remotely.
 
 Do not expose the deployment key in source, Wrangler vars, `.env`, `.dev.vars`, CI logs, PR text, screenshots, or issue reports. Use Wrangler secrets for production values and keep local secret files untracked.
 
@@ -123,7 +123,7 @@ Local Nofax answers approval requests that an upstream agent or workflow explici
 
 An `allow` result permits the caller to continue only within authority it already possessed.
 
-The remote Worker does not grant authority at all; it only reads existing request metadata.
+The remote Worker does not grant authority. Its only mutation is sending an informational notification; request-state operations remain inspection-only.
 
 ## MCP transport notes
 

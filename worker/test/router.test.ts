@@ -5,7 +5,8 @@ import type { Env } from "../src/env";
 function env(): Env {
   return {
     REQUESTS: {} as DurableObjectNamespace,
-    NOFAX_REMOTE_KEY: "remote_key_abcdefghijklmnopqrstuvwxyz123456"
+    NOFAX_REMOTE_KEY: "remote_key_abcdefghijklmnopqrstuvwxyz123456",
+    NTFY_TOPIC: "nofax_abcdefghijklmnopqrstuvwxyz123456"
   };
 }
 

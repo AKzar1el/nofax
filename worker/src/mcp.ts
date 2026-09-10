@@ -5,14 +5,16 @@ import type { Env } from "./env";
 import { createRemoteToolHandlers, type RemoteToolHandlers } from "./mcp-tools";
 
 export const REMOTE_MCP_TOOL_NAMES = Object.freeze([
+  "nofax_notify",
   "nofax_get_request",
   "nofax_list_pending"
 ] as const);
 
 const SERVER_INSTRUCTIONS = [
-  "Nofax remote mode is a read-only inspection MCP.",
-  "It can only retrieve existing durable request metadata and list unresolved request handles.",
-  "It cannot send notifications, create approvals or choices, request refinements, wait for human responses, resolve requests, or mutate external state."
+  "Nofax remote mode can send one-way phone notifications and inspect durable request metadata.",
+  "nofax_notify is informational only and does not create a human-response wait.",
+  "The remaining remote tools are read-only inspection operations.",
+  "Remote mode cannot create approvals or choices, request refinements, wait for human responses, resolve requests, or accept callback/webhook mutations."
 ].join(" ");
 
 function result(value: Record<string, unknown>) {
@@ -26,6 +28,20 @@ export function buildRemoteMcpServer({ handlers }: { handlers: RemoteToolHandler
   const server = new McpServer(
     { name: "nofax", version: "0.3.0" },
     { instructions: SERVER_INSTRUCTIONS }
+  );
+
+  server.registerTool(
+    "nofax_notify",
+    {
+      title: "Send Nofax notification",
+      description: "Send a one-way phone notification. This tool is informational and does not create a human-response wait.",
+      inputSchema: z.object({
+        title: z.string().min(1).max(120).optional(),
+        message: z.string().min(1).max(2200)
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+    },
+    async (args) => result(await handlers.notify(args))
   );
 
   server.registerTool(

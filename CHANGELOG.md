@@ -9,38 +9,36 @@ All notable changes to Nofax will be documented here.
 - Optional self-deployed Cloudflare Workers remote MCP transport using stateless Streamable HTTP.
 - SQLite-backed Durable Object compatibility for reading request state created by earlier remote-development builds.
 - Private remote MCP authentication through a bearer header, plus capability-URL compatibility mode for clients that cannot attach a static header.
-- Read-only remote tools:
+- Remote MCP tools:
+  - `nofax_notify` for one-way ntfy phone notifications;
   - `nofax_get_request`
   - `nofax_list_pending`
-- Public deployment, security, and qualification documentation for read-only remote mode.
+- Public deployment, security, and qualification documentation for bounded remote notification + inspection mode.
 
 ### Changed
 
-- Remote v0.3 is now deliberately **inspection only** rather than a remote human-approval transport.
-- The remote MCP handler exposes exactly two read methods.
+- Remote v0.3 is deliberately limited to **one-way notification plus inspection** rather than a remote human-approval transport.
+- The remote MCP handler exposes one notification method plus two read methods.
 - `nofax_list_pending` filters expired rows without performing lazy cleanup writes.
 - Both remote tools are annotated `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, and `openWorldHint: false`.
 - Root CI continues to qualify both the local Node package and the Cloudflare Worker, including a Wrangler deployment dry-run.
 
 ### Removed
 
-- Remote `nofax_notify`.
 - Remote approval, choice, refinement, and wait tools.
 - Telegram remote transport and webhook.
-- Remote ntfy transport.
 - Browser phone-callback/Refine routes.
-- Remote phone-provider environment/configuration requirements.
 
 Local Nofax `0.2.0` behavior is unchanged by these removals.
 
 ### Security
 
-- Read-only behavior is enforced by the registered tool/handler/router surface rather than relying on MCP annotations as a security boundary.
+- Remote side effects are structurally limited to authenticated one-way ntfy publication; approval/callback/state mutation remains unreachable.
 - Former `/telegram/webhook` and `/r/*` routes are absent and return 404.
 - Remote result projections omit callback hashes/capabilities, original request title/message content, and allowed-decision internals.
 - MCP bearer/capability authentication uses equal-length constant-time comparison.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
-- Remote read operations perform no external messaging/provider calls.
+- Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
 ## 0.2.0 - 2026-09-09
 
