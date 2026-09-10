@@ -20,7 +20,8 @@ type Stored = {
 function env(): Env {
   return {
     REQUESTS: {} as DurableObjectNamespace,
-    NOFAX_REMOTE_KEY: "remote-key"
+    NOFAX_REMOTE_KEY: "remote-key",
+    NTFY_TOPIC: "nofax_abcdefghijklmnopqrstuvwxyz123456"
   };
 }
 
@@ -39,17 +40,38 @@ function pending(overrides: Partial<Stored> = {}): Stored {
   };
 }
 
-describe("read-only remote MCP tool handlers", () => {
-  it("exposes only getRequest and listPending", () => {
+describe("remote MCP tool handlers", () => {
+  it("exposes one-way notify plus read-only request inspection", () => {
     const handlers = createRemoteToolHandlers(env(), "https://nofax.example", {
       storeImpl: {
         async getRequest() { return null; },
         async listPending() { return []; }
       } as never,
+      publishNotificationImpl: async () => {},
       nowImpl: () => 2_000
     });
 
-    expect(Object.keys(handlers).sort()).toEqual(["getRequest", "listPending"]);
+    expect(Object.keys(handlers).sort()).toEqual(["getRequest", "listPending", "notify"]);
+  });
+
+  it("publishes a bounded one-way notification without creating durable request state", async () => {
+    let published: { title: string; message: string } | undefined;
+    let storeCalls = 0;
+    const handlers = createRemoteToolHandlers(env(), "https://nofax.example", {
+      storeImpl: {
+        async getRequest() { storeCalls += 1; return null; },
+        async listPending() { storeCalls += 1; return []; }
+      } as never,
+      publishNotificationImpl: async ({ title, message }) => {
+        published = { title, message };
+      },
+      nowImpl: () => 2_000
+    });
+
+    await expect(handlers.notify({ title: "Priority alert", message: "Action required" }))
+      .resolves.toEqual({ status: "sent" });
+    expect(published).toEqual({ title: "Priority alert", message: "Action required" });
+    expect(storeCalls).toBe(0);
   });
 
   it("returns a safe request projection without callback or prompt material", async () => {

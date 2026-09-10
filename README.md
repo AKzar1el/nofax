@@ -110,19 +110,21 @@ remote MCP client
        v
 Cloudflare Worker
        |
-       v
-SQLite Durable Object
+       +--> nofax_notify ------> ntfy ------> phone
        |
-       +--> read existing request metadata
-       +--> list unresolved request handles
+       +--> SQLite Durable Object
+              |
+              +--> read existing request metadata
+              +--> list unresolved request handles
 ```
 
-It exposes exactly two MCP tools:
+It exposes exactly three MCP tools:
 
+- `nofax_notify`
 - `nofax_get_request`
 - `nofax_list_pending`
 
-Both are registered with MCP read-only annotations. More importantly, read-only behavior is enforced by the implementation itself: the remote MCP handler has no create, notify, approval, choice, refinement, wait, callback, or provider transport method.
+`nofax_notify` is a one-way external side effect. The two request-inspection tools remain read-only. Remote mode still has no approval, choice, refinement, wait, callback, or webhook capability.
 
 The Worker has only these public routes:
 
@@ -136,15 +138,14 @@ Former `/telegram/webhook` and `/r/*` callback routes do not exist and return 40
 
 Remote v0.3 cannot:
 
-- send a phone notification;
 - create an approval or choice;
 - request refinement;
 - wait for a human response;
 - resolve or delete request state;
-- call Telegram, ntfy, WhatsApp, SMS, or another messaging provider;
-- mutate an external account or service.
+- accept human-response callbacks or webhooks;
+- mutate an external account or service other than publishing the explicitly requested one-way ntfy notification.
 
-It is an inspection endpoint only. Local Nofax remains the interactive human-approval implementation.
+Remote mode is intentionally limited to one-way notification plus request inspection. Local Nofax remains the interactive human-approval implementation.
 
 ### Deploy remote read-only mode
 
@@ -160,11 +161,12 @@ From `worker/`:
 npm ci
 npx wrangler login
 npx wrangler secret put NOFAX_REMOTE_KEY
+npx wrangler secret put NTFY_TOPIC
 npm run check
 npm run deploy
 ```
 
-No phone-provider secret is required.
+`NTFY_TOPIC` is treated as a secret because knowledge of an anonymous ntfy topic can be sufficient to publish or subscribe. Remote notifications default to `https://ntfy.sh`.
 
 Preferred MCP connection:
 

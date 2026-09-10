@@ -5,15 +5,15 @@
 Nofax has two deliberately different surfaces:
 
 - **Local Nofax 0.2:** a provider-neutral human-interaction bridge for coding agents and automations. It can notify a phone and return explicit human decisions through ntfy.
-- **Remote Worker 0.3:** an optional self-deployed Cloudflare MCP endpoint for read-only inspection of existing durable request state.
+- **Remote Worker 0.3:** an optional self-deployed Cloudflare MCP endpoint for one-way phone notifications plus read-only inspection of existing durable request state.
 
-The remote Worker is intentionally not a remote approval transport. It has no phone-provider integration and no callback route.
+The remote Worker is intentionally not a remote approval transport. It can publish one-way ntfy notifications, but it has no human-response callback route.
 
 ## Design principles
 
 1. **Keep local interaction local.** The existing CLI/hooks/stdio MCP retain their human-response semantics without forcing a hosted backend.
-2. **Remote means read-only.** The Cloudflare MCP surface exposes only request inspection operations.
-3. **Enforce by reachability, not hints.** MCP read-only annotations describe the tools, but the hard boundary is the absence of mutating remote handlers/routes.
+2. **Remote mutation is narrow.** The only remote side effect is an explicitly requested one-way ntfy notification; request-state operations remain read-only.
+3. **Enforce by reachability, not hints.** MCP annotations describe the tools, but the hard boundary is the absence of remote approval/callback/state-mutation handlers and routes.
 4. **Minimize returned data.** Remote request projections omit callback capabilities, callback hashes, original request title/message content, and allowed-decision internals.
 5. **No hidden writes in reads.** Listing pending requests filters expired rows in SQL without cleanup mutation.
 6. **Private deployment.** `NOFAX_REMOTE_KEY` protects the remote MCP endpoint; the Worker is intended for one private user/deployment.
@@ -38,13 +38,15 @@ agent / local MCP host
         +---- explicit response ----> local durable request state
 
 
-Remote read-only path
+Remote notification + inspection path
 
 remote MCP client
         |
         | authenticated Streamable HTTP
         v
 Cloudflare Worker 0.3
+        |
+        +---- nofax_notify ----------> ntfy ----------> phone
         |
         +---- nofax_get_request ----+
         |                           |
@@ -53,7 +55,7 @@ Cloudflare Worker 0.3
                            SQLite Durable Object
 ```
 
-There is no remote path from the Worker to ntfy, Telegram, WhatsApp, SMS, or another messaging provider.
+The only remote messaging path is one-way publication to the configured ntfy topic. There is no remote Telegram, WhatsApp, SMS, approval callback, or human-response path.
 
 ## Local implementation
 

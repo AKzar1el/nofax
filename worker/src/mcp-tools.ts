@@ -1,4 +1,6 @@
 import type { Env } from "./env";
+import { publishNotification } from "./ntfy";
+import { boundText } from "./protocol";
 import type { StoredRequest } from "./request-store";
 
 type StoreLike = {
@@ -8,6 +10,7 @@ type StoreLike = {
 
 type Overrides = {
   storeImpl?: StoreLike;
+  publishNotificationImpl?: typeof publishNotification;
   nowImpl?: () => number;
 };
 
@@ -41,10 +44,18 @@ function validateLimit(value: unknown): number {
 export function createRemoteToolHandlers(env: Env, _origin: string, overrides: Overrides = {}) {
   const deps = {
     store: overrides.storeImpl ?? defaultStore(env),
+    publishNotification: overrides.publishNotificationImpl ?? publishNotification,
     now: overrides.nowImpl ?? Date.now
   };
 
   return {
+    async notify({ title = "Nofax", message }: { title?: string; message: string }) {
+      const safeTitle = boundText(title, 120, "TITLE");
+      const safeMessage = boundText(message, 2200, "MESSAGE");
+      await deps.publishNotification({ env, title: safeTitle, message: safeMessage });
+      return { status: "sent" as const };
+    },
+
     async getRequest({ requestId }: { requestId: string }) {
       const current = await deps.store.getRequest(requestId);
       if (current === null) throw new Error("NOFAX_REQUEST_NOT_FOUND");
