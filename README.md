@@ -137,14 +137,7 @@ Use Nofax as a local `PermissionRequest` hook in `~/.claude/settings.json`:
 
 ### Codex
 
-Enable hooks in `~/.codex/config.toml`:
-
-```toml
-[features]
-hooks = true
-```
-
-Then configure `~/.codex/hooks.json`:
+Codex hooks are enabled by default. Configure `~/.codex/hooks.json`:
 
 ```json
 {
@@ -164,6 +157,8 @@ Then configure `~/.codex/hooks.json`:
   }
 }
 ```
+
+Restart Codex, run `/hooks`, and review/trust the exact Nofax hook definition before relying on it. Codex skips non-managed hooks until they are trusted, and a changed hook definition must be reviewed again. If an administrator or local policy has explicitly disabled hooks, re-enable them with `[features] hooks = true` in `~/.codex/config.toml`.
 
 ### Gemini CLI
 
