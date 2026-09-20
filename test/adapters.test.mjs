@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { handleClaudePermissionRequest } from '../src/adapters/claude.mjs';
 import { handleCodexPermissionRequest } from '../src/adapters/codex.mjs';
-import { handleGeminiNotification } from '../src/adapters/gemini.mjs';
+import { handleGeminiHook, handleGeminiNotification } from '../src/adapters/gemini.mjs';
 
 const config = { version: 1, server: 'https://ntfy.sh', topic: 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF', timeoutSeconds: 300 };
 
@@ -116,4 +116,55 @@ test('Gemini adapter forwards Notification events without pretending to approve 
   assert.equal(sent.length, 1);
   assert.match(sent[0].title, /Gemini CLI/);
   assert.doesNotMatch(sent[0].message, /secret/);
+});
+
+test('Gemini BeforeTool adapter maps explicit remote allow and deny decisions', async () => {
+  const input = {
+    session_id: 's3',
+    cwd: '/repo',
+    hook_event_name: 'BeforeTool',
+    timestamp: '2026-09-20T15:00:00Z',
+    tool_name: 'run_shell_command',
+    tool_input: { command: 'npm test', api_key: 'secret' }
+  };
+  const seen = [];
+  const allow = await handleGeminiHook(input, {
+    config,
+    requestApprovalImpl: async (request) => { seen.push(request); return { decision: 'allow' }; }
+  });
+  assert.deepEqual(allow, { decision: 'allow' });
+  assert.match(seen[0].title, /Gemini CLI needs approval/);
+  assert.doesNotMatch(seen[0].message, /secret/);
+
+  const deny = await handleGeminiHook(input, {
+    config,
+    requestApprovalImpl: async () => ({ decision: 'deny' })
+  });
+  assert.deepEqual(deny, {
+    decision: 'deny',
+    reason: 'Denied remotely via Nofax.'
+  });
+});
+
+test('Gemini BeforeTool adapter emits valid no-decision JSON on timeout or transport failure', async () => {
+  const input = {
+    session_id: 's4',
+    cwd: '/repo',
+    hook_event_name: 'BeforeTool',
+    timestamp: '2026-09-20T15:00:00Z',
+    tool_name: 'write_file',
+    tool_input: { file_path: 'README.md' }
+  };
+  assert.deepEqual(await handleGeminiHook(input, {
+    config,
+    requestApprovalImpl: async () => ({ decision: 'timeout' })
+  }), {});
+
+  const errors = [];
+  assert.deepEqual(await handleGeminiHook(input, {
+    config,
+    requestApprovalImpl: async () => { throw new Error('offline'); },
+    onError: (error) => errors.push(error.message)
+  }), {});
+  assert.deepEqual(errors, ['offline']);
 });

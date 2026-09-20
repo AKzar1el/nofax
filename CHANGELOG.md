@@ -17,6 +17,7 @@ All notable changes to Nofax will be documented here.
 
 ### Changed
 
+- Gemini CLI integration can now use the current synchronous `BeforeTool` hook for explicit Nofax Allow/Deny decisions while retaining the advisory `Notification` path; timeout or transport failure leaves Gemini's native policy flow in control.
 - Remote v0.3 is deliberately limited to **one-way notification plus inspection** rather than a remote human-approval transport.
 - The remote MCP handler exposes one notification method plus two read methods.
 - `nofax_list_pending` filters expired rows without performing lazy cleanup writes.

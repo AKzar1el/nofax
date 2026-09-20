@@ -2,7 +2,7 @@ import { initConfig, loadConfig } from './config.mjs';
 import { requestApproval, requestRefinement, sendNotification } from './ntfy.mjs';
 import { handleClaudePermissionRequest } from './adapters/claude.mjs';
 import { handleCodexPermissionRequest } from './adapters/codex.mjs';
-import { handleGeminiNotification } from './adapters/gemini.mjs';
+import { handleGeminiHook } from './adapters/gemini.mjs';
 
 const HELP = `nofax - remote approvals and notifications for coding agents\n\nUsage:\n  nofax init [--server URL] [--topic TOPIC] [--timeout SECONDS] [--force]\n  nofax test\n  nofax notify [--title TITLE] MESSAGE...\n  nofax approve [--title TITLE] MESSAGE...\n  nofax refine [--title TITLE] MESSAGE...\n  nofax mcp\n  nofax config\n  nofax hook claude\n  nofax hook codex\n  nofax hook gemini\n\nEnvironment:\n  NOFAX_HOME   Override ~/.nofax\n`;
 
@@ -55,7 +55,12 @@ async function runHook(adapter, deps) {
   } else if (adapter === 'codex') {
     output = await handleCodexPermissionRequest(input, { config, requestApprovalImpl: deps.requestApprovalImpl, onError });
   } else if (adapter === 'gemini') {
-    output = await handleGeminiNotification(input, { config, sendNotificationImpl: deps.sendNotificationImpl });
+    output = await handleGeminiHook(input, {
+      config,
+      requestApprovalImpl: deps.requestApprovalImpl,
+      sendNotificationImpl: deps.sendNotificationImpl,
+      onError
+    });
   } else {
     throw new Error(`NOFAX_HOOK_UNSUPPORTED:${adapter}`);
   }

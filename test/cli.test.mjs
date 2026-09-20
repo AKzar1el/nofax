@@ -83,6 +83,45 @@ test('hook timeout writes no stdout so native approval can continue', async () =
   assert.match(stderr.read(), /native approval/i);
 });
 
+test('Gemini BeforeTool hook emits only strict decision JSON', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  const input = JSON.stringify({
+    hook_event_name: 'BeforeTool', cwd: '/repo', tool_name: 'run_shell_command', tool_input: { command: 'npm test' }
+  });
+  const code = await runCli(['hook', 'gemini'], {
+    stdinText: input,
+    stdout,
+    stderr,
+    loadConfigImpl: async () => ({ version: 1, server: 'https://ntfy.sh', topic: 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF', timeoutSeconds: 300 }),
+    requestApprovalImpl: async () => ({ decision: 'deny' })
+  });
+  assert.equal(code, 0);
+  assert.deepEqual(JSON.parse(stdout.read()), {
+    decision: 'deny',
+    reason: 'Denied remotely via Nofax.'
+  });
+  assert.equal(stderr.read(), '');
+});
+
+test('Gemini BeforeTool timeout emits valid no-decision JSON', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  const input = JSON.stringify({
+    hook_event_name: 'BeforeTool', cwd: '/repo', tool_name: 'write_file', tool_input: { file_path: 'README.md' }
+  });
+  const code = await runCli(['hook', 'gemini'], {
+    stdinText: input,
+    stdout,
+    stderr,
+    loadConfigImpl: async () => ({ version: 1, server: 'https://ntfy.sh', topic: 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF', timeoutSeconds: 300 }),
+    requestApprovalImpl: async () => ({ decision: 'timeout' })
+  });
+  assert.equal(code, 0);
+  assert.deepEqual(JSON.parse(stdout.read()), {});
+  assert.equal(stderr.read(), '');
+});
+
 test('help is concise and lists supported commands', async () => {
   const stdout = capture();
   const code = await runCli(['--help'], { stdout, stderr: capture() });
@@ -90,4 +129,5 @@ test('help is concise and lists supported commands', async () => {
   assert.match(stdout.read(), /nofax init/);
   assert.match(stdout.read(), /nofax hook claude/);
   assert.match(stdout.read(), /nofax hook codex/);
+  assert.match(stdout.read(), /nofax hook gemini/);
 });

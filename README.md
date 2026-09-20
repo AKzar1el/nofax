@@ -167,13 +167,43 @@ Then configure `~/.codex/hooks.json`:
 
 ### Gemini CLI
 
-Gemini integration is notification-only where the upstream hook contract is advisory:
+Current Gemini CLI builds expose a synchronous `BeforeTool` hook that can allow or deny a tool call. Route selected tools through Nofax in `~/.gemini/settings.json`:
 
-```bash
-nofax hook gemini
+```json
+{
+  "hooks": {
+    "BeforeTool": [
+      {
+        "matcher": "run_shell_command|write_file|replace",
+        "hooks": [
+          {
+            "name": "nofax-approval",
+            "type": "command",
+            "command": "nofax hook gemini",
+            "timeout": 305000
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "ToolPermission",
+        "hooks": [
+          {
+            "name": "nofax-notification",
+            "type": "command",
+            "command": "nofax hook gemini"
+          }
+        ]
+      }
+    ]
+  }
+}
 ```
 
-Nofax does not claim bidirectional permission control where the host does not expose a suitable decision contract.
+`BeforeTool` waits for an explicit Nofax Allow/Deny result. A Nofax timeout or transport failure emits valid no-decision JSON and leaves Gemini CLI's own policy/confirmation flow in control rather than converting failure into approval. The `Notification` hook remains advisory and is forwarded only as a phone notification.
+
+Adjust the matcher to the tools you want Nofax to gate. Keep the hook timeout longer than Nofax's configured approval timeout (`timeoutSeconds`, 300 seconds by default).
 
 ## Optional remote Cloudflare Worker
 
