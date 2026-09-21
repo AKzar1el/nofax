@@ -11,7 +11,7 @@ Nofax is a small open-source bridge between an agent and a human. Local mode can
 
 No Nofax account. No paid model API. No inbound port on your machine. MIT licensed.
 
-> **Current status:** local Nofax is `0.2.0`. The optional Cloudflare Worker is the upcoming `0.3.0` remote surface and is developed alongside the local package.
+> **Current status:** local Nofax is `0.2.1`. The optional Cloudflare Worker is the upcoming `0.3.0` remote surface and is developed alongside the local package.
 
 ## Why Nofax
 
