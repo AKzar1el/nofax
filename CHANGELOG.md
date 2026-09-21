@@ -31,7 +31,7 @@ All notable changes to Nofax will be documented here.
 - Telegram remote transport and webhook.
 - Browser phone-callback/Refine routes.
 
-Local Nofax `0.2.0` behavior is unchanged by these removals.
+Local Nofax `0.2.x` behavior is unchanged by these removals.
 
 ### Security
 
@@ -41,6 +41,15 @@ Local Nofax `0.2.0` behavior is unchanged by these removals.
 - MCP bearer/capability authentication uses equal-length constant-time comparison.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
+
+## 0.2.1 - 2026-09-21
+
+### Changed
+
+- Public package onboarding now uses `npm install -g nofax` instead of the obsolete pre-registry GitHub install path.
+- Release and MCP metadata now report local package version `0.2.1` consistently.
+
+Local runtime behavior and the fail-closed human-approval boundary are unchanged from `0.2.0`.
 
 ## 0.2.0 - 2026-09-09
 
