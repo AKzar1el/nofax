@@ -30,6 +30,48 @@ function result(value) {
   };
 }
 
+const OUTPUT_REQUEST_ID = z.string().min(24).max(84).describe('Durable Nofax request handle.');
+
+const PENDING_OUTPUT_SCHEMA = z.object({
+  status: z.literal('pending').describe('The request is unresolved and must not be treated as approval.'),
+  requestId: OUTPUT_REQUEST_ID,
+  mustWait: z.literal(true).describe('Signals that the caller must keep waiting for a terminal human response.'),
+  instruction: z.string().min(1).describe('Fail-closed next-step instruction for the caller.')
+});
+
+const WAIT_OUTPUT_SCHEMA = z.object({
+  status: z.enum(['pending', 'resolved']).describe('Whether the human request is still pending or has reached a terminal response.'),
+  requestId: OUTPUT_REQUEST_ID,
+  mustWait: z.boolean().optional().describe('Present and true while the request remains pending.'),
+  decision: z.string().min(1).max(80).optional().describe('Terminal human decision when resolved, such as allow, deny, refine, or an explicit choice value.'),
+  text: z.string().min(1).max(2000).optional().describe('Human free-text refinement when the terminal decision is refine.'),
+  instruction: z.string().min(1).describe('Safety-preserving instruction describing what the caller may do next.')
+});
+
+const PUBLIC_REQUEST_SCHEMA = z.object({
+  requestId: OUTPUT_REQUEST_ID,
+  kind: z.enum(['approval', 'choice', 'refinement']).describe('Interaction mode that created the durable request.'),
+  status: z.enum(['pending', 'resolved']).describe('Current durable request state.'),
+  createdAt: z.string().min(1).describe('ISO-8601 creation timestamp.'),
+  resolvedAt: z.string().min(1).optional().describe('ISO-8601 terminal-response timestamp when resolved.'),
+  decision: z.string().min(1).max(80).optional().describe('Terminal human decision when resolved.'),
+  text: z.string().min(1).max(2000).optional().describe('Human refinement text when one was supplied.')
+});
+
+const NOTIFY_OUTPUT_SCHEMA = z.object({
+  status: z.literal('sent').describe('The notification transport call completed successfully; this is never approval.')
+});
+
+const GET_REQUEST_OUTPUT_SCHEMA = z.object({
+  status: z.literal('ok').describe('The durable request was read successfully.'),
+  request: PUBLIC_REQUEST_SCHEMA.describe('Safe request metadata and terminal state; secret response topics are omitted.')
+});
+
+const LIST_PENDING_OUTPUT_SCHEMA = z.object({
+  status: z.literal('ok').describe('The pending-request scan completed successfully.'),
+  requests: z.array(PUBLIC_REQUEST_SCHEMA).describe('Bounded unresolved request projections with no secret response topics.')
+});
+
 export function buildMcpServer({ handlers = createMcpToolHandlers() } = {}) {
   const server = new McpServer(
     { name: 'nofax', version: '0.2.3' },
@@ -45,6 +87,7 @@ export function buildMcpServer({ handlers = createMcpToolHandlers() } = {}) {
         title: z.string().min(1).max(120).optional().describe('Optional notification title shown to the human; defaults to "Nofax".'),
         message: z.string().min(1).max(2200).describe('Notification body shown to the human.')
       }),
+      outputSchema: NOTIFY_OUTPUT_SCHEMA,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
     },
     async (args) => result(await handlers.notify(args))
@@ -60,6 +103,7 @@ export function buildMcpServer({ handlers = createMcpToolHandlers() } = {}) {
         message: z.string().min(1).max(2200).describe('Guarded action or decision context shown to the human.'),
         allowRefine: z.boolean().optional().describe('When true, also let the human return free-text refinement instead of only Allow or Deny.')
       }),
+      outputSchema: PENDING_OUTPUT_SCHEMA,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
     },
     async (args) => result(await handlers.requestApproval(args))
@@ -81,6 +125,7 @@ export function buildMcpServer({ handlers = createMcpToolHandlers() } = {}) {
           })
         ])).min(1).max(3).describe('One to three explicit choices to present to the human.')
       }),
+      outputSchema: PENDING_OUTPUT_SCHEMA,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
     },
     async (args) => result(await handlers.requestChoice(args))
@@ -95,6 +140,7 @@ export function buildMcpServer({ handlers = createMcpToolHandlers() } = {}) {
         title: z.string().min(1).max(120).optional().describe('Optional refinement prompt title shown to the human; defaults to "Nofax refinement".'),
         message: z.string().min(1).max(2200).describe('Context or draft the human should refine with free text.')
       }),
+      outputSchema: PENDING_OUTPUT_SCHEMA,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
     },
     async (args) => result(await handlers.requestRefinement(args))
@@ -109,6 +155,7 @@ export function buildMcpServer({ handlers = createMcpToolHandlers() } = {}) {
         requestId: z.string().min(24).max(84).describe('Durable request handle returned by a nofax_request_* tool.'),
         waitSeconds: z.number().int().min(1).max(240).optional().describe('Maximum seconds to long-poll during this call; defaults to 240. A timeout still returns pending, never approval.')
       }),
+      outputSchema: WAIT_OUTPUT_SCHEMA,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }
     },
     async (args) => result(await handlers.waitForResponse(args))
@@ -122,6 +169,7 @@ export function buildMcpServer({ handlers = createMcpToolHandlers() } = {}) {
       inputSchema: z.object({
         requestId: z.string().min(24).max(84).describe('Durable Nofax request handle to inspect without exposing its secret response topic.')
       }),
+      outputSchema: GET_REQUEST_OUTPUT_SCHEMA,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     async (args) => result(await handlers.getRequest(args))
@@ -135,6 +183,7 @@ export function buildMcpServer({ handlers = createMcpToolHandlers() } = {}) {
       inputSchema: z.object({
         limit: z.number().int().min(1).max(100).optional().describe('Maximum number of unresolved requests to return; defaults to 20.')
       }),
+      outputSchema: LIST_PENDING_OUTPUT_SCHEMA,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     async (args) => result(await handlers.listPending(args))
