@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { savePendingRequest, loadRequest, resolveRequest, listPendingRequests } from '../src/requests.mjs';
@@ -36,6 +36,40 @@ test('first terminal response wins', async (t) => {
   const second = await resolveRequest({ home: root, requestId: pending.requestId, response: { decision: 'deny' }, resolvedAt: '2026-09-09T18:02:00.000Z' });
   assert.equal(first.decision, 'allow');
   assert.equal(second.decision, 'allow');
+});
+
+test('concurrent contradictory terminal responses converge on one durable winner', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  const [first, second] = await Promise.all([
+    resolveRequest({ home: root, requestId: pending.requestId, response: { decision: 'allow' }, resolvedAt: '2026-09-09T18:01:00.000Z' }),
+    resolveRequest({ home: root, requestId: pending.requestId, response: { decision: 'deny' }, resolvedAt: '2026-09-09T18:02:00.000Z' })
+  ]);
+  const stored = await loadRequest({ home: root, requestId: pending.requestId });
+  assert.equal(first.decision, second.decision);
+  assert.equal(stored.decision, first.decision);
+  assert.equal(['allow', 'deny'].includes(stored.decision), true);
+});
+
+test('terminal claim remains authoritative if the main request projection is still pending', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  const terminal = {
+    ...pending,
+    status: 'resolved',
+    resolvedAt: '2026-09-09T18:01:00.000Z',
+    decision: 'deny'
+  };
+  await writeFile(
+    join(root, 'requests', `${pending.requestId}.terminal.json`),
+    `${JSON.stringify(terminal, null, 2)}\n`,
+    'utf8'
+  );
+
+  const loaded = await loadRequest({ home: root, requestId: pending.requestId });
+  assert.equal(loaded.status, 'resolved');
+  assert.equal(loaded.decision, 'deny');
+  assert.deepEqual(await listPendingRequests({ home: root }), []);
 });
 
 test('pending list is bounded and excludes resolved requests', async (t) => {
