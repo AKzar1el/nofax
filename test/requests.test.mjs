@@ -51,6 +51,42 @@ test('concurrent contradictory terminal responses converge on one durable winner
   assert.equal(['allow', 'deny'].includes(stored.decision), true);
 });
 
+test('terminal resolution keeps the original projection pending and persists the sidecar winner', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  const result = await resolveRequest({
+    home: root,
+    requestId: pending.requestId,
+    response: { decision: 'allow' },
+    resolvedAt: '2026-09-09T18:01:00.000Z'
+  });
+
+  const projection = JSON.parse(await readFile(join(root, 'requests', `${pending.requestId}.json`), 'utf8'));
+  const terminal = JSON.parse(await readFile(join(root, 'requests', `${pending.requestId}.terminal.json`), 'utf8'));
+  assert.equal(projection.status, 'pending');
+  assert.equal(terminal.status, 'resolved');
+  assert.equal(terminal.decision, 'allow');
+  assert.equal(result.decision, 'allow');
+  assert.equal((await loadRequest({ home: root, requestId: pending.requestId })).decision, 'allow');
+});
+
+test('historical resolved main files still load when no terminal sidecar exists', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  const historical = {
+    ...pending,
+    status: 'resolved',
+    resolvedAt: '2026-09-09T18:01:00.000Z',
+    decision: 'deny'
+  };
+  await writeFile(
+    join(root, 'requests', `${pending.requestId}.json`),
+    `${JSON.stringify(historical, null, 2)}\n`,
+    'utf8'
+  );
+  assert.equal((await loadRequest({ home: root, requestId: pending.requestId })).decision, 'deny');
+});
+
 test('terminal claim remains authoritative if the main request projection is still pending', async (t) => {
   const root = await home(t);
   await savePendingRequest({ home: root, request: pending });
