@@ -42,6 +42,17 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.2 - 2026-09-21
+
+### Added
+
+- Side-effect-free `nofax --version` and `nofax -v` reporting from installed package metadata.
+
+### Fixed
+
+- Concurrent contradictory responses to the same durable local request now converge on one exclusive terminal claim, preserving the first-terminal-response-wins invariant across competing waiters.
+- A terminal claim remains authoritative if a process stops before the ordinary request projection is refreshed, so recovery does not regress a resolved request back to pending.
+
 ## 0.2.1 - 2026-09-21
 
 ### Changed
