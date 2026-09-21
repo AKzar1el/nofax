@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from '../src/cli.mjs';
@@ -130,4 +130,22 @@ test('help is concise and lists supported commands', async () => {
   assert.match(stdout.read(), /nofax hook claude/);
   assert.match(stdout.read(), /nofax hook codex/);
   assert.match(stdout.read(), /nofax hook gemini/);
+  assert.match(stdout.read(), /nofax --version/);
+});
+
+test('version flags print the installed package version without config access', async () => {
+  const metadata = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+
+  for (const flag of ['--version', '-v']) {
+    const stdout = capture();
+    const stderr = capture();
+    const code = await runCli([flag], {
+      stdout,
+      stderr,
+      loadConfigImpl: async () => { throw new Error('config should not be loaded'); }
+    });
+    assert.equal(code, 0);
+    assert.equal(stdout.read(), `${metadata.version}\n`);
+    assert.equal(stderr.read(), '');
+  }
 });

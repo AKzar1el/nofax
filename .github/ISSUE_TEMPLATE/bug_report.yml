@@ -10,7 +10,8 @@ body:
     id: version
     attributes:
       label: Nofax version
-      placeholder: 0.2.0 / remote Worker 0.3.0
+      description: Report the installed local CLI package version; for the remote Worker, report the deployed version if known.
+      placeholder: local CLI x.y.z / remote Worker x.y.z
     validations:
       required: true
   - type: dropdown
