@@ -47,10 +47,8 @@ The remote Worker is **not** a hosted remote-approval service. It can send an in
 
 ### 1. Install
 
-Until a registry release is published:
-
 ```bash
-npm install -g https://github.com/AKzar1el/nofax.git
+npm install -g nofax
 ```
 
 Requires Node.js 20 or newer.
