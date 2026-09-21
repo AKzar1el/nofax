@@ -42,6 +42,13 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.3 - 2026-09-21
+
+### Fixed
+
+- Terminal sidecar claims are now the authoritative resolved record and are read before the original pending projection, eliminating the remaining Windows read/replace race between concurrent waiters.
+- Resolving a request no longer rewrites the original projection after claiming terminal state, while historical main-only resolved records remain readable.
+
 ## 0.2.2 - 2026-09-21
 
 ### Added

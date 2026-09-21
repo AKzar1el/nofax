@@ -103,11 +103,10 @@ export async function savePendingRequest({ home, env, request }) {
 
 export async function loadRequest({ home, env, requestId }) {
   const { file, terminal } = paths({ home, env, requestId });
+  const claimed = await loadTerminalClaim(terminal);
+  if (claimed !== null) return claimed;
   try {
-    const current = validateRequest(JSON.parse(await readFile(file, 'utf8')));
-    if (current.status === 'resolved') return current;
-    const claimed = await loadTerminalClaim(terminal);
-    return claimed ?? current;
+    return validateRequest(JSON.parse(await readFile(file, 'utf8')));
   } catch (error) {
     if (error?.code === 'ENOENT') throw new Error('NOFAX_REQUEST_NOT_FOUND');
     if (error instanceof SyntaxError) throw new Error('NOFAX_REQUEST_INVALID_JSON');
@@ -126,11 +125,10 @@ export async function resolveRequest({ home, env, requestId, response, resolvedA
     decision: response.decision,
     ...(response.text === undefined ? {} : { text: response.text })
   });
-  const { file, terminal } = paths({ home, env, requestId });
+  const { terminal } = paths({ home, env, requestId });
   if (!await claimTerminal(terminal, resolved)) {
     return loadRequest({ home, env, requestId });
   }
-  await atomicWrite(file, resolved);
   return resolved;
 }
 

@@ -32,7 +32,7 @@ function result(value) {
 
 export function buildMcpServer({ handlers = createMcpToolHandlers() } = {}) {
   const server = new McpServer(
-    { name: 'nofax', version: '0.2.2' },
+    { name: 'nofax', version: '0.2.3' },
     { instructions: SERVER_INSTRUCTIONS }
   );
 
