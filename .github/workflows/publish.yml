@@ -1,0 +1,106 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Use OIDC-capable npm
+        run: npm install --global npm@^11.5.1
+
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+
+      - name: Verify release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          server_version="$(node -p "require('./server.json').version")"
+          package_version="$(node -p "require('./server.json').packages[0].version")"
+
+          test "$version" = "$server_version"
+          test "$version" = "$package_version"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            test "${GITHUB_REF_NAME}" = "v${version}"
+          fi
+
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Publish npm package if needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if npm view "nofax@${VERSION}" version --json >/dev/null 2>&1; then
+            echo "nofax@${VERSION} is already public; skipping npm publish."
+          else
+            npm publish --access public
+          fi
+
+      - name: Install pinned MCP publisher
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz"
+          curl --fail --location --silent --show-error "$url" --output mcp-publisher.tar.gz
+          echo "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc  mcp-publisher.tar.gz" | sha256sum --check --strict
+          tar -xzf mcp-publisher.tar.gz mcp-publisher
+          chmod +x mcp-publisher
+          ./mcp-publisher validate server.json
+
+      - name: Check MCP Registry version
+        id: registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          server_name="io.github.AKzar1el/nofax"
+          encoded_name="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("io.github.AKzar1el/nofax", safe=""))')"
+          url="https://registry.modelcontextprotocol.io/v0.1/servers/${encoded_name}/versions/${VERSION}"
+          status="$(curl --silent --show-error --output registry-response.json --write-out '%{http_code}' "$url")"
+
+          if [[ "$status" == "200" ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$status" == "404" ]]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            cat registry-response.json
+            echo "Unexpected MCP Registry status: $status" >&2
+            exit 1
+          fi
+
+      - name: Login to MCP Registry with GitHub OIDC
+        if: steps.registry.outputs.exists != 'true'
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish MCP Registry metadata
+        if: steps.registry.outputs.exists != 'true'
+        run: ./mcp-publisher publish server.json
+
+      - name: Verify MCP Registry publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          encoded_name="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("io.github.AKzar1el/nofax", safe=""))')"
+          url="https://registry.modelcontextprotocol.io/v0.1/servers/${encoded_name}/versions/${VERSION}"
+          curl --fail --location --silent --show-error "$url" --output registry-response.json
+          grep -F 'io.github.AKzar1el/nofax' registry-response.json >/dev/null
+          grep -F "\"${VERSION}\"" registry-response.json >/dev/null
