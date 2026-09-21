@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { chmod, link, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { resolveNofaxHome } from './config.mjs';
 
@@ -47,7 +47,12 @@ function validateRequest(input) {
 function paths({ home, env, requestId }) {
   const root = resolveNofaxHome({ home, env });
   const requestsRoot = join(root, 'requests');
-  return { requestsRoot, file: join(requestsRoot, `${validateRequestId(requestId)}.json`) };
+  const normalizedRequestId = validateRequestId(requestId);
+  return {
+    requestsRoot,
+    file: join(requestsRoot, `${normalizedRequestId}.json`),
+    terminal: join(requestsRoot, `${normalizedRequestId}.terminal.json`)
+  };
 }
 
 async function atomicWrite(path, value) {
@@ -56,6 +61,35 @@ async function atomicWrite(path, value) {
   try { await chmod(temp, 0o600); } catch {}
   await rename(temp, path);
   try { await chmod(path, 0o600); } catch {}
+}
+
+async function loadTerminalClaim(path) {
+  try {
+    const terminal = validateRequest(JSON.parse(await readFile(path, 'utf8')));
+    if (terminal.status !== 'resolved') throw new Error('NOFAX_REQUEST_TERMINAL_INVALID');
+    return terminal;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    if (error instanceof SyntaxError) throw new Error('NOFAX_REQUEST_TERMINAL_INVALID_JSON');
+    throw error;
+  }
+}
+
+async function claimTerminal(path, value) {
+  const temp = `${path}.tmp-${process.pid}-${Math.random().toString(16).slice(2)}`;
+  await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  try { await chmod(temp, 0o600); } catch {}
+
+  try {
+    await link(temp, path);
+    try { await chmod(path, 0o600); } catch {}
+    return true;
+  } catch (error) {
+    if (error?.code === 'EEXIST') return false;
+    throw error;
+  } finally {
+    try { await unlink(temp); } catch {}
+  }
 }
 
 export async function savePendingRequest({ home, env, request }) {
@@ -68,9 +102,12 @@ export async function savePendingRequest({ home, env, request }) {
 }
 
 export async function loadRequest({ home, env, requestId }) {
-  const { file } = paths({ home, env, requestId });
+  const { file, terminal } = paths({ home, env, requestId });
   try {
-    return validateRequest(JSON.parse(await readFile(file, 'utf8')));
+    const current = validateRequest(JSON.parse(await readFile(file, 'utf8')));
+    if (current.status === 'resolved') return current;
+    const claimed = await loadTerminalClaim(terminal);
+    return claimed ?? current;
   } catch (error) {
     if (error?.code === 'ENOENT') throw new Error('NOFAX_REQUEST_NOT_FOUND');
     if (error instanceof SyntaxError) throw new Error('NOFAX_REQUEST_INVALID_JSON');
@@ -89,7 +126,10 @@ export async function resolveRequest({ home, env, requestId, response, resolvedA
     decision: response.decision,
     ...(response.text === undefined ? {} : { text: response.text })
   });
-  const { file } = paths({ home, env, requestId });
+  const { file, terminal } = paths({ home, env, requestId });
+  if (!await claimTerminal(terminal, resolved)) {
+    return loadRequest({ home, env, requestId });
+  }
   await atomicWrite(file, resolved);
   return resolved;
 }
