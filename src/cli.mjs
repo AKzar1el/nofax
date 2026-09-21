@@ -1,10 +1,21 @@
+import { readFile } from 'node:fs/promises';
 import { initConfig, loadConfig } from './config.mjs';
 import { requestApproval, requestRefinement, sendNotification } from './ntfy.mjs';
 import { handleClaudePermissionRequest } from './adapters/claude.mjs';
 import { handleCodexPermissionRequest } from './adapters/codex.mjs';
 import { handleGeminiHook } from './adapters/gemini.mjs';
 
-const HELP = `nofax - remote approvals and notifications for coding agents\n\nUsage:\n  nofax init [--server URL] [--topic TOPIC] [--timeout SECONDS] [--force]\n  nofax test\n  nofax notify [--title TITLE] MESSAGE...\n  nofax approve [--title TITLE] MESSAGE...\n  nofax refine [--title TITLE] MESSAGE...\n  nofax mcp\n  nofax config\n  nofax hook claude\n  nofax hook codex\n  nofax hook gemini\n\nEnvironment:\n  NOFAX_HOME   Override ~/.nofax\n`;
+const HELP = `nofax - remote approvals and notifications for coding agents\n\nUsage:\n  nofax --version\n  nofax init [--server URL] [--topic TOPIC] [--timeout SECONDS] [--force]\n  nofax test\n  nofax notify [--title TITLE] MESSAGE...\n  nofax approve [--title TITLE] MESSAGE...\n  nofax refine [--title TITLE] MESSAGE...\n  nofax mcp\n  nofax config\n  nofax hook claude\n  nofax hook codex\n  nofax hook gemini\n\nEnvironment:\n  NOFAX_HOME   Override ~/.nofax\n`;
+
+const PACKAGE_JSON_URL = new URL('../package.json', import.meta.url);
+
+async function readPackageVersion() {
+  const metadata = JSON.parse(await readFile(PACKAGE_JSON_URL, 'utf8'));
+  if (typeof metadata.version !== 'string' || metadata.version.length === 0) {
+    throw new Error('NOFAX_PACKAGE_VERSION_INVALID');
+  }
+  return metadata.version;
+}
 
 function parseArgs(args) {
   const flags = {};
@@ -93,6 +104,11 @@ export async function runCli(args, overrides = {}) {
   try {
     if (args.length === 0 || args[0] === '--help' || args[0] === '-h' || args[0] === 'help') {
       deps.stdout.write(HELP);
+      return 0;
+    }
+
+    if (args[0] === '--version' || args[0] === '-v') {
+      deps.stdout.write(`${await readPackageVersion()}\n`);
       return 0;
     }
 
