@@ -67,6 +67,33 @@ jobs:
           chmod +x mcp-publisher
           ./mcp-publisher validate server.json
 
+      - name: Wait for public npm propagation
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://registry.npmjs.org/nofax/${VERSION}"
+
+          for attempt in $(seq 1 30); do
+            status="$(curl --silent --show-error --output npm-version.json --write-out '%{http_code}' "$url")"
+
+            if [[ "$status" == "200" ]] && node -e '
+              const fs = require("node:fs");
+              const metadata = JSON.parse(fs.readFileSync("npm-version.json", "utf8"));
+              if (metadata.version !== process.env.VERSION) process.exit(1);
+            '; then
+              echo "nofax@${VERSION} is visible from the public npm version endpoint."
+              break
+            fi
+
+            if [[ "$attempt" == "30" ]]; then
+              echo "nofax@${VERSION} did not become publicly visible on npm within 5 minutes; refusing MCP Registry publication." >&2
+              exit 1
+            fi
+
+            echo "Waiting for npm propagation (${attempt}/30; HTTP ${status})..."
+            sleep 10
+          done
+
       - name: Check MCP Registry version
         id: registry
         shell: bash
