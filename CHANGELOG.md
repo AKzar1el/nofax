@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.10 - 2026-09-22
+
+### Security
+
+- Agent-hook summaries now redact high-confidence secret values embedded inside ordinary strings, including Authorization bearer/basic credentials, secret-bearing URL query parameters, environment-style key assignments, quoted JSON-like fields, and CLI secret flags before notification text leaves the local process.
+- Benign lookalikes such as `safeTokenizedValue`, `apiKeynote`, and non-secret CLI flags remain visible so approval context stays useful.
+
+This remains best-effort redaction rather than a credential scanner; sensitive notification content should still use a trusted authenticated/self-hosted ntfy server as documented in `SECURITY.md`. Approval semantics, pending-never-means-approval behavior, response-topic secrecy, notification authority, and the deliberately narrower remote Worker surface are unchanged.
+
 ## 0.2.9 - 2026-09-22
 
 ### Fixed
