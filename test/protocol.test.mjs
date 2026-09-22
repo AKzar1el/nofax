@@ -42,6 +42,39 @@ test('redacts camelCase and PascalCase variants of known secret keys', () => {
   assert.equal(result.secretaryName, 'also-keep-me');
 });
 
+test('redacts values in secret-key tuple entries without hiding ordinary tuples', () => {
+  const marker = 'NOFAX_SECRET_TUPLE_CANARY_XYZ';
+  const result = redactAndBound([
+    ['Authorization', `Bearer ${marker}`],
+    ['authorization', `Digest username="alice", response="${marker}"`],
+    ['Cookie', `session=${marker}`],
+    ['X-Api-Key', marker],
+    ['Accept', 'application/json']
+  ]);
+  const summary = buildAgentSummary({
+    source: 'Claude Code',
+    toolName: 'WebFetch',
+    cwd: '/tmp/project',
+    toolInput: {
+      headers: [
+        ['Authorization', `Bearer ${marker}`],
+        ['Accept', 'application/json']
+      ]
+    }
+  });
+
+  assert.deepEqual(result, [
+    ['Authorization', '[REDACTED]'],
+    ['authorization', '[REDACTED]'],
+    ['Cookie', '[REDACTED]'],
+    ['X-Api-Key', '[REDACTED]'],
+    ['Accept', 'application/json']
+  ]);
+  assert.doesNotMatch(summary, new RegExp(marker));
+  assert.match(summary, /"Authorization",\n\s+"\[REDACTED\]"/);
+  assert.match(summary, /"Accept",\n\s+"application\/json"/);
+});
+
 test('redacts secret values embedded inside ordinary string fields', () => {
   const marker = 'NOFAX_EMBEDDED_SECRET_CANARY_XYZ';
   const result = redactAndBound({
