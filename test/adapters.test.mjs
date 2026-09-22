@@ -146,7 +146,7 @@ test('Gemini BeforeTool adapter maps explicit remote allow and deny decisions', 
   });
 });
 
-test('Gemini BeforeTool adapter emits valid no-decision JSON on timeout or transport failure', async () => {
+test('Gemini BeforeTool adapter forces native confirmation on timeout or transport failure', async () => {
   const input = {
     session_id: 's4',
     cwd: '/repo',
@@ -158,13 +158,13 @@ test('Gemini BeforeTool adapter emits valid no-decision JSON on timeout or trans
   assert.deepEqual(await handleGeminiHook(input, {
     config,
     requestApprovalImpl: async () => ({ decision: 'timeout' })
-  }), {});
+  }), { decision: 'ask' });
 
   const errors = [];
   assert.deepEqual(await handleGeminiHook(input, {
     config,
     requestApprovalImpl: async () => { throw new Error('offline'); },
     onError: (error) => errors.push(error.message)
-  }), {});
+  }), { decision: 'ask' });
   assert.deepEqual(errors, ['offline']);
 });

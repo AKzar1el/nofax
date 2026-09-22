@@ -49,9 +49,9 @@ export async function handleGeminiHook(input, {
     if (result.decision === 'deny') {
       return { decision: 'deny', reason: 'Denied remotely via Nofax.' };
     }
-    return {};
+    return { decision: 'ask' };
   } catch (error) {
     onError(error);
-    return {};
+    return { decision: 'ask' };
   }
 }
