@@ -88,6 +88,28 @@ test('redacts complete Cookie and Set-Cookie header values', () => {
   assert.equal(benign, 'headerPolicy: keep-visible');
 });
 
+test('redacts complete parameterized Authorization header lines', () => {
+  const marker = 'NOFAX_AUTH_HEADER_SECRET_CANARY_XYZ';
+  const digest = redactAndBound(`Authorization: Digest username="alice", realm="test", nonce="${marker}", response="${marker}"`);
+  const aws = redactAndBound(`Authorization: AWS4-HMAC-SHA256 Credential=AKIA/${marker}, SignedHeaders=host;x-amz-date, Signature=${marker}`);
+  const proxy = redactAndBound(`Proxy-Authorization: Digest username="alice", response="${marker}"`);
+  const multiline = redactAndBound(`Accept: application/json\n  Authorization: Digest response="${marker}"\nX-Mode: safe`);
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'shell',
+    cwd: '/tmp/project',
+    toolInput: { headers: `Authorization: Digest response="${marker}"` }
+  });
+
+  for (const value of [digest, aws, proxy, multiline, summary]) {
+    assert.doesNotMatch(value, new RegExp(marker));
+  }
+  assert.equal(digest, 'Authorization: [REDACTED]');
+  assert.equal(aws, 'Authorization: [REDACTED]');
+  assert.equal(proxy, 'Proxy-Authorization: [REDACTED]');
+  assert.equal(multiline, 'Accept: application/json\n  Authorization: [REDACTED]\nX-Mode: safe');
+});
+
 test('redacts URI userinfo passwords inside ordinary string fields', () => {
   const marker = 'NOFAX_URI_USERINFO_SECRET_CANARY_XYZ';
   const result = redactAndBound({
