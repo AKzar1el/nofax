@@ -42,6 +42,31 @@ test('redacts camelCase and PascalCase variants of known secret keys', () => {
   assert.equal(result.secretaryName, 'also-keep-me');
 });
 
+test('redacts standalone auth credential fields without hiding auth-related metadata', () => {
+  const marker = 'NOFAX_AUTH_FIELD_SECRET_CANARY_XYZ';
+  const input = {
+    auth: marker,
+    Auth: marker,
+    authMode: 'oauth2',
+    authentication: 'required'
+  };
+  const result = redactAndBound(input);
+  const textResult = redactAndBound(`auth=${marker} authMode=oauth2 authentication=required`);
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'http_request',
+    cwd: '/tmp/project',
+    toolInput: input
+  });
+
+  assert.equal(result.auth, '[REDACTED]');
+  assert.equal(result.Auth, '[REDACTED]');
+  assert.equal(result.authMode, 'oauth2');
+  assert.equal(result.authentication, 'required');
+  assert.equal(textResult, 'auth=[REDACTED] authMode=oauth2 authentication=required');
+  assert.doesNotMatch(summary, new RegExp(marker));
+});
+
 test('secret-key normalization stays bounded on long acronym-style names', () => {
   const longPrefix = 'A'.repeat(20000);
   const result = redactAndBound({
