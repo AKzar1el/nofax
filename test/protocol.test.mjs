@@ -86,6 +86,33 @@ test('redacts values in secret-key tuple entries without hiding ordinary tuples'
   assert.match(summary, /"Accept",\n\s+"application\/json"/);
 });
 
+test('redacts secret values in flat alternating key/value arrays', () => {
+  const marker = 'NOFAX_FLAT_HEADER_CANARY_XYZ';
+  const input = {
+    rawHeaders: [
+      'X-Api-Key', marker,
+      'Accept', 'application/json',
+      'Cookie', `session=${marker}`
+    ]
+  };
+  const result = redactAndBound(input);
+  const summary = buildAgentSummary({
+    source: 'Claude Code',
+    toolName: 'WebFetch',
+    cwd: '/tmp/project',
+    toolInput: input
+  });
+
+  assert.deepEqual(result.rawHeaders, [
+    'X-Api-Key', '[REDACTED]',
+    'Accept', 'application/json',
+    'Cookie', '[REDACTED]'
+  ]);
+  assert.doesNotMatch(summary, new RegExp(marker));
+  assert.match(summary, /"X-Api-Key",\n\s+"\[REDACTED\]"/);
+  assert.match(summary, /"Accept",\n\s+"application\/json"/);
+});
+
 test('redacts secret values in name/key entry objects with singular or plural value fields', () => {
   const marker = 'NOFAX_SECRET_ENTRY_OBJECT_CANARY_XYZ';
   const result = redactAndBound([
