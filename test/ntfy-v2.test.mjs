@@ -68,6 +68,27 @@ test('pollRemoteResponse returns structured refinement text', async () => {
   assert.deepEqual(result, { decision: 'refine', text: 'shorter please' });
 });
 
+test('pollRemoteResponse replays the full cached response topic for durable recovery', async () => {
+  let requestedUrl;
+  const fetchImpl = async (url) => {
+    requestedUrl = url;
+    return {
+      ok: true,
+      status: 200,
+      text: async () => ''
+    };
+  };
+  await pollRemoteResponse({
+    config,
+    responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz123456',
+    requestId: 'nfx_abcdefghijklmnopqrstuvwx',
+    allowed: ['allow', 'deny'],
+    fetchImpl
+  });
+  const parsed = new URL(requestedUrl);
+  assert.equal(parsed.searchParams.get('poll'), '1');
+  assert.equal(parsed.searchParams.get('since'), 'all');
+});
 test('requestApproval sends best-effort phone confirmation after Allow', async () => {
   const published = [];
   let polls = 0;
