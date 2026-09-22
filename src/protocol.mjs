@@ -19,6 +19,54 @@ function isSecretKey(key) {
   return SECRET_KEY.test(normalizeSecretKeyName(key));
 }
 
+function redactSecretText(value) {
+  let redacted = value;
+
+  redacted = redacted.replace(
+    /\b((?:proxy[-_])?authorization)(\s*[:=]\s*)(bearer|basic)(\s+)([^\s"'`,;&]+)/gi,
+    '$1$2$3$4[REDACTED]'
+  );
+
+  redacted = redacted.replace(
+    /([?&])([A-Za-z][A-Za-z0-9_-]{0,63})=([^&\s"'`,;]+)/g,
+    (match, prefix, key) => isSecretKey(key)
+      ? `${prefix}${key}=[REDACTED]`
+      : match
+  );
+
+  redacted = redacted.replace(
+    /(["'])([A-Za-z][A-Za-z0-9_-]{0,63})\1(\s*[:=]\s*)(["'])(.*?)\4/g,
+    (match, keyQuote, key, separator, valueQuote) => isSecretKey(key)
+      ? `${keyQuote}${key}${keyQuote}${separator}${valueQuote}[REDACTED]${valueQuote}`
+      : match
+  );
+
+  redacted = redacted.replace(
+    /([A-Za-z][A-Za-z0-9_-]{0,63})(\s*[:=]\s*)(["'])(.*?)\3/g,
+    (match, key, separator, valueQuote) => isSecretKey(key)
+      ? `${key}${separator}${valueQuote}[REDACTED]${valueQuote}`
+      : match
+  );
+
+  redacted = redacted.replace(
+    /([A-Za-z][A-Za-z0-9_-]{0,63})(\s*[:=]\s*)([^\s"'`,;&]+)/g,
+    (match, key, separator, rawValue) => {
+      if (!isSecretKey(key)) return match;
+      if (/authorization$/i.test(normalizeSecretKeyName(key)) && /^(?:bearer|basic)$/i.test(rawValue)) return match;
+      return `${key}${separator}[REDACTED]`;
+    }
+  );
+
+  redacted = redacted.replace(
+    /--([A-Za-z][A-Za-z0-9_-]{0,63})(\s+)(["'](?:.*?)["']|[^\s"'`,;&]+)/g,
+    (match, key, separator) => isSecretKey(key)
+      ? `--${key}${separator}[REDACTED]`
+      : match
+  );
+
+  return redacted;
+}
+
 function randomBase64Url(bytes) {
   return randomBytes(bytes).toString('base64url');
 }
@@ -36,8 +84,9 @@ export function createPhoneTopic() {
 }
 
 function boundString(value) {
-  if (value.length <= MAX_STRING) return value;
-  return `${value.slice(0, MAX_STRING)}…[truncated]`;
+  const bounded = value.length <= MAX_STRING ? value : value.slice(0, MAX_STRING);
+  const redacted = redactSecretText(bounded);
+  return value.length <= MAX_STRING ? redacted : `${redacted}…[truncated]`;
 }
 
 export function redactAndBound(value, options = {}) {

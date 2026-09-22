@@ -42,6 +42,29 @@ test('redacts camelCase and PascalCase variants of known secret keys', () => {
   assert.equal(result.secretaryName, 'also-keep-me');
 });
 
+test('redacts secret values embedded inside ordinary string fields', () => {
+  const marker = 'NOFAX_EMBEDDED_SECRET_CANARY_XYZ';
+  const result = redactAndBound({
+    command: `curl -H "Authorization: Bearer ${marker}" "https://example.test/?token=${marker}&mode=safe"`,
+    envLine: `OPENAI_API_KEY=${marker}`,
+    cli: `tool --password ${marker} --tokenize keep-me`,
+    json: `{"clientSecret":"${marker}","safeTokenizedValue":"keep-me"}`,
+    benign: 'secretaryName=alice safeTokenizedValue=visible apiKeynote=keep'
+  });
+
+  assert.doesNotMatch(result.command, new RegExp(marker));
+  assert.doesNotMatch(result.envLine, new RegExp(marker));
+  assert.doesNotMatch(result.cli, new RegExp(marker));
+  assert.doesNotMatch(result.json, new RegExp(marker));
+  assert.match(result.command, /Authorization: Bearer \[REDACTED\]/);
+  assert.match(result.command, /token=\[REDACTED\]/);
+  assert.match(result.envLine, /OPENAI_API_KEY=\[REDACTED\]/);
+  assert.match(result.cli, /--password \[REDACTED\]/);
+  assert.match(result.cli, /--tokenize keep-me/);
+  assert.match(result.json, /safeTokenizedValue":"keep-me/);
+  assert.equal(result.benign, 'secretaryName=alice safeTokenizedValue=visible apiKeynote=keep');
+});
+
 test('buildAgentSummary is stable, bounded, and does not expose known secret keys', () => {
   const summary = buildAgentSummary({
     source: 'Claude Code',
