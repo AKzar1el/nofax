@@ -38,6 +38,11 @@ function redactSecretText(value) {
   );
 
   redacted = redacted.replace(
+    /\b(set-cookie|cookie)(\s*:\s*)[^\r\n]*/gi,
+    '$1$2[REDACTED]'
+  );
+
+  redacted = redacted.replace(
     /([?&])([A-Za-z][A-Za-z0-9_-]{0,63})=([^&\s"'`,;]+)/g,
     (match, prefix, key) => isSecretKey(key)
       ? `${prefix}${key}=[REDACTED]`
