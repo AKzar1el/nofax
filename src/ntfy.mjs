@@ -149,7 +149,7 @@ function parseNtfyPoll(text, requestId, allowed) {
 export async function pollRemoteResponse({ config, responseTopic, requestId, allowed, fetchImpl = fetch }) {
   let response;
   try {
-    response = await fetchImpl(`${config.server}/${responseTopic}/json?poll=1&since=10m`, {
+    response = await fetchImpl(`${config.server}/${responseTopic}/json?poll=1&since=all`, {
       method: 'GET',
       headers: { accept: 'application/x-ndjson' }
     });
