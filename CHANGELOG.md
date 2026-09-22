@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.5 - 2026-09-22
+
+### Fixed
+
+- Durable local MCP requests now replay the full cached one-time ntfy response topic instead of only the last ten minutes, so a terminal human response can still be recovered after a longer client or conversation interruption while the provider retains it.
+- Local MCP approval, choice, and refinement requests now persist their generated request handle and response capability before publishing the phone notification, preventing a delivered response action from being orphaned if local persistence fails afterward.
+
+Exact request/decision validation, response-topic secrecy, first-terminal-response-wins behavior, fail-closed approval semantics, and the deliberately narrower remote Worker surface are unchanged.
+
 ## 0.2.4 - 2026-09-22
 
 ### Added
