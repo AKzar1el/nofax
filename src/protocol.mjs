@@ -46,7 +46,8 @@ function normalizeSecretKeyName(key) {
 }
 
 function isSecretKey(key) {
-  return SECRET_KEY.test(normalizeSecretKeyName(key));
+  const normalized = normalizeSecretKeyName(key);
+  return normalized.toLowerCase() === 'auth' || SECRET_KEY.test(normalized);
 }
 
 function redactSecretText(value) {
