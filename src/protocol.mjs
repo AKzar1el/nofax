@@ -8,6 +8,17 @@ const MAX_OBJECT_KEYS = 30;
 const MAX_SUMMARY = 2200;
 const MAX_RESPONSE_TEXT = 2000;
 
+function normalizeSecretKeyName(key) {
+  return key
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[^A-Za-z0-9]+/g, '_');
+}
+
+function isSecretKey(key) {
+  return SECRET_KEY.test(normalizeSecretKeyName(key));
+}
+
 function randomBase64Url(bytes) {
   return randomBytes(bytes).toString('base64url');
 }
@@ -50,7 +61,7 @@ export function redactAndBound(value, options = {}) {
 
   const out = {};
   for (const [key, child] of Object.entries(value).slice(0, MAX_OBJECT_KEYS)) {
-    out[key] = SECRET_KEY.test(key)
+    out[key] = isSecretKey(key)
       ? '[REDACTED]'
       : redactAndBound(child, { seen, depth: depth + 1 });
   }
