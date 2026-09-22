@@ -114,9 +114,9 @@ export async function loadRequest({ home, env, requestId }) {
   }
 }
 
-export async function resolveRequest({ home, env, requestId, response, resolvedAt = new Date().toISOString() }) {
+export async function resolveRequestWithClaim({ home, env, requestId, response, resolvedAt = new Date().toISOString() }) {
   const current = await loadRequest({ home, env, requestId });
-  if (current.status === 'resolved') return current;
+  if (current.status === 'resolved') return { request: current, claimed: false };
   if (!response || typeof response.decision !== 'string' || !current.allowed.includes(response.decision)) throw new Error('NOFAX_REQUEST_DECISION_INVALID');
   const resolved = validateRequest({
     ...current,
@@ -127,9 +127,13 @@ export async function resolveRequest({ home, env, requestId, response, resolvedA
   });
   const { terminal } = paths({ home, env, requestId });
   if (!await claimTerminal(terminal, resolved)) {
-    return loadRequest({ home, env, requestId });
+    return { request: await loadRequest({ home, env, requestId }), claimed: false };
   }
-  return resolved;
+  return { request: resolved, claimed: true };
+}
+
+export async function resolveRequest(options) {
+  return (await resolveRequestWithClaim(options)).request;
 }
 
 export async function listPendingRequests({ home, env, limit = 20 } = {}) {
