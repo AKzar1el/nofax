@@ -120,6 +120,41 @@ test('redacts secrets before applying the per-string truncation boundary', () =>
   assert.ok(redacted.length <= 520);
 });
 
+test('redacts embedded private-key blocks without hiding public certificate blocks', () => {
+  const marker = 'NOFAX_PRIVATE_KEY_SECRET_CANARY_XYZ';
+  const result = redactAndBound({
+    pem: `cat <<'EOF'\n-----BEGIN PRIVATE KEY-----\n${marker}\n-----END PRIVATE KEY-----\nEOF`,
+    openssh: `-----BEGIN OPENSSH PRIVATE KEY-----\n${marker}\n-----END OPENSSH PRIVATE KEY-----`,
+    pgp: `-----BEGIN PGP PRIVATE KEY BLOCK-----\n${marker}\n-----END PGP PRIVATE KEY BLOCK-----`,
+    unterminated: `-----BEGIN RSA PRIVATE KEY-----\n${marker}`,
+    certificate: '-----BEGIN CERTIFICATE-----\nPUBLIC-CERT-DATA\n-----END CERTIFICATE-----'
+  });
+
+  assert.doesNotMatch(result.pem, new RegExp(marker));
+  assert.doesNotMatch(result.openssh, new RegExp(marker));
+  assert.doesNotMatch(result.pgp, new RegExp(marker));
+  assert.doesNotMatch(result.unterminated, new RegExp(marker));
+  assert.match(result.pem, /BEGIN PRIVATE KEY-----\n\[REDACTED\]/);
+  assert.match(result.openssh, /BEGIN OPENSSH PRIVATE KEY-----\n\[REDACTED\]/);
+  assert.match(result.pgp, /BEGIN PGP PRIVATE KEY BLOCK-----\n\[REDACTED\]/);
+  assert.equal(result.certificate, '-----BEGIN CERTIFICATE-----\nPUBLIC-CERT-DATA\n-----END CERTIFICATE-----');
+});
+
+test('buildAgentSummary does not expose embedded private-key blocks', () => {
+  const marker = 'NOFAX_PRIVATE_KEY_SUMMARY_CANARY_XYZ';
+  const summary = buildAgentSummary({
+    source: 'Claude Code',
+    toolName: 'Bash',
+    cwd: '/tmp/project',
+    toolInput: {
+      command: `cat > key.pem <<'EOF'\n-----BEGIN PRIVATE KEY-----\n${marker}\n-----END PRIVATE KEY-----\nEOF`
+    }
+  });
+
+  assert.doesNotMatch(summary, new RegExp(marker));
+  assert.match(summary, /BEGIN PRIVATE KEY-----\\n\[REDACTED\]\\n-----END PRIVATE KEY/);
+});
+
 test('buildAgentSummary is stable, bounded, and does not expose known secret keys', () => {
   const summary = buildAgentSummary({
     source: 'Claude Code',
