@@ -16,6 +16,22 @@ test('parseResponseMessage accepts refinement text', () => {
   assert.deepEqual(result, { decision: 'refine', text: 'make it shorter' });
 });
 
+test('parseResponseMessage preserves refinement text beyond the summary string bound', () => {
+  const text = 'r'.repeat(1200);
+  const result = parseResponseMessage(JSON.stringify({ v: 1, requestId: 'nfx_test', decision: 'refine', text }), {
+    requestId: 'nfx_test', allowed: ['refine']
+  });
+  assert.deepEqual(result, { decision: 'refine', text });
+});
+
+test('parseResponseMessage bounds refinement text at the response limit', () => {
+  const text = 'r'.repeat(2200);
+  const result = parseResponseMessage(JSON.stringify({ v: 1, requestId: 'nfx_test', decision: 'refine', text }), {
+    requestId: 'nfx_test', allowed: ['refine']
+  });
+  assert.deepEqual(result, { decision: 'refine', text: text.slice(0, 2000) });
+});
+
 test('parseResponseMessage rejects refinement without text', () => {
   const result = parseResponseMessage(JSON.stringify({ v: 1, requestId: 'nfx_test', decision: 'refine' }), {
     requestId: 'nfx_test', allowed: ['refine']

@@ -108,7 +108,7 @@ export function parseResponseMessage(message, { requestId, allowed }) {
     if (typeof parsed.text !== 'string') return null;
     const text = parsed.text.trim();
     if (!text) return null;
-    return { decision: 'refine', text: boundString(text).slice(0, MAX_RESPONSE_TEXT) };
+    return { decision: 'refine', text: text.slice(0, MAX_RESPONSE_TEXT) };
   }
 
   return { decision: parsed.decision };
