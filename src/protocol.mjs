@@ -33,6 +33,11 @@ function redactSecretText(value) {
   );
 
   redacted = redacted.replace(
+    /(^|[\r\n])([ \t]*)((?:proxy[-_])?authorization)(\s*:\s*)[^\r\n]*/gim,
+    '$1$2$3$4[REDACTED]'
+  );
+
+  redacted = redacted.replace(
     /\b((?:proxy[-_])?authorization)(\s*[:=]\s*)(bearer|basic)(\s+)([^\s"'`,;&]+)/gi,
     '$1$2$3$4[REDACTED]'
   );
