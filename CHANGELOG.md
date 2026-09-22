@@ -42,6 +42,21 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.4 - 2026-09-22
+
+### Added
+
+- Semantic JSON Schema descriptions for every local MCP input parameter, including nested choice fields, so clients and agents can understand parameter intent directly from `tools/list`.
+- Object-root MCP `outputSchema` contracts for all seven local tools, covering notification results, durable pending handles, terminal wait results, safe request projections, and bounded pending lists.
+- Regression coverage that validates representative structured results through the MCP SDK's production output validator and rejects malformed output contracts.
+
+### Changed
+
+- `nofax_notify` now states explicitly that successful notification transport never counts as human approval.
+- Package README release status now uses the stable `0.2.x` line instead of an obsolete exact patch reference.
+
+Local approval, choice, refinement, waiting, persistence, and fail-closed semantics are unchanged.
+
 ## 0.2.3 - 2026-09-21
 
 ### Fixed
