@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.9 - 2026-09-22
+
+### Fixed
+
+- Free-text refinement responses now preserve the full trimmed human response through the documented 2,000-character ceiling instead of passing through the generic 500-character notification-summary bound.
+- Gemini CLI `BeforeTool` timeout or transport failure now returns `decision: "ask"`, forcing Gemini's native interactive confirmation instead of allowing host auto-approval policy to interpret a missing Nofax decision as permission.
+
+Explicit Nofax Allow/Deny behavior, pending-never-means-approval semantics, response-topic secrecy, notification transport authority, and the deliberately narrower remote Worker surface are unchanged.
+
 ## 0.2.8 - 2026-09-22
 
 ### Security
