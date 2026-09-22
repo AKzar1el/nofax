@@ -42,6 +42,17 @@ test('redacts camelCase and PascalCase variants of known secret keys', () => {
   assert.equal(result.secretaryName, 'also-keep-me');
 });
 
+test('secret-key normalization stays bounded on long acronym-style names', () => {
+  const longPrefix = 'A'.repeat(20000);
+  const result = redactAndBound({
+    [`${longPrefix}Token`]: 'long-secret',
+    [`${longPrefix}TokenizedValue`]: 'keep-me'
+  });
+
+  assert.equal(result[`${longPrefix}Token`], '[REDACTED]');
+  assert.equal(result[`${longPrefix}TokenizedValue`], 'keep-me');
+});
+
 test('redacts values in secret-key tuple entries without hiding ordinary tuples', () => {
   const marker = 'NOFAX_SECRET_TUPLE_CANARY_XYZ';
   const result = redactAndBound([
@@ -73,6 +84,37 @@ test('redacts values in secret-key tuple entries without hiding ordinary tuples'
   assert.doesNotMatch(summary, new RegExp(marker));
   assert.match(summary, /"Authorization",\n\s+"\[REDACTED\]"/);
   assert.match(summary, /"Accept",\n\s+"application\/json"/);
+});
+
+test('redacts secret values in name/value and key/value entry objects', () => {
+  const marker = 'NOFAX_SECRET_ENTRY_OBJECT_CANARY_XYZ';
+  const result = redactAndBound([
+    { name: 'Authorization', value: `Bearer ${marker}`, enabled: true },
+    { name: 'Cookie', value: `session=${marker}` },
+    { key: 'X-Api-Key', value: marker },
+    { name: 'Accept', value: 'application/json' }
+  ]);
+  const summary = buildAgentSummary({
+    source: 'Claude Code',
+    toolName: 'WebFetch',
+    cwd: '/tmp/project',
+    toolInput: {
+      headers: [
+        { name: 'Authorization', value: `Bearer ${marker}` },
+        { name: 'Accept', value: 'application/json' }
+      ]
+    }
+  });
+
+  assert.deepEqual(result, [
+    { name: 'Authorization', value: '[REDACTED]', enabled: true },
+    { name: 'Cookie', value: '[REDACTED]' },
+    { key: 'X-Api-Key', value: '[REDACTED]' },
+    { name: 'Accept', value: 'application/json' }
+  ]);
+  assert.doesNotMatch(summary, new RegExp(marker));
+  assert.match(summary, /"name": "Authorization",\n\s+"value": "\[REDACTED\]"/);
+  assert.match(summary, /"name": "Accept",\n\s+"value": "application\/json"/);
 });
 
 test('redacts secret values embedded inside ordinary string fields', () => {

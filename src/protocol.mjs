@@ -9,10 +9,40 @@ const MAX_SUMMARY = 2200;
 const MAX_RESPONSE_TEXT = 2000;
 
 function normalizeSecretKeyName(key) {
-  return key
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .replace(/[^A-Za-z0-9]+/g, '_');
+  let normalized = '';
+
+  for (let index = 0; index < key.length; index += 1) {
+    const char = key[index];
+    const code = char.charCodeAt(0);
+    const isUpper = code >= 65 && code <= 90;
+    const isLower = code >= 97 && code <= 122;
+    const isDigit = code >= 48 && code <= 57;
+
+    if (!isUpper && !isLower && !isDigit) {
+      if (normalized && !normalized.endsWith('_')) normalized += '_';
+      continue;
+    }
+
+    const previousCode = index > 0 ? key.charCodeAt(index - 1) : -1;
+    const nextCode = index + 1 < key.length ? key.charCodeAt(index + 1) : -1;
+    const previousIsUpper = previousCode >= 65 && previousCode <= 90;
+    const previousIsLower = previousCode >= 97 && previousCode <= 122;
+    const previousIsDigit = previousCode >= 48 && previousCode <= 57;
+    const nextIsLower = nextCode >= 97 && nextCode <= 122;
+
+    if (
+      isUpper
+      && normalized
+      && !normalized.endsWith('_')
+      && (previousIsLower || previousIsDigit || (previousIsUpper && nextIsLower))
+    ) {
+      normalized += '_';
+    }
+
+    normalized += char;
+  }
+
+  return normalized;
 }
 
 function isSecretKey(key) {
@@ -136,9 +166,18 @@ export function redactAndBound(value, options = {}) {
     return value.slice(0, MAX_ARRAY).map((item) => redactAndBound(item, { seen, depth: depth + 1 }));
   }
 
+  const entryName = typeof value.name === 'string'
+    ? value.name
+    : typeof value.key === 'string'
+      ? value.key
+      : null;
+  const redactEntryValue = entryName !== null
+    && Object.prototype.hasOwnProperty.call(value, 'value')
+    && isSecretKey(entryName);
+
   const out = {};
   for (const [key, child] of Object.entries(value).slice(0, MAX_OBJECT_KEYS)) {
-    out[key] = isSecretKey(key)
+    out[key] = isSecretKey(key) || (redactEntryValue && key === 'value')
       ? '[REDACTED]'
       : redactAndBound(child, { seen, depth: depth + 1 });
   }
