@@ -42,6 +42,18 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.11 - 2026-09-22
+
+### Security
+
+- Agent-hook summary redaction now covers URI userinfo passwords, including password-only forms such as Redis-style URLs, before notification text leaves the local process.
+- Secret detection now runs before the per-string summary bound, so credentials whose closing delimiter falls beyond the truncation boundary cannot leak a visible prefix.
+- Complete and unterminated PEM/OpenSSH/PGP private-key blocks are redacted while public certificates and unrelated `BEGIN`/`END` blocks remain visible.
+- Complete `Cookie:` and `Set-Cookie:` header values are redacted so credentials in later semicolon-delimited cookie pairs cannot survive after an earlier pair is removed.
+- Complete line-start and multiline `Authorization:` / `Proxy-Authorization:` header values are redacted so parameterized Digest/AWS-style nonce, response, credential, and signature material cannot survive partial scheme redaction.
+
+Approval decisions, pending-never-means-approval semantics, response-topic secrecy, notification authority, and the deliberately narrower remote Worker surface are unchanged.
+
 ## 0.2.10 - 2026-09-22
 
 ### Security
