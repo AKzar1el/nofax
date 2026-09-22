@@ -158,6 +158,10 @@ Codex hooks are enabled by default. Configure `~/.codex/hooks.json`:
 
 Restart Codex, run `/hooks`, and review/trust the exact Nofax hook definition before relying on it. Codex skips non-managed hooks until they are trusted, and a changed hook definition must be reviewed again. If an administrator or local policy has explicitly disabled hooks, re-enable them with `[features] hooks = true` in `~/.codex/config.toml`.
 
+Codex currently evaluates `PermissionRequest` hooks before its configured approval reviewer. A terminal Nofax Allow/Deny therefore resolves the request before Codex can route it to `approvals_reviewer = "auto_review"` (or the legacy `guardian_subagent` value). If you want Nofax to be the human approval surface, use `approvals_reviewer = "user"`; do not combine this Nofax approval hook with Auto-review/Guardian expecting both reviewers to run. Current Codex hook input does not expose the effective reviewer, so Nofax cannot safely distinguish a user-routed approval from one that Codex intended to auto-review.
+
+`PermissionRequest` hooks are also serial with Codex's native approval UI: while Nofax is waiting, the normal Codex approval prompt is not simultaneously available. If Nofax returns no decision (for example after timeout or transport failure), Codex falls back to its normal approval flow. Nofax never converts that fallback condition into approval.
+
 ### Gemini CLI
 
 Current Gemini CLI builds expose a synchronous `BeforeTool` hook that can allow or deny a tool call. Route selected tools through Nofax in `~/.gemini/settings.json`:
