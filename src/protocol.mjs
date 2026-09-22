@@ -171,13 +171,11 @@ export function redactAndBound(value, options = {}) {
     : typeof value.key === 'string'
       ? value.key
       : null;
-  const redactEntryValue = entryName !== null
-    && Object.prototype.hasOwnProperty.call(value, 'value')
-    && isSecretKey(entryName);
+  const redactEntryValue = entryName !== null && isSecretKey(entryName);
 
   const out = {};
   for (const [key, child] of Object.entries(value).slice(0, MAX_OBJECT_KEYS)) {
-    out[key] = isSecretKey(key) || (redactEntryValue && key === 'value')
+    out[key] = isSecretKey(key) || (redactEntryValue && (key === 'value' || key === 'values'))
       ? '[REDACTED]'
       : redactAndBound(child, { seen, depth: depth + 1 });
   }

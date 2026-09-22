@@ -86,13 +86,17 @@ test('redacts values in secret-key tuple entries without hiding ordinary tuples'
   assert.match(summary, /"Accept",\n\s+"application\/json"/);
 });
 
-test('redacts secret values in name/value and key/value entry objects', () => {
+test('redacts secret values in name/key entry objects with singular or plural value fields', () => {
   const marker = 'NOFAX_SECRET_ENTRY_OBJECT_CANARY_XYZ';
   const result = redactAndBound([
     { name: 'Authorization', value: `Bearer ${marker}`, enabled: true },
     { name: 'Cookie', value: `session=${marker}` },
     { key: 'X-Api-Key', value: marker },
-    { name: 'Accept', value: 'application/json' }
+    { name: 'Authorization', values: [`Bearer ${marker}`], enabled: true },
+    { name: 'Cookie', values: [`session=${marker}`] },
+    { key: 'X-Api-Key', values: [marker] },
+    { name: 'Accept', value: 'application/json' },
+    { name: 'Accept', values: ['application/json'] }
   ]);
   const summary = buildAgentSummary({
     source: 'Claude Code',
@@ -100,7 +104,7 @@ test('redacts secret values in name/value and key/value entry objects', () => {
     cwd: '/tmp/project',
     toolInput: {
       headers: [
-        { name: 'Authorization', value: `Bearer ${marker}` },
+        { name: 'Authorization', values: [`Bearer ${marker}`] },
         { name: 'Accept', value: 'application/json' }
       ]
     }
@@ -110,10 +114,14 @@ test('redacts secret values in name/value and key/value entry objects', () => {
     { name: 'Authorization', value: '[REDACTED]', enabled: true },
     { name: 'Cookie', value: '[REDACTED]' },
     { key: 'X-Api-Key', value: '[REDACTED]' },
-    { name: 'Accept', value: 'application/json' }
+    { name: 'Authorization', values: '[REDACTED]', enabled: true },
+    { name: 'Cookie', values: '[REDACTED]' },
+    { key: 'X-Api-Key', values: '[REDACTED]' },
+    { name: 'Accept', value: 'application/json' },
+    { name: 'Accept', values: ['application/json'] }
   ]);
   assert.doesNotMatch(summary, new RegExp(marker));
-  assert.match(summary, /"name": "Authorization",\n\s+"value": "\[REDACTED\]"/);
+  assert.match(summary, /"name": "Authorization",\n\s+"values": "\[REDACTED\]"/);
   assert.match(summary, /"name": "Accept",\n\s+"value": "application\/json"/);
 });
 
