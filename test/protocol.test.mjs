@@ -65,6 +65,29 @@ test('redacts secret values embedded inside ordinary string fields', () => {
   assert.equal(result.benign, 'secretaryName=alice safeTokenizedValue=visible apiKeynote=keep');
 });
 
+test('redacts complete Cookie and Set-Cookie header values', () => {
+  const marker = 'NOFAX_COOKIE_HEADER_SECRET_CANARY_XYZ';
+  const cookie = redactAndBound(`Cookie: theme=dark; session=${marker}; locale=en`);
+  const setCookie = redactAndBound(`Set-Cookie: theme=dark; session=${marker}; Path=/; HttpOnly`);
+  const multiline = redactAndBound(`Accept: application/json\nCookie: theme=dark; session=${marker}\nX-Mode: safe`);
+  const benign = redactAndBound('headerPolicy: keep-visible');
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'shell',
+    cwd: '/tmp/project',
+    toolInput: { headers: `Cookie: theme=dark; session=${marker}` }
+  });
+
+  assert.doesNotMatch(cookie, new RegExp(marker));
+  assert.doesNotMatch(setCookie, new RegExp(marker));
+  assert.doesNotMatch(multiline, new RegExp(marker));
+  assert.doesNotMatch(summary, new RegExp(marker));
+  assert.equal(cookie, 'Cookie: [REDACTED]');
+  assert.equal(setCookie, 'Set-Cookie: [REDACTED]');
+  assert.equal(multiline, 'Accept: application/json\nCookie: [REDACTED]\nX-Mode: safe');
+  assert.equal(benign, 'headerPolicy: keep-visible');
+});
+
 test('redacts URI userinfo passwords inside ordinary string fields', () => {
   const marker = 'NOFAX_URI_USERINFO_SECRET_CANARY_XYZ';
   const result = redactAndBound({
