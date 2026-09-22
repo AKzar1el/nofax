@@ -23,6 +23,16 @@ function redactSecretText(value) {
   let redacted = value;
 
   redacted = redacted.replace(
+    /-----BEGIN ([A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?)-----[\s\S]*?(?:-----END \1-----|$)/g,
+    (_match, label) => `-----BEGIN ${label}-----\n[REDACTED]\n-----END ${label}-----`
+  );
+
+  redacted = redacted.replace(
+    /\b([A-Za-z][A-Za-z0-9+.-]{1,31}:\/\/)([^\s\/@:]*):([^\s\/@]+)@/g,
+    '$1$2:[REDACTED]@'
+  );
+
+  redacted = redacted.replace(
     /\b((?:proxy[-_])?authorization)(\s*[:=]\s*)(bearer|basic)(\s+)([^\s"'`,;&]+)/gi,
     '$1$2$3$4[REDACTED]'
   );
@@ -84,9 +94,9 @@ export function createPhoneTopic() {
 }
 
 function boundString(value) {
-  const bounded = value.length <= MAX_STRING ? value : value.slice(0, MAX_STRING);
-  const redacted = redactSecretText(bounded);
-  return value.length <= MAX_STRING ? redacted : `${redacted}…[truncated]`;
+  const redacted = redactSecretText(value);
+  const bounded = redacted.length <= MAX_STRING ? redacted : redacted.slice(0, MAX_STRING);
+  return value.length <= MAX_STRING ? bounded : `${bounded}…[truncated]`;
 }
 
 export function redactAndBound(value, options = {}) {

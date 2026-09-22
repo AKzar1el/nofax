@@ -65,6 +65,96 @@ test('redacts secret values embedded inside ordinary string fields', () => {
   assert.equal(result.benign, 'secretaryName=alice safeTokenizedValue=visible apiKeynote=keep');
 });
 
+test('redacts URI userinfo passwords inside ordinary string fields', () => {
+  const marker = 'NOFAX_URI_USERINFO_SECRET_CANARY_XYZ';
+  const result = redactAndBound({
+    database: `postgres://alice:${marker}@db.example.test/app`,
+    web: `https://alice:${marker}@example.test/private`,
+    encoded: `mongodb+srv://service:${marker}%2Fpart@cluster.example.test/app`,
+    cacheUri: `redis://:${marker}@cache.example.test:6379/0`,
+    usernameOnly: 'https://alice@example.test/path',
+    portOnly: 'https://example.test:8443/path'
+  });
+
+  assert.doesNotMatch(result.database, new RegExp(marker));
+  assert.doesNotMatch(result.web, new RegExp(marker));
+  assert.doesNotMatch(result.encoded, new RegExp(marker));
+  assert.doesNotMatch(result.cacheUri, new RegExp(marker));
+  assert.equal(result.database, 'postgres://alice:[REDACTED]@db.example.test/app');
+  assert.equal(result.web, 'https://alice:[REDACTED]@example.test/private');
+  assert.equal(result.encoded, 'mongodb+srv://service:[REDACTED]@cluster.example.test/app');
+  assert.equal(result.cacheUri, 'redis://:[REDACTED]@cache.example.test:6379/0');
+  assert.equal(result.usernameOnly, 'https://alice@example.test/path');
+  assert.equal(result.portOnly, 'https://example.test:8443/path');
+});
+
+test('buildAgentSummary does not expose URI userinfo passwords', () => {
+  const marker = 'NOFAX_URI_SUMMARY_SECRET_CANARY_XYZ';
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'shell',
+    cwd: '/tmp/project',
+    toolInput: { command: `psql postgres://alice:${marker}@db.example.test/app` }
+  });
+
+  assert.doesNotMatch(summary, new RegExp(marker));
+  assert.match(summary, /postgres:\/\/alice:\[REDACTED\]@db\.example\.test\/app/);
+});
+
+test('redacts secrets before applying the per-string truncation boundary', () => {
+  const marker = 'NOFAX_TRUNCATION_SECRET_CANARY_XYZ';
+  const input = `${'x'.repeat(440)} clientSecret="${marker}${'z'.repeat(120)}"`;
+
+  const redacted = redactAndBound(input);
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'shell',
+    cwd: '/tmp/project',
+    toolInput: { command: input }
+  });
+
+  assert.doesNotMatch(redacted, new RegExp(marker));
+  assert.doesNotMatch(summary, new RegExp(marker));
+  assert.match(redacted, /clientSecret="\[REDACTED\]"/);
+  assert.match(redacted, /…\[truncated\]$/);
+  assert.ok(redacted.length <= 520);
+});
+
+test('redacts embedded private-key blocks without hiding public certificate blocks', () => {
+  const marker = 'NOFAX_PRIVATE_KEY_SECRET_CANARY_XYZ';
+  const result = redactAndBound({
+    pem: `cat <<'EOF'\n-----BEGIN PRIVATE KEY-----\n${marker}\n-----END PRIVATE KEY-----\nEOF`,
+    openssh: `-----BEGIN OPENSSH PRIVATE KEY-----\n${marker}\n-----END OPENSSH PRIVATE KEY-----`,
+    pgp: `-----BEGIN PGP PRIVATE KEY BLOCK-----\n${marker}\n-----END PGP PRIVATE KEY BLOCK-----`,
+    unterminated: `-----BEGIN RSA PRIVATE KEY-----\n${marker}`,
+    certificate: '-----BEGIN CERTIFICATE-----\nPUBLIC-CERT-DATA\n-----END CERTIFICATE-----'
+  });
+
+  assert.doesNotMatch(result.pem, new RegExp(marker));
+  assert.doesNotMatch(result.openssh, new RegExp(marker));
+  assert.doesNotMatch(result.pgp, new RegExp(marker));
+  assert.doesNotMatch(result.unterminated, new RegExp(marker));
+  assert.match(result.pem, /BEGIN PRIVATE KEY-----\n\[REDACTED\]/);
+  assert.match(result.openssh, /BEGIN OPENSSH PRIVATE KEY-----\n\[REDACTED\]/);
+  assert.match(result.pgp, /BEGIN PGP PRIVATE KEY BLOCK-----\n\[REDACTED\]/);
+  assert.equal(result.certificate, '-----BEGIN CERTIFICATE-----\nPUBLIC-CERT-DATA\n-----END CERTIFICATE-----');
+});
+
+test('buildAgentSummary does not expose embedded private-key blocks', () => {
+  const marker = 'NOFAX_PRIVATE_KEY_SUMMARY_CANARY_XYZ';
+  const summary = buildAgentSummary({
+    source: 'Claude Code',
+    toolName: 'Bash',
+    cwd: '/tmp/project',
+    toolInput: {
+      command: `cat > key.pem <<'EOF'\n-----BEGIN PRIVATE KEY-----\n${marker}\n-----END PRIVATE KEY-----\nEOF`
+    }
+  });
+
+  assert.doesNotMatch(summary, new RegExp(marker));
+  assert.match(summary, /BEGIN PRIVATE KEY-----\\n\[REDACTED\]\\n-----END PRIVATE KEY/);
+});
+
 test('buildAgentSummary is stable, bounded, and does not expose known secret keys', () => {
   const summary = buildAgentSummary({
     source: 'Claude Code',
