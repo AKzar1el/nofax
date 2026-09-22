@@ -163,7 +163,19 @@ export function redactAndBound(value, options = {}) {
     if (value.length === 2 && typeof value[0] === 'string' && isSecretKey(value[0])) {
       return [boundString(value[0]), '[REDACTED]'];
     }
-    return value.slice(0, MAX_ARRAY).map((item) => redactAndBound(item, { seen, depth: depth + 1 }));
+    const bounded = value.slice(0, MAX_ARRAY);
+    if (
+      value.length >= 4
+      && value.length % 2 === 0
+      && bounded.every((item, index) => index % 2 === 1 || typeof item === 'string')
+    ) {
+      return bounded.map((item, index) => (
+        index % 2 === 1 && isSecretKey(bounded[index - 1])
+          ? '[REDACTED]'
+          : redactAndBound(item, { seen, depth: depth + 1 })
+      ));
+    }
+    return bounded.map((item) => redactAndBound(item, { seen, depth: depth + 1 }));
   }
 
   const entryName = typeof value.name === 'string'
