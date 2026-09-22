@@ -131,3 +131,31 @@ test('pending list is bounded and excludes resolved requests', async (t) => {
   assert.equal(list.length, 1);
   assert.equal(list[0].status, 'pending');
 });
+
+test('pending list keeps the newest requests when the bounded limit is reached', async (t) => {
+  const root = await home(t);
+  const olderIds = [];
+  for (let i = 0; i < 20; i += 1) {
+    const requestId = `nfx_z${String(i).padStart(2, '0')}${'x'.repeat(21)}`;
+    olderIds.push(requestId);
+    await savePendingRequest({
+      home: root,
+      request: {
+        ...pending,
+        requestId,
+        createdAt: `2026-09-09T18:${String(i).padStart(2, '0')}:00.000Z`
+      }
+    });
+  }
+  const newestId = `nfx_A00${'y'.repeat(21)}`;
+  await savePendingRequest({
+    home: root,
+    request: { ...pending, requestId: newestId, createdAt: '2026-09-09T19:00:00.000Z' }
+  });
+
+  const list = await listPendingRequests({ home: root, limit: 20 });
+  assert.equal(list.length, 20);
+  assert.equal(list[0].requestId, newestId);
+  assert.equal(list.some((request) => request.requestId === newestId), true);
+  assert.equal(list.some((request) => request.requestId === olderIds[0]), false);
+});

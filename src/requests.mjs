@@ -148,7 +148,7 @@ export async function listPendingRequests({ home, env, limit = 20 } = {}) {
     throw error;
   }
   const results = [];
-  for (const name of names.sort().reverse()) {
+  for (const name of names) {
     if (!name.endsWith('.json')) continue;
     const requestId = name.slice(0, -5);
     if (!REQUEST_ID.test(requestId)) continue;
@@ -156,7 +156,8 @@ export async function listPendingRequests({ home, env, limit = 20 } = {}) {
       const request = await loadRequest({ home: root, requestId });
       if (request.status === 'pending') results.push(request);
     } catch {}
-    if (results.length >= limit) break;
   }
-  return results;
+  return results
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt) || right.requestId.localeCompare(left.requestId))
+    .slice(0, limit);
 }
