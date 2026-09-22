@@ -221,11 +221,15 @@ export function createMcpToolHandlers(overrides = {}) {
             response,
             resolvedAt: new Date(deps.nowImpl()).toISOString()
           });
-          await deps.sendResponseConfirmationImpl({
-            config: current,
-            response,
-            title: request.kind === 'approval' ? 'Approval' : request.kind === 'refinement' ? 'Refinement' : 'Choice'
-          });
+          const acceptedResponse = request.decision === response.decision
+            && (request.text ?? undefined) === (response.text ?? undefined);
+          if (acceptedResponse) {
+            await deps.sendResponseConfirmationImpl({
+              config: current,
+              response,
+              title: request.kind === 'approval' ? 'Approval' : request.kind === 'refinement' ? 'Refinement' : 'Choice'
+            });
+          }
           return terminalResult(request);
         }
         const remaining = deadline - deps.nowImpl();

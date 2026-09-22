@@ -110,6 +110,50 @@ test('wait persists terminal approval, confirms phone, and permits caller to act
   assert.equal(stored.decision, 'allow');
 });
 
+test('concurrent waits never confirm a losing terminal response', async (t) => {
+  const home = await makeHome(t);
+  const confirmations = [];
+  let polls = 0;
+  let releasePolls;
+  const bothPolling = new Promise((resolve) => { releasePolls = resolve; });
+  const requestId = 'nfx_abcdefghijklmnopqrstuv77';
+  const handlers = createMcpToolHandlers({
+    home,
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: async (input) => {
+      const remote = {
+        requestId,
+        responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz1277',
+        allowed: ['allow', 'deny']
+      };
+      await input.beforePublish(remote);
+      return remote;
+    },
+    pollRemoteResponseImpl: async () => {
+      const poll = polls++;
+      if (poll === 1) releasePolls();
+      await bothPolling;
+      return { decision: poll === 0 ? 'allow' : 'deny' };
+    },
+    sendResponseConfirmationImpl: async ({ response }) => {
+      confirmations.push(response.decision);
+    },
+    sleepImpl: async () => {}
+  });
+
+  const pending = await handlers.requestApproval({ title: 'Deploy?', message: 'Release ready' });
+  const results = await Promise.all([
+    handlers.waitForResponse({ requestId: pending.requestId, waitSeconds: 2 }),
+    handlers.waitForResponse({ requestId: pending.requestId, waitSeconds: 2 })
+  ]);
+  const stored = await loadRequest({ home, requestId });
+
+  assert.equal(stored.status, 'resolved');
+  assert.equal(results.every((result) => result.decision === stored.decision), true);
+  assert.equal(confirmations.length >= 1, true);
+  assert.equal(confirmations.every((decision) => decision === stored.decision), true);
+});
+
 test('refinement returns user text and requires a new approval when needed', async (t) => {
   const home = await makeHome(t);
   const handlers = makeHandlers({ home, pollResult: { decision: 'refine', text: 'Make it shorter.' } });
