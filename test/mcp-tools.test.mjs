@@ -27,13 +27,15 @@ function makeHandlers({ home, pollResult = null, onConfirm = () => {}, onNotify 
     sendNotificationImpl: async (input) => onNotify(input),
     createRemoteRequestImpl: async (input) => {
       seq += 1;
-      return {
+      const remote = {
         requestId: `nfx_abcdefghijklmnopqrstuv${String(seq).padStart(2, '0')}`,
         responseTopic: `nofax_r_abcdefghijklmnopqrstuvwxyz1234${String(seq).padStart(2, '0')}`,
         allowed: input.includeRefine
           ? (input.options.length === 2 ? [input.options[0].value, 'refine', input.options[1].value] : ['refine'])
           : input.options.map((option) => option.value)
       };
+      await input.beforePublish?.(remote);
+      return remote;
     },
     pollRemoteResponseImpl: async () => pollResult,
     sendResponseConfirmationImpl: async (input) => onConfirm(input),
@@ -54,6 +56,30 @@ test('approval returns a durable pending handle and mandatory repeated-wait inst
   const stored = await loadRequest({ home, requestId: result.requestId });
   assert.equal(stored.responseTopic.startsWith('nofax_r_'), true);
   assert.deepEqual(stored.allowed, ['allow', 'refine', 'deny']);
+});
+
+test('approval persists its durable request before remote publication continues', async (t) => {
+  const home = await makeHome(t);
+  let storedBeforePublish;
+  const requestId = 'nfx_abcdefghijklmnopqrstuv99';
+  const handlers = createMcpToolHandlers({
+    home,
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: async (input) => {
+      const remote = {
+        requestId,
+        responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz1299',
+        allowed: ['allow', 'deny']
+      };
+      await input.beforePublish(remote);
+      storedBeforePublish = await loadRequest({ home, requestId });
+      return remote;
+    }
+  });
+  const result = await handlers.requestApproval({ title: 'Deploy?', message: 'Release ready' });
+  assert.equal(result.requestId, requestId);
+  assert.equal(storedBeforePublish.status, 'pending');
+  assert.equal(storedBeforePublish.requestId, requestId);
 });
 
 test('wait returns pending and repeats the mandatory wait contract when no phone response exists', async (t) => {

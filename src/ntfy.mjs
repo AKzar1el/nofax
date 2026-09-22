@@ -96,6 +96,7 @@ export async function createRemoteRequest({
   options = [],
   includeRefine = false,
   shortcutName = config.refineShortcutName ?? DEFAULT_REFINE_SHORTCUT,
+  beforePublish = async () => {},
   fetchImpl = fetch
 }) {
   const normalized = normalizeOptions(options);
@@ -126,8 +127,10 @@ export async function createRemoteRequest({
     }
   }
 
+  const remote = { requestId, responseTopic, allowed };
+  await beforePublish(remote);
   await sendNotification({ config, title, message, actions, fetchImpl });
-  return { requestId, responseTopic, allowed };
+  return remote;
 }
 
 function parseNtfyPoll(text, requestId, allowed) {

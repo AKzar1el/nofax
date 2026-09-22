@@ -52,6 +52,32 @@ test('createRemoteRequest can publish Allow Refine Deny actions', async () => {
   assert.deepEqual(remote.allowed, ['allow', 'refine', 'deny']);
 });
 
+test('createRemoteRequest prepares response handles before publishing the notification', async () => {
+  const order = [];
+  let prepared;
+  const remote = await createRemoteRequest({
+    config,
+    title: 'Deploy?',
+    message: 'Release ready',
+    options: [
+      { value: 'allow', label: 'Allow' },
+      { value: 'deny', label: 'Deny' }
+    ],
+    beforePublish: async (value) => {
+      order.push('prepared');
+      prepared = value;
+    },
+    fetchImpl: async () => {
+      order.push('published');
+      return { ok: true, status: 200 };
+    }
+  });
+  assert.deepEqual(order, ['prepared', 'published']);
+  assert.deepEqual(prepared, remote);
+  assert.equal(prepared.requestId.startsWith('nfx_'), true);
+  assert.equal(prepared.responseTopic.startsWith('nofax_r_'), true);
+});
+
 test('pollRemoteResponse returns structured refinement text', async () => {
   const fetchImpl = async () => ({
     ok: true,
