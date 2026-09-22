@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.6 - 2026-09-22
+
+### Fixed
+
+- Concurrent local MCP waiters now send a phone confirmation only for the authoritative first terminal response; a contradictory response that loses the durable terminal claim can no longer produce a misleading confirmation.
+- `nofax_wait_for_response` now advertises `readOnlyHint: false`, accurately reflecting that a terminal wait can persist resolved state and send a best-effort external confirmation while retaining non-destructive, idempotent, open-world hints.
+
+First-terminal-response-wins behavior, pending/timeout/transport-failure-never-approval semantics, response-topic secrecy, tool authority, and the deliberately narrower remote Worker surface are unchanged.
+
 ## 0.2.5 - 2026-09-22
 
 ### Fixed
