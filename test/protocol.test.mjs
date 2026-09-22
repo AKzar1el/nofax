@@ -140,6 +140,32 @@ test('redacts secret pairs when a flat alternating array has an odd trailing ele
   assert.match(summary, /"X-Dangling"/);
 });
 
+test('redacts valid secret pairs even when another flat-array key slot is malformed', () => {
+  const marker = 'NOFAX_MALFORMED_FLAT_HEADER_CANARY_XYZ';
+  const input = {
+    rawHeaders: [
+      'Authorization', marker,
+      42, 'malformed-value',
+      'Accept', 'application/json'
+    ]
+  };
+  const result = redactAndBound(input);
+  const summary = buildAgentSummary({
+    source: 'Claude Code',
+    toolName: 'WebFetch',
+    cwd: '/tmp/project',
+    toolInput: input
+  });
+
+  assert.deepEqual(result.rawHeaders, [
+    'Authorization', '[REDACTED]',
+    42, 'malformed-value',
+    'Accept', 'application/json'
+  ]);
+  assert.doesNotMatch(summary, new RegExp(marker));
+  assert.match(summary, /"Authorization",\n\s+"\[REDACTED\]"/);
+  assert.match(summary, /42,\n\s+"malformed-value"/);
+});
 test('redacts secret values in name/key entry objects with singular or plural value fields', () => {
   const marker = 'NOFAX_SECRET_ENTRY_OBJECT_CANARY_XYZ';
   const result = redactAndBound([

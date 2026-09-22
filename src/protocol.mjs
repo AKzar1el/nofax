@@ -165,17 +165,14 @@ export function redactAndBound(value, options = {}) {
     }
     const bounded = value.slice(0, MAX_ARRAY);
     const pairedLength = bounded.length - (bounded.length % 2);
-    if (
-      pairedLength >= 2
-      && bounded.slice(0, pairedLength).every((item, index) => index % 2 === 1 || typeof item === 'string')
-    ) {
-      return bounded.map((item, index) => (
-        index < pairedLength && index % 2 === 1 && isSecretKey(bounded[index - 1])
-          ? '[REDACTED]'
-          : redactAndBound(item, { seen, depth: depth + 1 })
-      ));
-    }
-    return bounded.map((item) => redactAndBound(item, { seen, depth: depth + 1 }));
+    return bounded.map((item, index) => (
+      index < pairedLength
+      && index % 2 === 1
+      && typeof bounded[index - 1] === 'string'
+      && isSecretKey(bounded[index - 1])
+        ? '[REDACTED]'
+        : redactAndBound(item, { seen, depth: depth + 1 })
+    ));
   }
 
   const entryName = typeof value.name === 'string'
