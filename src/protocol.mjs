@@ -130,6 +130,9 @@ export function redactAndBound(value, options = {}) {
   seen.add(value);
 
   if (Array.isArray(value)) {
+    if (value.length === 2 && typeof value[0] === 'string' && isSecretKey(value[0])) {
+      return [boundString(value[0]), '[REDACTED]'];
+    }
     return value.slice(0, MAX_ARRAY).map((item) => redactAndBound(item, { seen, depth: depth + 1 }));
   }
 
