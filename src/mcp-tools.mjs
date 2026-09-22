@@ -140,6 +140,17 @@ export function createMcpToolHandlers(overrides = {}) {
     return pendingResult(remote.requestId);
   }
 
+  async function createDurableRemote(kind, input) {
+    let persisted;
+    const remote = await deps.createRemoteRequestImpl({
+      ...input,
+      beforePublish: async (prepared) => {
+        persisted = await persistRemote({ kind, remote: prepared });
+      }
+    });
+    return persisted ?? persistRemote({ kind, remote });
+  }
+
   return {
     async notify({ title = 'Nofax', message }) {
       const current = await config();
@@ -153,7 +164,7 @@ export function createMcpToolHandlers(overrides = {}) {
 
     async requestApproval({ title = 'Nofax approval', message, allowRefine = false }) {
       const current = await config();
-      const remote = await deps.createRemoteRequestImpl({
+      return createDurableRemote('approval', {
         config: current,
         title: validateText(title, 'TITLE', 120),
         message: validateText(message, 'MESSAGE'),
@@ -163,32 +174,29 @@ export function createMcpToolHandlers(overrides = {}) {
         ],
         includeRefine: allowRefine === true
       });
-      return persistRemote({ kind: 'approval', remote });
     },
 
     async requestChoice({ title = 'Nofax choice', message, options }) {
       const current = await config();
       const normalized = validateChoiceOptions(options);
-      const remote = await deps.createRemoteRequestImpl({
+      return createDurableRemote('choice', {
         config: current,
         title: validateText(title, 'TITLE', 120),
         message: validateText(message, 'MESSAGE'),
         options: normalized,
         includeRefine: false
       });
-      return persistRemote({ kind: 'choice', remote });
     },
 
     async requestRefinement({ title = 'Nofax refinement', message }) {
       const current = await config();
-      const remote = await deps.createRemoteRequestImpl({
+      return createDurableRemote('refinement', {
         config: current,
         title: validateText(title, 'TITLE', 120),
         message: validateText(message, 'MESSAGE'),
         options: [],
         includeRefine: true
       });
-      return persistRemote({ kind: 'refinement', remote });
     },
 
     async waitForResponse({ requestId, waitSeconds }) {
