@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.12 - 2026-09-22
+
+### Security
+
+- Agent-hook summary redaction now removes complete inline quoted parameterized `Authorization` / `Proxy-Authorization` values, including Digest and AWS-style credentials embedded in shell commands, instead of leaving trailing credential parameters visible.
+- Line-start assignment forms such as `Authorization = Digest ...` are now fully redacted as well. Existing Bearer/Basic formatting remains intact.
+
+Approval decisions, pending-never-means-approval semantics, response-topic secrecy, notification authority, and the deliberately narrower remote Worker surface are unchanged.
+
 ## 0.2.11 - 2026-09-22
 
 ### Security
