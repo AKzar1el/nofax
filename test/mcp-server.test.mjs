@@ -92,6 +92,24 @@ test('every local MCP input property explains its semantics and advertises accur
   }
 });
 
+test('related MCP tools advertise explicit selection guidance', async () => {
+  const server = buildMcpServer({ handlers });
+  try {
+    const refinementDescription = server._registeredTools.nofax_request_refinement.description;
+    assert.match(refinementDescription, /nofax_request_approval/);
+    assert.match(refinementDescription, /nofax_request_choice/);
+    assert.match(refinementDescription, /nofax_wait_for_response/);
+
+    const getRequestDescription = server._registeredTools.nofax_get_request.description;
+    assert.match(getRequestDescription, /without waiting/);
+    assert.match(getRequestDescription, /nofax_wait_for_response/);
+    assert.match(getRequestDescription, /nofax_list_pending/);
+    assert.match(getRequestDescription, /Secret response topics are never returned/);
+  } finally {
+    await server.close();
+  }
+});
+
 test('every local MCP tool advertises an object-root output contract matching structuredContent', async () => {
   const server = buildMcpServer({ handlers });
   const args = {
