@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.14 - 2026-09-22
+
+### Security
+
+- Agent-hook summary redaction now recognizes common structured header-entry objects such as `{ name: 'Authorization', value: '…' }` and `{ key: 'X-Api-Key', value: '…' }`, redacting only the secret-bearing value while preserving benign header context.
+- Secret-key normalization now uses deterministic linear-time ASCII scanning instead of the previously flagged polynomial regular-expression path, closing GitHub CodeQL `js/polynomial-redos` alert #1 on uncontrolled tool-input keys.
+
+Approval decisions, pending-never-means-approval semantics, response-topic secrecy, notification authority, and the deliberately narrower remote Worker surface are unchanged.
+
 ## 0.2.13 - 2026-09-22
 
 ### Security
