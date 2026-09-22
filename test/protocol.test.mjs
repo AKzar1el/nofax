@@ -113,6 +113,33 @@ test('redacts secret values in flat alternating key/value arrays', () => {
   assert.match(summary, /"Accept",\n\s+"application\/json"/);
 });
 
+test('redacts secret pairs when a flat alternating array has an odd trailing element', () => {
+  const marker = 'NOFAX_ODD_FLAT_HEADER_CANARY_XYZ';
+  const input = {
+    rawHeaders: [
+      'X-Api-Key', marker,
+      'Accept', 'application/json',
+      'X-Dangling'
+    ]
+  };
+  const result = redactAndBound(input);
+  const summary = buildAgentSummary({
+    source: 'Claude Code',
+    toolName: 'WebFetch',
+    cwd: '/tmp/project',
+    toolInput: input
+  });
+
+  assert.deepEqual(result.rawHeaders, [
+    'X-Api-Key', '[REDACTED]',
+    'Accept', 'application/json',
+    'X-Dangling'
+  ]);
+  assert.doesNotMatch(summary, new RegExp(marker));
+  assert.match(summary, /"Accept",\n\s+"application\/json"/);
+  assert.match(summary, /"X-Dangling"/);
+});
+
 test('redacts secret values in name/key entry objects with singular or plural value fields', () => {
   const marker = 'NOFAX_SECRET_ENTRY_OBJECT_CANARY_XYZ';
   const result = redactAndBound([
