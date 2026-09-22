@@ -164,13 +164,13 @@ export function redactAndBound(value, options = {}) {
       return [boundString(value[0]), '[REDACTED]'];
     }
     const bounded = value.slice(0, MAX_ARRAY);
+    const pairedLength = bounded.length - (bounded.length % 2);
     if (
-      value.length >= 4
-      && value.length % 2 === 0
-      && bounded.every((item, index) => index % 2 === 1 || typeof item === 'string')
+      pairedLength >= 2
+      && bounded.slice(0, pairedLength).every((item, index) => index % 2 === 1 || typeof item === 'string')
     ) {
       return bounded.map((item, index) => (
-        index % 2 === 1 && isSecretKey(bounded[index - 1])
+        index < pairedLength && index % 2 === 1 && isSecretKey(bounded[index - 1])
           ? '[REDACTED]'
           : redactAndBound(item, { seen, depth: depth + 1 })
       ));
