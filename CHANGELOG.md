@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.7 - 2026-09-22
+
+### Fixed
+
+- Concurrent local MCP waiters that observe the same accepted terminal response now emit only one best-effort phone confirmation while every waiter still converges on the same durable first-terminal winner.
+- Bounded pending-request recovery now returns the newest unresolved requests first by durable creation time, so a recent request is not omitted merely because random requestId ordering filled the limit first.
+
+Fail-closed pending/timeout/transport-failure semantics, response-topic secrecy, tool authority, agent hooks, and the deliberately narrower remote Worker surface are unchanged.
+
 ## 0.2.6 - 2026-09-22
 
 ### Fixed
