@@ -60,7 +60,7 @@ test('buildMcpServer registers the complete Nofax v0.2 tool surface', async () =
   await server.close();
 });
 
-test('every local MCP input property explains its semantics without changing safety annotations', async () => {
+test('every local MCP input property explains its semantics and advertises accurate safety annotations', async () => {
   const server = buildMcpServer({ handlers });
   try {
     for (const name of MCP_TOOL_NAMES) {
@@ -76,7 +76,7 @@ test('every local MCP input property explains its semantics without changing saf
       openWorldHint: true
     });
     assert.deepEqual(server._registeredTools.nofax_wait_for_response.annotations, {
-      readOnlyHint: true,
+      readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: true,
       openWorldHint: true

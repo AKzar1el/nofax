@@ -156,7 +156,7 @@ export function buildMcpServer({ handlers = createMcpToolHandlers() } = {}) {
         waitSeconds: z.number().int().min(1).max(240).optional().describe('Maximum seconds to long-poll during this call; defaults to 240. A timeout still returns pending, never approval.')
       }),
       outputSchema: WAIT_OUTPUT_SCHEMA,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true }
     },
     async (args) => result(await handlers.waitForResponse(args))
   );
