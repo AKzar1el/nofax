@@ -198,7 +198,7 @@ Current Gemini CLI builds expose a synchronous `BeforeTool` hook that can allow 
 }
 ```
 
-`BeforeTool` waits for an explicit Nofax Allow/Deny result. A Nofax timeout or transport failure emits valid no-decision JSON and leaves Gemini CLI's own policy/confirmation flow in control rather than converting failure into approval. The `Notification` hook remains advisory and is forwarded only as a phone notification.
+`BeforeTool` waits for an explicit Nofax Allow/Deny result. A Nofax timeout or transport failure returns Gemini's `ask` decision, forcing the native interactive confirmation instead of allowing an auto-approval policy to treat the missing Nofax decision as permission. The `Notification` hook remains advisory and is forwarded only as a phone notification.
 
 Adjust the matcher to the tools you want Nofax to gate. Keep the hook timeout longer than Nofax's configured approval timeout (`timeoutSeconds`, 300 seconds by default).
 

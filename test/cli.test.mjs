@@ -104,7 +104,7 @@ test('Gemini BeforeTool hook emits only strict decision JSON', async () => {
   assert.equal(stderr.read(), '');
 });
 
-test('Gemini BeforeTool timeout emits valid no-decision JSON', async () => {
+test('Gemini BeforeTool timeout emits strict native-confirmation JSON', async () => {
   const stdout = capture();
   const stderr = capture();
   const input = JSON.stringify({
@@ -118,7 +118,7 @@ test('Gemini BeforeTool timeout emits valid no-decision JSON', async () => {
     requestApprovalImpl: async () => ({ decision: 'timeout' })
   });
   assert.equal(code, 0);
-  assert.deepEqual(JSON.parse(stdout.read()), {});
+  assert.deepEqual(JSON.parse(stdout.read()), { decision: 'ask' });
   assert.equal(stderr.read(), '');
 });
 
