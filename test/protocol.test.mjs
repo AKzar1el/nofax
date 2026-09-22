@@ -101,6 +101,25 @@ test('buildAgentSummary does not expose URI userinfo passwords', () => {
   assert.match(summary, /postgres:\/\/alice:\[REDACTED\]@db\.example\.test\/app/);
 });
 
+test('redacts secrets before applying the per-string truncation boundary', () => {
+  const marker = 'NOFAX_TRUNCATION_SECRET_CANARY_XYZ';
+  const input = `${'x'.repeat(440)} clientSecret="${marker}${'z'.repeat(120)}"`;
+
+  const redacted = redactAndBound(input);
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'shell',
+    cwd: '/tmp/project',
+    toolInput: { command: input }
+  });
+
+  assert.doesNotMatch(redacted, new RegExp(marker));
+  assert.doesNotMatch(summary, new RegExp(marker));
+  assert.match(redacted, /clientSecret="\[REDACTED\]"/);
+  assert.match(redacted, /…\[truncated\]$/);
+  assert.ok(redacted.length <= 520);
+});
+
 test('buildAgentSummary is stable, bounded, and does not expose known secret keys', () => {
   const summary = buildAgentSummary({
     source: 'Claude Code',

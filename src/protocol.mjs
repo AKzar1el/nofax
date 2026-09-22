@@ -89,9 +89,9 @@ export function createPhoneTopic() {
 }
 
 function boundString(value) {
-  const bounded = value.length <= MAX_STRING ? value : value.slice(0, MAX_STRING);
-  const redacted = redactSecretText(bounded);
-  return value.length <= MAX_STRING ? redacted : `${redacted}…[truncated]`;
+  const redacted = redactSecretText(value);
+  const bounded = redacted.length <= MAX_STRING ? redacted : redacted.slice(0, MAX_STRING);
+  return value.length <= MAX_STRING ? bounded : `${bounded}…[truncated]`;
 }
 
 export function redactAndBound(value, options = {}) {
