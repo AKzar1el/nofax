@@ -110,6 +110,30 @@ test('redacts complete parameterized Authorization header lines', () => {
   assert.equal(multiline, 'Accept: application/json\n  Authorization: [REDACTED]\nX-Mode: safe');
 });
 
+test('redacts inline quoted and assignment-style Authorization values', () => {
+  const marker = 'NOFAX_INLINE_AUTH_SECRET_CANARY_XYZ';
+  const digestInline = redactAndBound(`curl -H 'Authorization: Digest username="alice", realm="test", response="${marker}"' https://example.test/path`);
+  const awsInline = redactAndBound(`curl -H "Authorization: AWS4-HMAC-SHA256 Credential=AKIA/${marker}, SignedHeaders=host;x-amz-date, Signature=${marker}" https://example.test/path`);
+  const proxyInline = redactAndBound(`curl -H 'Proxy-Authorization: Digest username="alice", response="${marker}"' https://example.test/path`);
+  const assigned = redactAndBound(`Authorization = Digest username="alice", response="${marker}"`);
+  const proxyAssigned = redactAndBound(`Proxy-Authorization = AWS4-HMAC-SHA256 Credential=AKIA/example, Signature=${marker}`);
+  const summary = buildAgentSummary({
+    source: 'Claude Code',
+    toolName: 'Bash',
+    cwd: '/tmp/project',
+    toolInput: { command: `curl -H 'Authorization: Digest username="alice", response="${marker}"' https://example.test/path` }
+  });
+
+  for (const value of [digestInline, awsInline, proxyInline, assigned, proxyAssigned, summary]) {
+    assert.doesNotMatch(value, new RegExp(marker));
+  }
+  assert.equal(digestInline, `curl -H 'Authorization: [REDACTED]' https://example.test/path`);
+  assert.equal(awsInline, `curl -H "Authorization: [REDACTED]" https://example.test/path`);
+  assert.equal(proxyInline, `curl -H 'Proxy-Authorization: [REDACTED]' https://example.test/path`);
+  assert.equal(assigned, 'Authorization = [REDACTED]');
+  assert.equal(proxyAssigned, 'Proxy-Authorization = [REDACTED]');
+});
+
 test('redacts URI userinfo passwords inside ordinary string fields', () => {
   const marker = 'NOFAX_URI_USERINFO_SECRET_CANARY_XYZ';
   const result = redactAndBound({
