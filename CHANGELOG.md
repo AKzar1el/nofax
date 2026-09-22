@@ -42,6 +42,14 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.8 - 2026-09-22
+
+### Security
+
+- Agent-hook summaries now redact camelCase, PascalCase, acronym-style, snake_case, and kebab-case variants of the existing secret-key vocabulary consistently, preventing values under keys such as `accessToken`, `clientSecret`, and `dbPassword` from being serialized into outbound Nofax notification text.
+
+Approval semantics, response-topic secrecy, notification transport authority, and the deliberately narrower remote Worker surface are unchanged.
+
 ## 0.2.7 - 2026-09-22
 
 ### Fixed
