@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.17 - 2026-09-23
+
+### Security
+
+- Flat alternating secret key/value arrays now redact valid secret pairs even when the array has an odd trailing element or another key slot is malformed/non-string, preventing one malformed sibling from disabling redaction for otherwise recognizable Authorization, Cookie, API-key, and similar secret-bearing pairs.
+- Ordinary non-secret pairs and malformed sibling values remain visible/processed normally so approval context stays useful.
+
+Approval decisions, pending-never-means-approval semantics, response-topic secrecy, notification authority, and the deliberately narrower remote Worker surface are unchanged.
+
 ## 0.2.16 - 2026-09-22
 
 ### Security
