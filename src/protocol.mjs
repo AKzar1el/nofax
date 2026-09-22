@@ -23,6 +23,11 @@ function redactSecretText(value) {
   let redacted = value;
 
   redacted = redacted.replace(
+    /\b([A-Za-z][A-Za-z0-9+.-]{1,31}:\/\/)([^\s\/@:]*):([^\s\/@]+)@/g,
+    '$1$2:[REDACTED]@'
+  );
+
+  redacted = redacted.replace(
     /\b((?:proxy[-_])?authorization)(\s*[:=]\s*)(bearer|basic)(\s+)([^\s"'`,;&]+)/gi,
     '$1$2$3$4[REDACTED]'
   );

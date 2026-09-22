@@ -65,6 +65,42 @@ test('redacts secret values embedded inside ordinary string fields', () => {
   assert.equal(result.benign, 'secretaryName=alice safeTokenizedValue=visible apiKeynote=keep');
 });
 
+test('redacts URI userinfo passwords inside ordinary string fields', () => {
+  const marker = 'NOFAX_URI_USERINFO_SECRET_CANARY_XYZ';
+  const result = redactAndBound({
+    database: `postgres://alice:${marker}@db.example.test/app`,
+    web: `https://alice:${marker}@example.test/private`,
+    encoded: `mongodb+srv://service:${marker}%2Fpart@cluster.example.test/app`,
+    cacheUri: `redis://:${marker}@cache.example.test:6379/0`,
+    usernameOnly: 'https://alice@example.test/path',
+    portOnly: 'https://example.test:8443/path'
+  });
+
+  assert.doesNotMatch(result.database, new RegExp(marker));
+  assert.doesNotMatch(result.web, new RegExp(marker));
+  assert.doesNotMatch(result.encoded, new RegExp(marker));
+  assert.doesNotMatch(result.cacheUri, new RegExp(marker));
+  assert.equal(result.database, 'postgres://alice:[REDACTED]@db.example.test/app');
+  assert.equal(result.web, 'https://alice:[REDACTED]@example.test/private');
+  assert.equal(result.encoded, 'mongodb+srv://service:[REDACTED]@cluster.example.test/app');
+  assert.equal(result.cacheUri, 'redis://:[REDACTED]@cache.example.test:6379/0');
+  assert.equal(result.usernameOnly, 'https://alice@example.test/path');
+  assert.equal(result.portOnly, 'https://example.test:8443/path');
+});
+
+test('buildAgentSummary does not expose URI userinfo passwords', () => {
+  const marker = 'NOFAX_URI_SUMMARY_SECRET_CANARY_XYZ';
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'shell',
+    cwd: '/tmp/project',
+    toolInput: { command: `psql postgres://alice:${marker}@db.example.test/app` }
+  });
+
+  assert.doesNotMatch(summary, new RegExp(marker));
+  assert.match(summary, /postgres:\/\/alice:\[REDACTED\]@db\.example\.test\/app/);
+});
+
 test('buildAgentSummary is stable, bounded, and does not expose known secret keys', () => {
   const summary = buildAgentSummary({
     source: 'Claude Code',
