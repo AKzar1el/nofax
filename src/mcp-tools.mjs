@@ -8,7 +8,7 @@ import {
 import {
   listPendingRequests,
   loadRequest,
-  resolveRequest,
+  resolveRequestWithClaim,
   savePendingRequest
 } from './requests.mjs';
 
@@ -116,7 +116,7 @@ export function createMcpToolHandlers(overrides = {}) {
     sendResponseConfirmationImpl: overrides.sendResponseConfirmationImpl ?? sendResponseConfirmation,
     savePendingRequestImpl: overrides.savePendingRequestImpl ?? savePendingRequest,
     loadRequestImpl: overrides.loadRequestImpl ?? loadRequest,
-    resolveRequestImpl: overrides.resolveRequestImpl ?? resolveRequest,
+    resolveRequestWithClaimImpl: overrides.resolveRequestWithClaimImpl ?? resolveRequestWithClaim,
     listPendingRequestsImpl: overrides.listPendingRequestsImpl ?? listPendingRequests,
     nowImpl: overrides.nowImpl ?? Date.now,
     sleepImpl: overrides.sleepImpl ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
@@ -214,14 +214,16 @@ export function createMcpToolHandlers(overrides = {}) {
           allowed: request.allowed
         });
         if (response !== null) {
-          request = await deps.resolveRequestImpl({
+          const resolution = await deps.resolveRequestWithClaimImpl({
             home: deps.home,
             env: deps.env,
             requestId: request.requestId,
             response,
             resolvedAt: new Date(deps.nowImpl()).toISOString()
           });
-          const acceptedResponse = request.decision === response.decision
+          request = resolution.request;
+          const acceptedResponse = resolution.claimed
+            && request.decision === response.decision
             && (request.text ?? undefined) === (response.text ?? undefined);
           if (acceptedResponse) {
             await deps.sendResponseConfirmationImpl({

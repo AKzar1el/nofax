@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { savePendingRequest, loadRequest, resolveRequest, listPendingRequests } from '../src/requests.mjs';
+import { savePendingRequest, loadRequest, resolveRequest, resolveRequestWithClaim, listPendingRequests } from '../src/requests.mjs';
 
 async function home(t) {
   const root = await mkdtemp(join(tmpdir(), 'nofax-req-'));
@@ -49,6 +49,19 @@ test('concurrent contradictory terminal responses converge on one durable winner
   assert.equal(first.decision, second.decision);
   assert.equal(stored.decision, first.decision);
   assert.equal(['allow', 'deny'].includes(stored.decision), true);
+});
+
+test('terminal claim reports exactly one winning resolver', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  const [first, second] = await Promise.all([
+    resolveRequestWithClaim({ home: root, requestId: pending.requestId, response: { decision: 'allow' }, resolvedAt: '2026-09-09T18:01:00.000Z' }),
+    resolveRequestWithClaim({ home: root, requestId: pending.requestId, response: { decision: 'allow' }, resolvedAt: '2026-09-09T18:02:00.000Z' })
+  ]);
+
+  assert.equal(Number(first.claimed) + Number(second.claimed), 1);
+  assert.equal(first.request.decision, 'allow');
+  assert.equal(second.request.decision, 'allow');
 });
 
 test('terminal resolution keeps the original projection pending and persists the sidecar winner', async (t) => {
