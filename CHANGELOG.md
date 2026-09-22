@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.13 - 2026-09-22
+
+### Security
+
+- Agent-hook summary redaction now treats exact two-element secret-key entry tuples such as `['Authorization', 'Bearer …']`, `['Cookie', '…']`, and `['X-Api-Key', '…']` as secret-bearing structured fields and redacts their value side before notification text leaves the local process.
+- Ordinary non-secret tuples remain visible so human approval context stays useful.
+
+Approval decisions, pending-never-means-approval semantics, response-topic secrecy, notification authority, and the deliberately narrower remote Worker surface are unchanged.
+
 ## 0.2.12 - 2026-09-22
 
 ### Security
