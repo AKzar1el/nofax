@@ -135,7 +135,7 @@ export function buildMcpServer({ handlers = createMcpToolHandlers() } = {}) {
     'nofax_request_refinement',
     {
       title: 'Request human refinement',
-      description: 'Ask the human for free-text refinement through the configured Nofax Refine iOS Shortcut. Returns a durable pending requestId. IMPORTANT: call nofax_wait_for_response and repeat while pending.',
+      description: 'Ask the human for free-text refinement through the configured Nofax Refine iOS Shortcut. Use this when free-text edits are needed; use nofax_request_approval for Allow/Deny or nofax_request_choice for predefined options. Returns a durable pending requestId; call nofax_wait_for_response and repeat while pending.',
       inputSchema: z.object({
         title: z.string().min(1).max(120).optional().describe('Optional refinement prompt title shown to the human; defaults to "Nofax refinement".'),
         message: z.string().min(1).max(2200).describe('Context or draft the human should refine with free text.')
@@ -165,7 +165,7 @@ export function buildMcpServer({ handlers = createMcpToolHandlers() } = {}) {
     'nofax_get_request',
     {
       title: 'Get Nofax request',
-      description: 'Recover safe metadata and terminal state for a durable Nofax request. Secret response topics are never returned.',
+      description: 'Inspect safe metadata and terminal state for one known durable requestId without waiting. Use nofax_wait_for_response when the caller must wait for a human decision, or nofax_list_pending to recover requestIds after interruption. Secret response topics are never returned.',
       inputSchema: z.object({
         requestId: z.string().min(24).max(84).describe('Durable Nofax request handle to inspect without exposing its secret response topic.')
       }),
