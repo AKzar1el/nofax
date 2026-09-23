@@ -106,6 +106,37 @@ test('requestChoice enforces ntfy three-action limit and returns a selected opti
   assert.equal(result.decision, 'b');
 });
 
+test('requestChoice confirms reserved option words as choices rather than approval semantics', async () => {
+  let requestId;
+  const published = [];
+  const fetchImpl = async (url, init = {}) => {
+    if (init.method === 'POST') {
+      const payload = JSON.parse(init.body);
+      published.push(payload);
+      if (payload.actions) requestId = JSON.parse(payload.actions[0].body).requestId;
+      return jsonResponse({ id: 'published' });
+    }
+    return jsonResponse(`{"event":"message","message":${JSON.stringify(JSON.stringify({ v: 1, requestId, decision: 'allow' }))}}\n`);
+  };
+
+  const result = await requestChoice({
+    config,
+    title: 'Pick',
+    message: 'Choose',
+    options: [
+      { value: 'allow', label: 'Use option A' },
+      { value: 'ship', label: 'Ship' }
+    ],
+    fetchImpl,
+    sleepImpl: async () => {}
+  });
+
+  assert.equal(result.decision, 'allow');
+  assert.equal(published.length, 2);
+  assert.match(published[1].title, /^Choice received/);
+  assert.doesNotMatch(published[1].title, /Approved/);
+});
+
 test('non-2xx publish fails without pretending the notification was delivered', async () => {
   await assert.rejects(() => sendNotification({
     config,

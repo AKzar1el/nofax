@@ -163,10 +163,12 @@ export async function pollRemoteResponse({ config, responseTopic, requestId, all
   return parseNtfyPoll(await response.text(), requestId, allowed);
 }
 
-export async function sendResponseConfirmation({ config, response, title = 'Nofax', fetchImpl = fetch }) {
+export async function sendResponseConfirmation({ config, response, kind, title = 'Nofax', fetchImpl = fetch }) {
   let confirmationTitle = 'Response received';
   let tag = 'white_check_mark';
-  if (response.decision === 'allow') confirmationTitle = 'Approved';
+  if (kind === 'choice') confirmationTitle = 'Choice received';
+  else if (kind === 'refinement') confirmationTitle = 'Refinement received';
+  else if (response.decision === 'allow') confirmationTitle = 'Approved';
   else if (response.decision === 'deny') {
     confirmationTitle = 'Denied';
     tag = 'no_entry';
@@ -217,6 +219,7 @@ async function requestDecision({
   title,
   message,
   options,
+  kind,
   includeRefine = false,
   fetchImpl = fetch,
   timeoutMs = config.timeoutSeconds * 1000,
@@ -237,13 +240,14 @@ async function requestDecision({
   if (response === null) {
     return { decision: 'timeout', requestId: remote.requestId, responseTopic: remote.responseTopic };
   }
-  await sendResponseConfirmation({ config, response, title, fetchImpl });
+  await sendResponseConfirmation({ config, response, kind, title, fetchImpl });
   return { ...response, requestId: remote.requestId, responseTopic: remote.responseTopic };
 }
 
 export async function requestApproval(options) {
   return requestDecision({
     ...options,
+    kind: 'approval',
     options: [
       { value: 'allow', label: 'Allow' },
       { value: 'deny', label: 'Deny' }
@@ -252,11 +256,11 @@ export async function requestApproval(options) {
 }
 
 export async function requestRefinement(options) {
-  return requestDecision({ ...options, options: [], includeRefine: true });
+  return requestDecision({ ...options, kind: 'refinement', options: [], includeRefine: true });
 }
 
 export async function requestChoice({ options, ...rest }) {
   const normalized = normalizeOptions(options);
   if (normalized.length < 1 || normalized.length > 3) throw new Error('NOFAX_CHOICE_LIMIT');
-  return requestDecision({ ...rest, options: normalized });
+  return requestDecision({ ...rest, kind: 'choice', options: normalized });
 }
