@@ -45,3 +45,10 @@ test('parseResponseMessage accepts refine as an ordinary choice value without te
   });
   assert.deepEqual(result, { decision: 'refine' });
 });
+
+test('parseResponseMessage normalizes surrounding whitespace on an allowed decision', () => {
+  const result = parseResponseMessage(JSON.stringify({ v: 1, requestId: 'nfx_test', decision: ' allow ' }), {
+    requestId: 'nfx_test', allowed: ['allow', 'deny']
+  });
+  assert.deepEqual(result, { decision: 'allow' });
+});
