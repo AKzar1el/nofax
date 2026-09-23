@@ -401,6 +401,30 @@ test('redacts complete parameterized Authorization header lines', () => {
   assert.equal(multiline, 'Accept: application/json\n  Authorization: [REDACTED]\nX-Mode: safe');
 });
 
+test('redacts folded Authorization continuation lines', () => {
+  const marker = 'NOFAX_FOLDED_AUTH_SECRET_CANARY_XYZ';
+  const digest = redactAndBound(`Authorization: Digest username="alice",\n response="${marker}"`);
+  const proxy = redactAndBound(`Proxy-Authorization: Digest username="alice",\n\tresponse="${marker}"`);
+  const multiline = redactAndBound(`Accept: application/json\nAuthorization: Digest username="alice",\n response="${marker}"\nX-Mode: safe`);
+  const wrapped = redactAndBound(`headers={Authorization: Digest username=alice,\n Signature=${marker}}`);
+  const quotedWrapped = redactAndBound(`headers={"Authorization": Digest username=alice,\n Signature=${marker}}`);
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'shell',
+    cwd: '/tmp/project',
+    toolInput: { headers: `Authorization: Digest username="alice",\n response="${marker}"` }
+  });
+
+  for (const value of [digest, proxy, multiline, wrapped, quotedWrapped, summary]) {
+    assert.doesNotMatch(value, new RegExp(marker));
+  }
+  assert.equal(digest, 'Authorization: [REDACTED]');
+  assert.equal(proxy, 'Proxy-Authorization: [REDACTED]');
+  assert.equal(multiline, 'Accept: application/json\nAuthorization: [REDACTED]\nX-Mode: safe');
+  assert.equal(wrapped, 'headers={Authorization: [REDACTED]}');
+  assert.equal(quotedWrapped, 'headers={"Authorization": [REDACTED]}');
+});
+
 test('redacts inline quoted and assignment-style Authorization values', () => {
   const marker = 'NOFAX_INLINE_AUTH_SECRET_CANARY_XYZ';
   const digestInline = redactAndBound(`curl -H 'Authorization: Digest username="alice", realm="test", response="${marker}"' https://example.test/path`);
