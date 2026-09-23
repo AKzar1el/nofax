@@ -1,6 +1,6 @@
 {
   "name": "nofax",
-  "version": "0.2.21",
+  "version": "0.2.22",
   "mcpName": "io.github.AKzar1el/nofax",
   "description": "Human-in-the-loop approvals and notifications for AI coding agents via CLI, MCP, and agent hooks.",
   "type": "module",

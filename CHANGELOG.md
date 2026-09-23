@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.22 - 2026-09-23
+
+### Fixed
+
+- Claude Code and Codex `PermissionRequest` hook setup/configuration failures now decline cleanly to the host's native approval flow with exit 0, empty stdout, and diagnostics on stderr instead of surfacing a hook error boundary when Nofax cannot establish a remote decision.
+- Gemini CLI `Notification` setup/configuration and ntfy transport failures now remain advisory with valid empty JSON plus diagnostics, while synchronous `BeforeTool` failures continue to return strict `{\"decision\":\"ask\"}` native-confirmation fallback JSON.
+
+Pending, timeout, disconnect, setup/config failure, transport failure, and notification delivery still never mean approval. Explicit remote Allow/Deny decisions, response-topic secrecy, and the narrower remote Worker authority boundary are unchanged.
+
 ## 0.2.21 - 2026-09-23
 
 ### Fixed
