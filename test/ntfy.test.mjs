@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { requestApproval, requestChoice, sendNotification } from '../src/ntfy.mjs';
+import { createRemoteRequest, requestApproval, requestChoice, sendNotification } from '../src/ntfy.mjs';
 
 const config = { version: 1, server: 'https://ntfy.sh', topic: 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF', timeoutSeconds: 300 };
 
@@ -104,6 +104,42 @@ test('requestChoice enforces ntfy three-action limit and returns a selected opti
     sleepImpl: async () => {}
   });
   assert.equal(result.decision, 'b');
+});
+
+test('string choice options use the same validation and bounds as object choices', async () => {
+  const noFetch = async () => {
+    throw new Error('unexpected fetch');
+  };
+  await assert.rejects(() => createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Choose',
+    options: ['   '],
+    fetchImpl: noFetch
+  }), /NOFAX_CHOICE_INVALID/);
+  await assert.rejects(() => createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Choose',
+    options: ['x'.repeat(81)],
+    fetchImpl: noFetch
+  }), /NOFAX_CHOICE_INVALID/);
+
+  const value = 'x'.repeat(40);
+  let payload;
+  const remote = await createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Choose',
+    options: [`  ${value}  `],
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'published' });
+    }
+  });
+  assert.deepEqual(remote.allowed, [value]);
+  assert.equal(payload.actions[0].label, value.slice(0, 32));
+  assert.equal(JSON.parse(payload.actions[0].body).decision, value);
 });
 
 test('requestChoice confirms reserved option words as choices rather than approval semantics', async () => {
