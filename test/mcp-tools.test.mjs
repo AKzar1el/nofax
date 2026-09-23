@@ -110,6 +110,34 @@ test('wait persists terminal approval, confirms phone, and permits caller to act
   assert.equal(stored.decision, 'allow');
 });
 
+test('choice handlers reject overlong decision values instead of silently truncating them', async () => {
+  const handlers = createMcpToolHandlers({
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: async (input) => {
+      const remote = {
+        requestId: 'nfx_abcdefghijklmnopqrstuv98',
+        responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz1298',
+        allowed: input.options.map((option) => option.value)
+      };
+      await input.beforePublish(remote);
+      return remote;
+    },
+    savePendingRequestImpl: async () => {}
+  });
+
+  await assert.rejects(() => handlers.requestChoice({
+    title: 'Pick one',
+    message: 'Choose an explicit option',
+    options: ['x'.repeat(81)]
+  }), /NOFAX_CHOICE_INVALID/);
+
+  await assert.rejects(() => handlers.requestChoice({
+    title: 'Pick one',
+    message: 'Choose an explicit option',
+    options: [{ value: 'y'.repeat(81), label: 'Too long' }]
+  }), /NOFAX_CHOICE_INVALID/);
+});
+
 test('choice results stay choice semantics when option values use reserved decision words', async (t) => {
   for (const decision of ['allow', 'deny', 'refine']) {
     const home = await makeHome(t);
