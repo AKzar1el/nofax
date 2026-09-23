@@ -80,6 +80,16 @@ function redactSecretText(value) {
   );
 
   redacted = redacted.replace(
+    /(^|[\r\n]|[({\[,:;])([ \t]*)(["'])((?:proxy[-_])?authorization)\3(\s*[:=]\s*)[^}\])\r\n]*(?=[}\])]|$)/gim,
+    '$1$2$3$4$3$5[REDACTED]'
+  );
+
+  redacted = redacted.replace(
+    /([({\[,:;][ \t]*)((?:proxy[-_])?authorization)(\s*[:=]\s*)(?!\[REDACTED\]|(?:bearer|basic)\b)[^}\])\r\n]*(?=[}\])]|$)/gi,
+    '$1$2$3[REDACTED]'
+  );
+
+  redacted = redacted.replace(
     /([^ \t\r\n=][ \t]+|=)((?:proxy[-_])?authorization)(\s*[:=]\s*)(?!\[REDACTED\]|(?:bearer|basic)\b)[^\r\n]*/gi,
     '$1$2$3[REDACTED]'
   );
@@ -119,6 +129,7 @@ function redactSecretText(value) {
     /([A-Za-z][A-Za-z0-9_-]{0,63})(\s*[:=]\s*)([^\s"'`,;&]+)/g,
     (match, key, separator, rawValue) => {
       if (!isSecretKey(key)) return match;
+      if (/^\[REDACTED\][}\])]*$/.test(rawValue)) return match;
       if (/authorization$/i.test(normalizeSecretKeyName(key)) && /^(?:bearer|basic)$/i.test(rawValue)) return match;
       return `${key}${separator}[REDACTED]`;
     }
