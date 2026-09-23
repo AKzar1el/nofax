@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.21 - 2026-09-23
+
+### Fixed
+
+- Gemini CLI hook setup, input-parse, configuration, or unexpected adapter failures now return strict `{"decision":"ask"}` hook JSON with a diagnostic on stderr instead of escaping the CLI boundary with empty stdout, preserving native confirmation when Nofax cannot produce a remote decision.
+- Asynchronous failures from other hook adapters are now contained by the normal CLI error boundary instead of escaping as rejected promises.
+
+Pending, timeout, disconnect, setup/config failure, and transport failure still never mean approval. Remote Worker authority, response-topic secrecy, and notification scope are unchanged.
+
 ## 0.2.20 - 2026-09-23
 
 ### Fixed
