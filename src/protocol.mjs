@@ -181,18 +181,16 @@ export function redactAndBound(value, options = {}) {
     ));
   }
 
-  const entryName = typeof value.name === 'string'
-    ? value.name
-    : typeof value.key === 'string'
-      ? value.key
-      : typeof value.header === 'string'
-        ? value.header
-        : null;
+  const entryName = Object.entries(value).find(([key, child]) => (
+    typeof child === 'string'
+    && (key.toLowerCase() === 'name' || key.toLowerCase() === 'key' || key.toLowerCase() === 'header')
+  ))?.[1] ?? null;
   const redactEntryValue = entryName !== null && isSecretKey(entryName);
 
   const out = {};
   for (const [key, child] of Object.entries(value).slice(0, MAX_OBJECT_KEYS)) {
-    out[key] = isSecretKey(key) || (redactEntryValue && (key === 'value' || key === 'values'))
+    const normalizedKey = key.toLowerCase();
+    out[key] = isSecretKey(key) || (redactEntryValue && (normalizedKey === 'value' || normalizedKey === 'values'))
       ? '[REDACTED]'
       : redactAndBound(child, { seen, depth: depth + 1 });
   }

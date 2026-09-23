@@ -140,6 +140,28 @@ test('redacts values in secret-key tuple entries without hiding ordinary tuples'
   assert.match(summary, /"Accept",\n\s+"application\/json"/);
 });
 
+test('redacts case-variant structured header entry fields', () => {
+  const marker = 'NOFAX_HEADER_ENTRY_CASE_CANARY_XYZ';
+  const input = {
+    headers: [
+      { name: 'Authorization', Value: marker },
+      { Header: 'X-Api-Key', Values: [marker] },
+      { Name: 'Accept', Value: 'application/json' }
+    ]
+  };
+  const result = redactAndBound(input);
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'http_request',
+    toolInput: input
+  });
+
+  assert.equal(result.headers[0].Value, '[REDACTED]');
+  assert.equal(result.headers[1].Values, '[REDACTED]');
+  assert.equal(result.headers[2].Value, 'application/json');
+  assert.doesNotMatch(summary, new RegExp(marker));
+});
+
 test('redacts secret values in flat alternating key/value arrays', () => {
   const marker = 'NOFAX_FLAT_HEADER_CANARY_XYZ';
   const input = {
