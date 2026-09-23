@@ -206,3 +206,25 @@ test('durable allowed values reject whitespace-only decisions', async (t) => {
     /NOFAX_REQUEST_ALLOWED_INVALID/
   );
 });
+
+test('durable allowed values normalize surrounding whitespace before persistence and resolution', async (t) => {
+  const root = await home(t);
+  const request = {
+    ...pending,
+    requestId: 'nfx_abcdefghijklmnopqrstuvw9',
+    kind: 'choice',
+    allowed: [' allow ', ' deny ']
+  };
+
+  const saved = await savePendingRequest({ home: root, request });
+  assert.deepEqual(saved.allowed, ['allow', 'deny']);
+  assert.deepEqual((await loadRequest({ home: root, requestId: request.requestId })).allowed, ['allow', 'deny']);
+
+  const resolved = await resolveRequest({
+    home: root,
+    requestId: request.requestId,
+    response: { decision: 'allow' },
+    resolvedAt: '2026-09-09T18:01:00.000Z'
+  });
+  assert.equal(resolved.decision, 'allow');
+});
