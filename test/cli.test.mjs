@@ -83,6 +83,26 @@ test('hook timeout writes no stdout so native approval can continue', async () =
   assert.match(stderr.read(), /native approval/i);
 });
 
+test('Claude and Codex hook setup failures cleanly fall back to native approval', async () => {
+  const input = JSON.stringify({
+    hook_event_name: 'PermissionRequest', cwd: '/repo', tool_name: 'Bash', tool_input: { command: 'npm test' }
+  });
+
+  for (const adapter of ['claude', 'codex']) {
+    const stdout = capture();
+    const stderr = capture();
+    const code = await runCli(['hook', adapter], {
+      stdinText: input,
+      stdout,
+      stderr,
+      loadConfigImpl: async () => { throw new Error('NOFAX_CONFIG_MISSING'); }
+    });
+    assert.equal(code, 0);
+    assert.equal(stdout.read(), '');
+    assert.match(stderr.read(), /NOFAX_CONFIG_MISSING/);
+    assert.match(stderr.read(), /native approval/i);
+  }
+});
 test('Gemini BeforeTool hook emits only strict decision JSON', async () => {
   const stdout = capture();
   const stderr = capture();
