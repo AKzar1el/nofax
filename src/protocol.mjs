@@ -274,9 +274,10 @@ export function parseResponseMessage(message, { requestId, allowed, kind }) {
   if (!parsed || parsed.v !== 1 || parsed.requestId !== requestId || typeof parsed.decision !== 'string') {
     return null;
   }
-  if (!allowed.includes(parsed.decision)) return null;
+  const decision = parsed.decision.trim();
+  if (!decision || !allowed.includes(decision)) return null;
 
-  if (parsed.decision === 'refine') {
+  if (decision === 'refine') {
     if (kind === 'choice') return { decision: 'refine' };
     if (typeof parsed.text !== 'string') return null;
     const text = parsed.text.trim();
@@ -284,7 +285,7 @@ export function parseResponseMessage(message, { requestId, allowed, kind }) {
     return { decision: 'refine', text: text.slice(0, MAX_RESPONSE_TEXT) };
   }
 
-  return { decision: parsed.decision };
+  return { decision };
 }
 
 export function parseDecisionMessage(message, { requestId, allowed, kind }) {
