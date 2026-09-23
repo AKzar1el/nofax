@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.32 - 2026-09-24
+
+### Changed
+
+- Durable request-state validation now rejects whitespace-only allowed decision values instead of persisting semantically empty choices.
+- Direct-library MCP choice handlers now reject decision values longer than 80 characters instead of silently truncating and changing the caller's intended choice value.
+
+Pending, timeout, disconnect, setup/config failure, transport failure, and notification delivery still never mean approval. Explicit Allow/Deny behavior, response-topic secrecy, notification authority, and the narrower remote Worker boundary are unchanged.
+
 ## 0.2.31 - 2026-09-23
 
 ### Changed
