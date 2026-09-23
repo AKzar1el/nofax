@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.18 - 2026-09-23
+
+### Security
+
+- Agent-hook summary redaction now treats standalone `auth` fields as credential-bearing while preserving non-secret auth metadata such as `authMode` and `authentication`.
+- Passphrase credential fields, including standalone and suffix-style forms such as `passphrase`, `keyPassphrase`, and `signingPassphrase`, are now redacted before notification text leaves the local process while benign metadata such as `passphraseHint` remains visible.
+
+Approval decisions, pending-never-means-approval semantics, response-topic secrecy, notification authority, and the deliberately narrower remote Worker surface are unchanged.
+
 ## 0.2.17 - 2026-09-23
 
 ### Security
