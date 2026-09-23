@@ -122,6 +122,22 @@ test('Gemini BeforeTool timeout emits strict native-confirmation JSON', async ()
   assert.equal(stderr.read(), '');
 });
 
+test('Gemini hook setup failure forces native confirmation instead of escaping the CLI boundary', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  const input = JSON.stringify({
+    hook_event_name: 'BeforeTool', cwd: '/repo', tool_name: 'write_file', tool_input: { file_path: 'README.md' }
+  });
+  const code = await runCli(['hook', 'gemini'], {
+    stdinText: input,
+    stdout,
+    stderr,
+    loadConfigImpl: async () => { throw new Error('NOFAX_CONFIG_MISSING'); }
+  });
+  assert.equal(code, 0);
+  assert.deepEqual(JSON.parse(stdout.read()), { decision: 'ask' });
+  assert.match(stderr.read(), /NOFAX_CONFIG_MISSING/);
+});
 test('help is concise and lists supported commands', async () => {
   const stdout = capture();
   const code = await runCli(['--help'], { stdout, stderr: capture() });

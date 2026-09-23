@@ -196,7 +196,16 @@ export async function runCli(args, overrides = {}) {
     if (command === 'hook') {
       const adapter = args[1];
       if (!adapter) throw new Error('NOFAX_HOOK_REQUIRED');
-      return runHook(adapter, deps);
+      try {
+        return await runHook(adapter, deps);
+      } catch (error) {
+        if (adapter === 'gemini') {
+          deps.stderr.write(`nofax: ${error.message}\n`);
+          writeJson(deps.stdout, { decision: 'ask' });
+          return 0;
+        }
+        throw error;
+      }
     }
 
     throw new Error(`NOFAX_UNKNOWN_COMMAND:${command}`);
