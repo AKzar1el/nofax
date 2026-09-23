@@ -64,6 +64,42 @@ test('terminal claim reports exactly one winning resolver', async (t) => {
   assert.equal(second.request.decision, 'allow');
 });
 
+test('non-choice refine terminal responses require refinement text', async (t) => {
+  const root = await home(t);
+  const refinementPending = {
+    ...pending,
+    kind: 'refinement',
+    allowed: ['refine']
+  };
+  await savePendingRequest({ home: root, request: refinementPending });
+
+  await assert.rejects(
+    resolveRequest({
+      home: root,
+      requestId: refinementPending.requestId,
+      response: { decision: 'refine' },
+      resolvedAt: '2026-09-09T18:01:00.000Z'
+    }),
+    /NOFAX_REQUEST_TEXT_INVALID/
+  );
+
+  const choicePending = {
+    ...pending,
+    requestId: 'nfx_abcdefghijklmnopqrstuvwy',
+    kind: 'choice',
+    allowed: ['refine']
+  };
+  await savePendingRequest({ home: root, request: choicePending });
+  const choice = await resolveRequest({
+    home: root,
+    requestId: choicePending.requestId,
+    response: { decision: 'refine' },
+    resolvedAt: '2026-09-09T18:01:00.000Z'
+  });
+  assert.equal(choice.decision, 'refine');
+  assert.equal('text' in choice, false);
+});
+
 test('terminal resolution keeps the original projection pending and persists the sidecar winner', async (t) => {
   const root = await home(t);
   await savePendingRequest({ home: root, request: pending });
