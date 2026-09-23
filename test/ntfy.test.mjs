@@ -170,6 +170,7 @@ test('requestChoice accepts refine as an ordinary choice value without refinemen
   assert.equal('text' in result, false);
   assert.equal(published.length, 2);
   assert.match(published[1].title, /^Choice received/);
+  assert.equal(published[1].message, 'Nofax recorded: refine');
 });
 
 test('non-2xx publish fails without pretending the notification was delivered', async () => {
