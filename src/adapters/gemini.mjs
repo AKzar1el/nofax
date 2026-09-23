@@ -29,7 +29,12 @@ export async function handleGeminiHook(input, {
 } = {}) {
   if (!input || typeof input.hook_event_name !== 'string') throw new Error('NOFAX_GEMINI_EVENT');
   if (input.hook_event_name === 'Notification') {
-    return handleGeminiNotification(input, { config, sendNotificationImpl });
+    try {
+      return await handleGeminiNotification(input, { config, sendNotificationImpl });
+    } catch (error) {
+      onError(error);
+      return {};
+    }
   }
   if (input.hook_event_name !== 'BeforeTool') throw new Error('NOFAX_GEMINI_EVENT');
   if (typeof input.tool_name !== 'string' || !input.tool_name) throw new Error('NOFAX_GEMINI_TOOL');

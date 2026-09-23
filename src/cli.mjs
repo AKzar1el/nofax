@@ -58,8 +58,18 @@ async function runHook(adapter, deps) {
   } catch {
     throw new Error('NOFAX_HOOK_INVALID_JSON');
   }
-  const config = await deps.loadConfigImpl({ env: deps.env });
   const onError = (error) => deps.stderr.write(`nofax: ${error.message}\n`);
+  let config;
+  try {
+    config = await deps.loadConfigImpl({ env: deps.env });
+  } catch (error) {
+    if (adapter === 'gemini' && input.hook_event_name === 'Notification') {
+      onError(error);
+      writeJson(deps.stdout, {});
+      return 0;
+    }
+    throw error;
+  }
   let output;
   if (adapter === 'claude') {
     output = await handleClaudePermissionRequest(input, { config, requestApprovalImpl: deps.requestApprovalImpl, onError });
