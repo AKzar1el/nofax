@@ -111,14 +111,14 @@ function validateChoiceOptions(options) {
   return options.map((option) => {
     if (typeof option === 'string') {
       const value = option.trim();
-      if (!value) throw new Error('NOFAX_CHOICE_INVALID');
-      return { value: value.slice(0, 80), label: value.slice(0, 32) };
+      if (!value || value.length > 80) throw new Error('NOFAX_CHOICE_INVALID');
+      return { value, label: value.slice(0, 32) };
     }
     if (!option || typeof option.value !== 'string' || typeof option.label !== 'string') throw new Error('NOFAX_CHOICE_INVALID');
     const value = option.value.trim();
     const label = option.label.trim();
-    if (!value || !label) throw new Error('NOFAX_CHOICE_INVALID');
-    return { value: value.slice(0, 80), label: label.slice(0, 32) };
+    if (!value || !label || value.length > 80) throw new Error('NOFAX_CHOICE_INVALID');
+    return { value, label: label.slice(0, 32) };
   });
 }
 
