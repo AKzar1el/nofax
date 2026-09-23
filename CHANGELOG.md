@@ -42,6 +42,14 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.29 - 2026-09-23
+
+### Security
+
+- Agent-hook summary redaction now applies the existing secret-key classifier to URL fragment parameters as well as query parameters, preventing OAuth-style `#access_token=` and `#id_token=` values from escaping through outbound summaries while preserving benign fragment metadata.
+
+Pending, timeout, disconnect, setup/config failure, transport failure, and notification delivery still never mean approval. Explicit Allow/Deny behavior, response-topic secrecy, notification authority, and the narrower remote Worker boundary are unchanged.
+
 ## 0.2.28 - 2026-09-23
 
 ### Security
