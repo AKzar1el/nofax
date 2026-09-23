@@ -179,9 +179,9 @@ export async function sendResponseConfirmation({ config, response, kind, title =
     await sendNotification({
       config,
       title: `${confirmationTitle} - ${title}`,
-      message: response.decision === 'refine'
-        ? 'Your refinement was sent back to the agent.'
-        : `Nofax recorded: ${response.decision}`,
+      message: kind !== 'choice' && response.decision === 'refine'
+          ? 'Your refinement was sent back to the agent.'
+          : `Nofax recorded: ${response.decision}`,
       priority: 2,
       tags: [tag],
       fetchImpl
