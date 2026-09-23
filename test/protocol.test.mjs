@@ -259,6 +259,33 @@ test('redacts secret values in name/key entry objects with singular or plural va
   assert.match(summary, /"name": "Accept",\n\s+"value": "application\/json"/);
 });
 
+test('redacts secret values in header/value entry objects', () => {
+  const marker = 'NOFAX_HEADER_ENTRY_SECRET_CANARY_XYZ';
+  const input = {
+    headers: [
+      { header: 'Authorization', value: `Bearer ${marker}` },
+      { header: 'Cookie', value: `session=${marker}` },
+      { header: 'X-Api-Key', value: marker },
+      { header: 'Accept', value: 'application/json' }
+    ]
+  };
+  const result = redactAndBound(input);
+  const summary = buildAgentSummary({
+    source: 'Claude Code',
+    toolName: 'WebFetch',
+    cwd: '/tmp/project',
+    toolInput: input
+  });
+
+  assert.deepEqual(result.headers, [
+    { header: 'Authorization', value: '[REDACTED]' },
+    { header: 'Cookie', value: '[REDACTED]' },
+    { header: 'X-Api-Key', value: '[REDACTED]' },
+    { header: 'Accept', value: 'application/json' }
+  ]);
+  assert.doesNotMatch(summary, new RegExp(marker));
+});
+
 test('redacts secret values embedded inside ordinary string fields', () => {
   const marker = 'NOFAX_EMBEDDED_SECRET_CANARY_XYZ';
   const result = redactAndBound({
