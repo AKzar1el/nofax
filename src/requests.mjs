@@ -17,7 +17,11 @@ function validateRequest(input) {
   const requestId = validateRequestId(input.requestId);
   if (!KINDS.has(input.kind)) throw new Error('NOFAX_REQUEST_KIND_INVALID');
   if (typeof input.responseTopic !== 'string' || !RESPONSE_TOPIC.test(input.responseTopic)) throw new Error('NOFAX_RESPONSE_TOPIC_INVALID');
-  if (!Array.isArray(input.allowed) || input.allowed.length < 1 || input.allowed.length > 3 || input.allowed.some((value) => typeof value !== 'string' || !value.trim() || value.length > 80)) {
+  if (!Array.isArray(input.allowed) || input.allowed.length < 1 || input.allowed.length > 3 || input.allowed.some((value) => typeof value !== 'string')) {
+    throw new Error('NOFAX_REQUEST_ALLOWED_INVALID');
+  }
+  const allowed = input.allowed.map((value) => value.trim());
+  if (allowed.some((value) => !value || value.length > 80)) {
     throw new Error('NOFAX_REQUEST_ALLOWED_INVALID');
   }
   if (!STATUSES.has(input.status)) throw new Error('NOFAX_REQUEST_STATUS_INVALID');
@@ -27,18 +31,20 @@ function validateRequest(input) {
     requestId,
     kind: input.kind,
     responseTopic: input.responseTopic,
-    allowed: [...input.allowed],
+    allowed,
     status: input.status,
     createdAt: input.createdAt
   };
   if (input.status === 'resolved') {
     if (typeof input.resolvedAt !== 'string' || Number.isNaN(Date.parse(input.resolvedAt))) throw new Error('NOFAX_REQUEST_RESOLVED_AT_INVALID');
-    if (typeof input.decision !== 'string' || !input.allowed.includes(input.decision)) throw new Error('NOFAX_REQUEST_DECISION_INVALID');
-    if (input.decision === 'refine' && input.kind !== 'choice' && (typeof input.text !== 'string' || !input.text.trim())) {
+    if (typeof input.decision !== 'string') throw new Error('NOFAX_REQUEST_DECISION_INVALID');
+    const decision = input.decision.trim();
+    if (!allowed.includes(decision)) throw new Error('NOFAX_REQUEST_DECISION_INVALID');
+    if (decision === 'refine' && input.kind !== 'choice' && (typeof input.text !== 'string' || !input.text.trim())) {
       throw new Error('NOFAX_REQUEST_TEXT_INVALID');
     }
     base.resolvedAt = input.resolvedAt;
-    base.decision = input.decision;
+    base.decision = decision;
     if (input.text !== undefined) {
       if (typeof input.text !== 'string' || !input.text.trim()) throw new Error('NOFAX_REQUEST_TEXT_INVALID');
       base.text = input.text.trim().slice(0, 2000);
