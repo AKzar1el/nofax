@@ -579,6 +579,28 @@ test('buildAgentSummary does not expose URI userinfo passwords', () => {
   assert.match(summary, /postgres:\/\/alice:\[REDACTED\]@db\.example\.test\/app/);
 });
 
+test('redacts curl user-info credentials in command strings', () => {
+  const marker = 'NOFAX_CURL_USER_SECRET_CANARY_XYZ';
+  const short = redactAndBound(`curl -u alice:${marker} https://example.test`);
+  const long = redactAndBound(`curl --user=alice:${marker} https://example.test`);
+  const proxy = redactAndBound(`curl --proxy-user 'proxy:${marker}' https://example.test`);
+  const benign = redactAndBound('curl --user alice https://example.test');
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'shell',
+    cwd: '/tmp/project',
+    toolInput: { command: `curl -u alice:${marker} https://example.test` }
+  });
+
+  for (const value of [short, long, proxy, summary]) {
+    assert.doesNotMatch(value, new RegExp(marker));
+  }
+  assert.equal(short, 'curl -u alice:[REDACTED] https://example.test');
+  assert.equal(long, 'curl --user=alice:[REDACTED] https://example.test');
+  assert.equal(proxy, "curl --proxy-user 'proxy:[REDACTED]' https://example.test");
+  assert.equal(benign, 'curl --user alice https://example.test');
+});
+
 test('redacts secrets before applying the per-string truncation boundary', () => {
   const marker = 'NOFAX_TRUNCATION_SECRET_CANARY_XYZ';
   const input = `${'x'.repeat(440)} clientSecret="${marker}${'z'.repeat(120)}"`;
