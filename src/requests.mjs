@@ -34,6 +34,9 @@ function validateRequest(input) {
   if (input.status === 'resolved') {
     if (typeof input.resolvedAt !== 'string' || Number.isNaN(Date.parse(input.resolvedAt))) throw new Error('NOFAX_REQUEST_RESOLVED_AT_INVALID');
     if (typeof input.decision !== 'string' || !input.allowed.includes(input.decision)) throw new Error('NOFAX_REQUEST_DECISION_INVALID');
+    if (input.decision === 'refine' && input.kind !== 'choice' && (typeof input.text !== 'string' || !input.text.trim())) {
+      throw new Error('NOFAX_REQUEST_TEXT_INVALID');
+    }
     base.resolvedAt = input.resolvedAt;
     base.decision = input.decision;
     if (input.text !== undefined) {
