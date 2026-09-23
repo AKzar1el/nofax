@@ -185,7 +185,9 @@ export function redactAndBound(value, options = {}) {
     ? value.name
     : typeof value.key === 'string'
       ? value.key
-      : null;
+      : typeof value.header === 'string'
+        ? value.header
+        : null;
   const redactEntryValue = entryName !== null && isSecretKey(entryName);
 
   const out = {};
