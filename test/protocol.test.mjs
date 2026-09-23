@@ -425,6 +425,26 @@ test('redacts inline quoted and assignment-style Authorization values', () => {
   assert.equal(proxyAssigned, 'Proxy-Authorization = [REDACTED]');
 });
 
+test('redacts unquoted inline parameterized Authorization values', () => {
+  const marker = 'NOFAX_UNQUOTED_INLINE_AUTH_SECRET_CANARY_XYZ';
+  const digestInline = redactAndBound(`prefix Authorization: Digest username=alice, response="${marker}"`);
+  const awsInline = redactAndBound(`header=Authorization: AWS4-HMAC-SHA256 Credential=AKIA/example, Signature=${marker}`);
+  const proxyInline = redactAndBound(`prefix Proxy-Authorization: Digest username=alice, response="${marker}"`);
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'shell',
+    cwd: '/tmp/project',
+    toolInput: { command: `prefix Authorization: Digest username=alice, response="${marker}"` }
+  });
+
+  for (const value of [digestInline, awsInline, proxyInline, summary]) {
+    assert.doesNotMatch(value, new RegExp(marker));
+  }
+  assert.equal(digestInline, 'prefix Authorization: [REDACTED]');
+  assert.equal(awsInline, 'header=Authorization: [REDACTED]');
+  assert.equal(proxyInline, 'prefix Proxy-Authorization: [REDACTED]');
+});
+
 test('redacts URI userinfo passwords inside ordinary string fields', () => {
   const marker = 'NOFAX_URI_USERINFO_SECRET_CANARY_XYZ';
   const result = redactAndBound({
