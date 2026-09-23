@@ -469,6 +469,28 @@ test('redacts punctuation-delimited parameterized Authorization values', () => {
   assert.equal(nestedKey, 'header:Authorization: [REDACTED]');
 });
 
+test('redacts quoted Authorization keys with unquoted parameterized values', () => {
+  const marker = 'NOFAX_QUOTED_KEY_AUTH_SECRET_CANARY_XYZ';
+  const jsonLike = redactAndBound(`headers={"Authorization": Digest username=alice, response=${marker}}`);
+  const singleQuoted = redactAndBound(`headers={'Authorization': AWS4-HMAC-SHA256 Credential=AKIA/example, Signature=${marker}}`);
+  const proxy = redactAndBound(`headers={"Proxy-Authorization": Bearer ${marker}}`);
+  const lineStart = redactAndBound(`"Authorization": Basic ${marker}`);
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'shell',
+    cwd: '/tmp/project',
+    toolInput: { command: `headers={"Authorization": Digest response=${marker}}` }
+  });
+
+  for (const value of [jsonLike, singleQuoted, proxy, lineStart, summary]) {
+    assert.doesNotMatch(value, new RegExp(marker));
+  }
+  assert.equal(jsonLike, 'headers={"Authorization": [REDACTED]}');
+  assert.equal(singleQuoted, "headers={'Authorization': [REDACTED]}");
+  assert.equal(proxy, 'headers={"Proxy-Authorization": [REDACTED]}');
+  assert.equal(lineStart, '"Authorization": [REDACTED]');
+});
+
 test('redacts URI userinfo passwords inside ordinary string fields', () => {
   const marker = 'NOFAX_URI_USERINFO_SECRET_CANARY_XYZ';
   const result = redactAndBound({
