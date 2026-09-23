@@ -72,6 +72,10 @@ test('redacts authHeader credential fields without hiding auth-related metadata'
   const input = {
     authHeader: `Bearer ${marker}`,
     proxyAuthHeader: `Basic ${marker}`,
+    authHeaderValue: `Bearer ${marker}`,
+    proxyAuthHeaderValue: `Basic ${marker}`,
+    authHeaderValues: [`Bearer ${marker}`],
+    proxyAuthHeaderValues: [`Basic ${marker}`],
     authHeaderName: 'Authorization',
     authMode: 'oauth2',
     authentication: 'required'
@@ -86,6 +90,10 @@ test('redacts authHeader credential fields without hiding auth-related metadata'
 
   assert.equal(result.authHeader, '[REDACTED]');
   assert.equal(result.proxyAuthHeader, '[REDACTED]');
+  assert.equal(result.authHeaderValue, '[REDACTED]');
+  assert.equal(result.proxyAuthHeaderValue, '[REDACTED]');
+  assert.equal(result.authHeaderValues, '[REDACTED]');
+  assert.equal(result.proxyAuthHeaderValues, '[REDACTED]');
   assert.equal(result.authHeaderName, 'Authorization');
   assert.equal(result.authMode, 'oauth2');
   assert.equal(result.authentication, 'required');
