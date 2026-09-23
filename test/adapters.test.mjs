@@ -118,6 +118,20 @@ test('Gemini adapter forwards Notification events without pretending to approve 
   assert.doesNotMatch(sent[0].message, /secret/);
 });
 
+test('Gemini Notification transport failure remains advisory', async () => {
+  const errors = [];
+  const result = await handleGeminiHook({
+    hook_event_name: 'Notification',
+    notification_type: 'ToolPermission',
+    message: 'Gemini needs approval'
+  }, {
+    config,
+    sendNotificationImpl: async () => { throw new Error('offline'); },
+    onError: (error) => errors.push(error.message)
+  });
+  assert.deepEqual(result, {});
+  assert.deepEqual(errors, ['offline']);
+});
 test('Gemini BeforeTool adapter maps explicit remote allow and deny decisions', async () => {
   const input = {
     session_id: 's3',

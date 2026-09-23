@@ -103,6 +103,22 @@ test('Claude and Codex hook setup failures cleanly fall back to native approval'
     assert.match(stderr.read(), /native approval/i);
   }
 });
+test('Gemini Notification setup failure stays advisory with valid empty JSON', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  const input = JSON.stringify({
+    hook_event_name: 'Notification', notification_type: 'ToolPermission', message: 'Approval needed'
+  });
+  const code = await runCli(['hook', 'gemini'], {
+    stdinText: input,
+    stdout,
+    stderr,
+    loadConfigImpl: async () => { throw new Error('NOFAX_CONFIG_MISSING'); }
+  });
+  assert.equal(code, 0);
+  assert.deepEqual(JSON.parse(stdout.read()), {});
+  assert.match(stderr.read(), /NOFAX_CONFIG_MISSING/);
+});
 test('Gemini BeforeTool hook emits only strict decision JSON', async () => {
   const stdout = capture();
   const stderr = capture();
