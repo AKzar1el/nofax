@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.19 - 2026-09-23
+
+### Fixed
+
+- Ordinary `nofax_request_choice` results and ntfy confirmations now honor the durable request kind even when a selected option value is named `allow`, `deny`, or `refine`, avoiding approval/denial/refinement wording for ordinary explicit choices.
+- The ntfy response parser now accepts `refine` as a normal selected value for `choice` requests without requiring refinement text, while true approval-with-refine and dedicated refinement requests still require a non-empty human refinement.
+
+Pending, timeout, disconnect, and transport failure still never mean approval. Remote Worker authority, response-topic secrecy, and notification scope are unchanged.
+
 ## 0.2.18 - 2026-09-23
 
 ### Security
