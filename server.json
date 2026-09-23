@@ -7,12 +7,12 @@
     "url": "https://github.com/AKzar1el/nofax",
     "source": "github"
   },
-  "version": "0.2.32",
+  "version": "0.2.33",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "nofax",
-      "version": "0.2.32",
+      "version": "0.2.33",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
