@@ -126,12 +126,14 @@ export async function loadRequest({ home, env, requestId }) {
 export async function resolveRequestWithClaim({ home, env, requestId, response, resolvedAt = new Date().toISOString() }) {
   const current = await loadRequest({ home, env, requestId });
   if (current.status === 'resolved') return { request: current, claimed: false };
-  if (!response || typeof response.decision !== 'string' || !current.allowed.includes(response.decision)) throw new Error('NOFAX_REQUEST_DECISION_INVALID');
+  if (!response || typeof response.decision !== 'string') throw new Error('NOFAX_REQUEST_DECISION_INVALID');
+  const decision = response.decision.trim();
+  if (!current.allowed.includes(decision)) throw new Error('NOFAX_REQUEST_DECISION_INVALID');
   const resolved = validateRequest({
     ...current,
     status: 'resolved',
     resolvedAt,
-    decision: response.decision,
+    decision,
     ...(response.text === undefined ? {} : { text: response.text })
   });
   const { terminal } = paths({ home, env, requestId });
