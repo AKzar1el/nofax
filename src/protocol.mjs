@@ -142,6 +142,14 @@ function redactSecretText(value) {
       : match
   );
 
+  redacted = redacted.replace(
+    /(^|[^A-Za-z0-9_-])(["']?)((?:proxy[-_])?authorization)\2([ \t]*[:=][ \t]*)[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)+/gim,
+    (match, prefix, quote, key, separator) => {
+      const trailingDelimiters = match.match(/[}\])]+$/)?.[0] ?? '';
+      return `${prefix}${quote}${key}${quote}${separator}[REDACTED]${trailingDelimiters}`;
+    }
+  );
+
   return redacted;
 }
 
