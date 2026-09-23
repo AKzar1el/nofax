@@ -67,6 +67,31 @@ test('redacts standalone auth credential fields without hiding auth-related meta
   assert.doesNotMatch(summary, new RegExp(marker));
 });
 
+test('redacts authHeader credential fields without hiding auth-related metadata', () => {
+  const marker = 'NOFAX_AUTH_HEADER_SECRET_CANARY_XYZ';
+  const input = {
+    authHeader: `Bearer ${marker}`,
+    proxyAuthHeader: `Basic ${marker}`,
+    authHeaderName: 'Authorization',
+    authMode: 'oauth2',
+    authentication: 'required'
+  };
+  const result = redactAndBound(input);
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'http_request',
+    cwd: '/tmp/project',
+    toolInput: input
+  });
+
+  assert.equal(result.authHeader, '[REDACTED]');
+  assert.equal(result.proxyAuthHeader, '[REDACTED]');
+  assert.equal(result.authHeaderName, 'Authorization');
+  assert.equal(result.authMode, 'oauth2');
+  assert.equal(result.authentication, 'required');
+  assert.doesNotMatch(summary, new RegExp(marker));
+});
+
 test('redacts passphrase credential fields without hiding passphrase metadata', () => {
   const marker = 'NOFAX_PASSPHRASE_SECRET_CANARY_XYZ';
   const input = {
