@@ -49,11 +49,15 @@ function isSecretKey(key) {
   const normalized = normalizeSecretKeyName(key);
   const lower = normalized.toLowerCase();
   const isAuthHeader = lower === 'auth_header' || lower.endsWith('_auth_header');
+  const isAuthHeaderValue = lower === 'auth_header_value'
+    || lower.endsWith('_auth_header_value')
+    || lower === 'auth_header_values'
+    || lower.endsWith('_auth_header_values');
   const isPassphrase = lower === 'passphrase'
     || lower === 'pass_phrase'
     || lower.endsWith('_passphrase')
     || lower.endsWith('_pass_phrase');
-  return lower === 'auth' || isAuthHeader || isPassphrase || SECRET_KEY.test(normalized);
+  return lower === 'auth' || isAuthHeader || isAuthHeaderValue || isPassphrase || SECRET_KEY.test(normalized);
 }
 
 function redactSecretText(value) {
