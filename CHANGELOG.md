@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.33 - 2026-09-24
+
+### Changed
+
+- Durable allowed decision values and already-resolved terminal decisions now normalize surrounding whitespace before persistence and membership validation, keeping semantically equivalent choices canonical.
+- Exported direct-library terminal resolution now applies the same normalization to incoming response decisions before allowed-value matching, so padded-but-valid decisions resolve to their canonical value instead of failing early.
+
+Pending, timeout, disconnect, setup/config failure, transport failure, and notification delivery still never mean approval. Explicit Allow/Deny behavior, response-topic secrecy, first-terminal-wins semantics, notification authority, and the narrower remote Worker boundary are unchanged.
+
 ## 0.2.32 - 2026-09-24
 
 ### Changed
