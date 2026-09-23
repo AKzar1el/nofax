@@ -204,6 +204,11 @@ export async function runCli(args, overrides = {}) {
           writeJson(deps.stdout, { decision: 'ask' });
           return 0;
         }
+        if (adapter === 'claude' || adapter === 'codex') {
+          deps.stderr.write(`nofax: ${error.message}\n`);
+          deps.stderr.write('nofax: no remote decision; continuing with native approval.\n');
+          return 0;
+        }
         throw error;
       }
     }
