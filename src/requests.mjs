@@ -17,7 +17,7 @@ function validateRequest(input) {
   const requestId = validateRequestId(input.requestId);
   if (!KINDS.has(input.kind)) throw new Error('NOFAX_REQUEST_KIND_INVALID');
   if (typeof input.responseTopic !== 'string' || !RESPONSE_TOPIC.test(input.responseTopic)) throw new Error('NOFAX_RESPONSE_TOPIC_INVALID');
-  if (!Array.isArray(input.allowed) || input.allowed.length < 1 || input.allowed.length > 3 || input.allowed.some((value) => typeof value !== 'string' || !value || value.length > 80)) {
+  if (!Array.isArray(input.allowed) || input.allowed.length < 1 || input.allowed.length > 3 || input.allowed.some((value) => typeof value !== 'string' || !value.trim() || value.length > 80)) {
     throw new Error('NOFAX_REQUEST_ALLOWED_INVALID');
   }
   if (!STATUSES.has(input.status)) throw new Error('NOFAX_REQUEST_STATUS_INVALID');

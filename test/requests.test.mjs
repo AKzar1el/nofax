@@ -195,3 +195,14 @@ test('pending list keeps the newest requests when the bounded limit is reached',
   assert.equal(list.some((request) => request.requestId === newestId), true);
   assert.equal(list.some((request) => request.requestId === olderIds[0]), false);
 });
+
+test('durable allowed values reject whitespace-only decisions', async (t) => {
+  const root = await home(t);
+  await assert.rejects(
+    savePendingRequest({
+      home: root,
+      request: { ...pending, allowed: ['   '] }
+    }),
+    /NOFAX_REQUEST_ALLOWED_INVALID/
+  );
+});
