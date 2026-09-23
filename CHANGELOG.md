@@ -42,6 +42,14 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.31 - 2026-09-23
+
+### Changed
+
+- Durable non-choice `refine` terminal decisions now require non-empty refinement text, preventing semantically incomplete resolved requests while preserving `refine` as an ordinary explicit choice value.
+- Direct-library string choice options are now trimmed and validated like object-form choices: empty/whitespace-only and over-80-character values are rejected, and generated phone labels are bounded consistently to 32 characters.
+
+Pending, timeout, disconnect, setup/config failure, transport failure, and notification delivery still never mean approval. Explicit Allow/Deny behavior, response-topic secrecy, notification authority, and the narrower remote Worker boundary are unchanged.
 ## 0.2.30 - 2026-09-23
 
 ### Security
