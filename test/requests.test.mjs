@@ -228,3 +228,22 @@ test('durable allowed values normalize surrounding whitespace before persistence
   });
   assert.equal(resolved.decision, 'allow');
 });
+
+test('direct terminal responses normalize surrounding whitespace before allowed-value matching', async (t) => {
+  const root = await home(t);
+  const request = {
+    ...pending,
+    requestId: 'nfx_abcdefghijklmnopqrstuvw8',
+    kind: 'choice'
+  };
+  await savePendingRequest({ home: root, request });
+
+  const resolved = await resolveRequest({
+    home: root,
+    requestId: request.requestId,
+    response: { decision: ' allow ' },
+    resolvedAt: '2026-09-09T18:01:00.000Z'
+  });
+
+  assert.equal(resolved.decision, 'allow');
+});
