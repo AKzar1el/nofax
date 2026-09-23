@@ -67,6 +67,35 @@ test('redacts standalone auth credential fields without hiding auth-related meta
   assert.doesNotMatch(summary, new RegExp(marker));
 });
 
+test('redacts passphrase credential fields without hiding passphrase metadata', () => {
+  const marker = 'NOFAX_PASSPHRASE_SECRET_CANARY_XYZ';
+  const input = {
+    passphrase: marker,
+    keyPassphrase: marker,
+    keyPassPhrase: marker,
+    signingPassphrase: marker,
+    passphraseHint: 'stored in the password manager',
+    phrase: 'keep-visible'
+  };
+  const result = redactAndBound(input);
+  const textResult = redactAndBound(`passphrase=${marker} keyPassphrase=${marker} passphraseHint=visible`);
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'shell',
+    cwd: '/tmp/project',
+    toolInput: input
+  });
+
+  assert.equal(result.passphrase, '[REDACTED]');
+  assert.equal(result.keyPassphrase, '[REDACTED]');
+  assert.equal(result.keyPassPhrase, '[REDACTED]');
+  assert.equal(result.signingPassphrase, '[REDACTED]');
+  assert.equal(result.passphraseHint, 'stored in the password manager');
+  assert.equal(result.phrase, 'keep-visible');
+  assert.equal(textResult, 'passphrase=[REDACTED] keyPassphrase=[REDACTED] passphraseHint=visible');
+  assert.doesNotMatch(summary, new RegExp(marker));
+});
+
 test('secret-key normalization stays bounded on long acronym-style names', () => {
   const longPrefix = 'A'.repeat(20000);
   const result = redactAndBound({
