@@ -140,6 +140,20 @@ function redactSecretText(value) {
   );
 
   redacted = redacted.replace(
+    /(^|\s)(-u|--user|--proxy-user)(\s+|=)(["'])([^:\r\n"']*):([^\r\n"']+)\4/g,
+    (_match, prefix, flag, separator, quote, username) => (
+      `${prefix}${flag}${separator}${quote}${username}:[REDACTED]${quote}`
+    )
+  );
+
+  redacted = redacted.replace(
+    /(^|\s)(-u|--user|--proxy-user)(\s+|=)([^:\s"';&|]*):([^\s"';&|]+)/g,
+    (_match, prefix, flag, separator, username) => (
+      `${prefix}${flag}${separator}${username}:[REDACTED]`
+    )
+  );
+
+  redacted = redacted.replace(
     /--([A-Za-z][A-Za-z0-9_-]{0,63})(\s+)(["'](?:.*?)["']|[^\s"'`,;&]+)/g,
     (match, key, separator) => isSecretKey(key)
       ? `--${key}${separator}[REDACTED]`
