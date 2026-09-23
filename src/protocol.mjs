@@ -80,6 +80,11 @@ function redactSecretText(value) {
   );
 
   redacted = redacted.replace(
+    /([^ \t\r\n=][ \t]+|=)((?:proxy[-_])?authorization)(\s*[:=]\s*)(?!\[REDACTED\]|(?:bearer|basic)\b)[^\r\n]*/gi,
+    '$1$2$3[REDACTED]'
+  );
+
+  redacted = redacted.replace(
     /\b((?:proxy[-_])?authorization)(\s*[:=]\s*)(bearer|basic)(\s+)([^\s"'`,;&]+)/gi,
     '$1$2$3$4[REDACTED]'
   );
