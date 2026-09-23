@@ -364,6 +364,26 @@ test('redacts secret values embedded inside ordinary string fields', () => {
   assert.equal(result.benign, 'secretaryName=alice safeTokenizedValue=visible apiKeynote=keep');
 });
 
+test('redacts secret values in URL fragment parameters', () => {
+  const marker = 'NOFAX_FRAGMENT_SECRET_CANARY_XYZ';
+  const access = redactAndBound(`https://example.test/callback#access_token=${marker}&token_type=bearer`);
+  const id = redactAndBound(`https://example.test/callback#id_token=${marker}&state=safe`);
+  const benign = redactAndBound('https://example.test/page#section=install&mode=compact');
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'browser',
+    cwd: '/tmp/project',
+    toolInput: { url: `https://example.test/callback#access_token=${marker}&state=safe` }
+  });
+
+  for (const value of [access, id, summary]) {
+    assert.doesNotMatch(value, new RegExp(marker));
+  }
+  assert.equal(access, 'https://example.test/callback#access_token=[REDACTED]&token_type=[REDACTED]');
+  assert.equal(id, 'https://example.test/callback#id_token=[REDACTED]&state=safe');
+  assert.equal(benign, 'https://example.test/page#section=install&mode=compact');
+});
+
 test('redacts complete Cookie and Set-Cookie header values', () => {
   const marker = 'NOFAX_COOKIE_HEADER_SECRET_CANARY_XYZ';
   const cookie = redactAndBound(`Cookie: theme=dark; session=${marker}; locale=en`);
