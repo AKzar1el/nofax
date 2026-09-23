@@ -42,6 +42,18 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.25 - 2026-09-23
+
+### Security
+
+- Agent-hook summary redaction now fully removes unquoted inline parameterized `Authorization` and `Proxy-Authorization` credential values, including Digest- and AWS-style forms, instead of allowing later credential parameters on the same line to survive a partial redaction.
+
+### Fixed
+
+- Canonical npm `bin.nofax` metadata now matches the normalized path npm publishes, avoiding publish-time metadata self-correction without changing the executable entry point.
+
+Pending, timeout, disconnect, setup/config failure, transport failure, and notification delivery still never mean approval. Explicit Allow/Deny behavior, response-topic secrecy, notification authority, and the narrower remote Worker boundary are unchanged.
+
 ## 0.2.24 - 2026-09-23
 
 ### Security
