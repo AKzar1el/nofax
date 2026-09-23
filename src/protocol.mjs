@@ -48,11 +48,12 @@ function normalizeSecretKeyName(key) {
 function isSecretKey(key) {
   const normalized = normalizeSecretKeyName(key);
   const lower = normalized.toLowerCase();
+  const isAuthHeader = lower === 'auth_header' || lower.endsWith('_auth_header');
   const isPassphrase = lower === 'passphrase'
     || lower === 'pass_phrase'
     || lower.endsWith('_passphrase')
     || lower.endsWith('_pass_phrase');
-  return lower === 'auth' || isPassphrase || SECRET_KEY.test(normalized);
+  return lower === 'auth' || isAuthHeader || isPassphrase || SECRET_KEY.test(normalized);
 }
 
 function redactSecretText(value) {
