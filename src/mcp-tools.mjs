@@ -228,7 +228,8 @@ export function createMcpToolHandlers(overrides = {}) {
           config: current,
           responseTopic: request.responseTopic,
           requestId: request.requestId,
-          allowed: request.allowed
+          allowed: request.allowed,
+          kind: request.kind
         });
         if (response !== null) {
           const resolution = await deps.resolveRequestWithClaimImpl({

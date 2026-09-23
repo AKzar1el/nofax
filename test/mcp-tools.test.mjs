@@ -131,6 +131,44 @@ test('choice results stay choice semantics when option values use reserved decis
   }
 });
 
+test('choice wait forwards durable request kind to the response poller', async (t) => {
+  const home = await makeHome(t);
+  let polledKind;
+  const handlers = createMcpToolHandlers({
+    home,
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: async (input) => {
+      const remote = {
+        requestId: 'nfx_abcdefghijklmnopqrstuv66',
+        responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz1266',
+        allowed: ['refine', 'ship']
+      };
+      await input.beforePublish(remote);
+      return remote;
+    },
+    pollRemoteResponseImpl: async (input) => {
+      polledKind = input.kind;
+      return { decision: 'refine' };
+    },
+    sendResponseConfirmationImpl: async () => {},
+    sleepImpl: async () => {}
+  });
+
+  const pending = await handlers.requestChoice({
+    title: 'Pick one',
+    message: 'Choose an explicit option',
+    options: [
+      { value: 'refine', label: 'Refine mode' },
+      { value: 'ship', label: 'Ship' }
+    ]
+  });
+  const result = await handlers.waitForResponse({ requestId: pending.requestId, waitSeconds: 2 });
+
+  assert.equal(polledKind, 'choice');
+  assert.equal(result.decision, 'refine');
+  assert.equal(result.instruction, 'Human choice received. Apply only that explicit choice within the caller\'s existing authority.');
+});
+
 test('concurrent waits never confirm a losing terminal response', async (t) => {
   const home = await makeHome(t);
   const confirmations = [];
