@@ -78,7 +78,11 @@ export async function sendNotification({ config, title, message, actions, priori
 function normalizeOptions(options) {
   if (!Array.isArray(options) || options.length > 3) throw new Error('NOFAX_CHOICE_LIMIT');
   const normalized = options.map((option) => {
-    if (typeof option === 'string') return { value: option, label: option };
+    if (typeof option === 'string') {
+      const value = option.trim();
+      if (!value || value.length > 80) throw new Error('NOFAX_CHOICE_INVALID');
+      return { value, label: value.slice(0, 32) };
+    }
     if (!option || typeof option.value !== 'string' || typeof option.label !== 'string') throw new Error('NOFAX_CHOICE_INVALID');
     const value = option.value.trim();
     const label = option.label.trim();
