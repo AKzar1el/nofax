@@ -42,6 +42,18 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.20 - 2026-09-23
+
+### Fixed
+
+- Phone confirmations for an ordinary `nofax_request_choice` option whose value is `refine` now keep choice semantics in the message body (`Nofax recorded: refine`) instead of claiming that free-text refinement was sent back to the agent.
+
+### Security
+
+- Agent-hook summary redaction now recognizes structured HTTP header entries shaped as `{ header, value }`, redacting credential values for `Authorization`, `Cookie`, `X-Api-Key`, and other recognized secret-bearing header names while preserving ordinary header values such as `Accept`.
+
+Pending, timeout, disconnect, and transport failure still never mean approval. Remote Worker authority, response-topic secrecy, and notification scope are unchanged.
+
 ## 0.2.19 - 2026-09-23
 
 ### Fixed
