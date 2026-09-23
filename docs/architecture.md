@@ -68,7 +68,7 @@ The root `src/` package remains the interactive implementation.
 - `choice`: one to three explicit choices.
 - `refinement`: free-text human input.
 
-Native Claude Code and Codex permission hooks remain Allow/Deny only. Gemini CLI remains notification-only where its upstream hook is advisory.
+Native Claude Code and Codex permission hooks remain Allow/Deny only. Gemini CLI `BeforeTool` is also synchronous Allow/Deny, while its `Notification` hook remains advisory.
 
 ### Local durable flow
 
