@@ -445,6 +445,30 @@ test('redacts unquoted inline parameterized Authorization values', () => {
   assert.equal(proxyInline, 'prefix Proxy-Authorization: [REDACTED]');
 });
 
+test('redacts punctuation-delimited parameterized Authorization values', () => {
+  const marker = 'NOFAX_PUNCTUATION_AUTH_SECRET_CANARY_XYZ';
+  const objectLike = redactAndBound(`headers={Authorization: Digest username=alice, response="${marker}"}`);
+  const wrapped = redactAndBound(`wrapper(Authorization: Digest username=alice, response="${marker}")`);
+  const listLike = redactAndBound(`list,[Proxy-Authorization: Digest username=alice, response="${marker}"]`);
+  const commaDelimited = redactAndBound(`x,Authorization: Digest username=alice, response=${marker}`);
+  const nestedKey = redactAndBound(`header:Authorization: AWS4-HMAC-SHA256 Credential=AKIA/example, Signature=${marker}`);
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'shell',
+    cwd: '/tmp/project',
+    toolInput: { command: `headers={Authorization: Digest username=alice, response="${marker}"}` }
+  });
+
+  for (const value of [objectLike, wrapped, listLike, commaDelimited, nestedKey, summary]) {
+    assert.doesNotMatch(value, new RegExp(marker));
+  }
+  assert.equal(objectLike, 'headers={Authorization: [REDACTED]}');
+  assert.equal(wrapped, 'wrapper(Authorization: [REDACTED])');
+  assert.equal(listLike, 'list,[Proxy-Authorization: [REDACTED]]');
+  assert.equal(commaDelimited, 'x,Authorization: [REDACTED]');
+  assert.equal(nestedKey, 'header:Authorization: [REDACTED]');
+});
+
 test('redacts URI userinfo passwords inside ordinary string fields', () => {
   const marker = 'NOFAX_URI_USERINFO_SECRET_CANARY_XYZ';
   const result = redactAndBound({
