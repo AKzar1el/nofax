@@ -74,7 +74,7 @@ const LIST_PENDING_OUTPUT_SCHEMA = z.object({
 
 export function buildMcpServer({ handlers = createMcpToolHandlers() } = {}) {
   const server = new McpServer(
-    { name: 'nofax', version: '0.2.17' },
+    { name: 'nofax', version: '0.2.18' },
     { instructions: SERVER_INSTRUCTIONS }
   );
 
