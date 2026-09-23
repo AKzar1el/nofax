@@ -220,7 +220,7 @@ export function buildAgentSummary({ source, toolName, cwd, toolInput, message })
   return `${result.slice(0, MAX_SUMMARY - 14)}\n…[truncated]`;
 }
 
-export function parseResponseMessage(message, { requestId, allowed }) {
+export function parseResponseMessage(message, { requestId, allowed, kind }) {
   if (typeof message !== 'string') return null;
   let parsed;
   try {
@@ -234,6 +234,7 @@ export function parseResponseMessage(message, { requestId, allowed }) {
   if (!allowed.includes(parsed.decision)) return null;
 
   if (parsed.decision === 'refine') {
+    if (kind === 'choice') return { decision: 'refine' };
     if (typeof parsed.text !== 'string') return null;
     const text = parsed.text.trim();
     if (!text) return null;
@@ -243,6 +244,6 @@ export function parseResponseMessage(message, { requestId, allowed }) {
   return { decision: parsed.decision };
 }
 
-export function parseDecisionMessage(message, { requestId, allowed }) {
-  return parseResponseMessage(message, { requestId, allowed })?.decision ?? null;
+export function parseDecisionMessage(message, { requestId, allowed, kind }) {
+  return parseResponseMessage(message, { requestId, allowed, kind })?.decision ?? null;
 }

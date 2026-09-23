@@ -133,7 +133,7 @@ export async function createRemoteRequest({
   return remote;
 }
 
-function parseNtfyPoll(text, requestId, allowed) {
+function parseNtfyPoll(text, requestId, allowed, kind) {
   for (const line of text.split(/\r?\n/)) {
     if (!line.trim()) continue;
     let event;
@@ -143,13 +143,13 @@ function parseNtfyPoll(text, requestId, allowed) {
       continue;
     }
     if (event?.event !== 'message') continue;
-    const response = parseResponseMessage(event.message, { requestId, allowed });
+    const response = parseResponseMessage(event.message, { requestId, allowed, kind });
     if (response !== null) return response;
   }
   return null;
 }
 
-export async function pollRemoteResponse({ config, responseTopic, requestId, allowed, fetchImpl = fetch }) {
+export async function pollRemoteResponse({ config, responseTopic, requestId, allowed, kind, fetchImpl = fetch }) {
   let response;
   try {
     response = await fetchImpl(`${config.server}/${responseTopic}/json?poll=1&since=all`, {
@@ -160,7 +160,7 @@ export async function pollRemoteResponse({ config, responseTopic, requestId, all
     throw new Error(`NOFAX_NTFY_POLL_NETWORK: ${error?.message ?? String(error)}`);
   }
   await ensureOk(response, 'NOFAX_NTFY_POLL');
-  return parseNtfyPoll(await response.text(), requestId, allowed);
+  return parseNtfyPoll(await response.text(), requestId, allowed, kind);
 }
 
 export async function sendResponseConfirmation({ config, response, kind, title = 'Nofax', fetchImpl = fetch }) {
@@ -197,6 +197,7 @@ export async function waitRemoteResponse({
   responseTopic,
   requestId,
   allowed,
+  kind,
   timeoutMs,
   pollIntervalMs = 1000,
   fetchImpl = fetch,
@@ -205,7 +206,7 @@ export async function waitRemoteResponse({
 }) {
   const deadline = nowImpl() + timeoutMs;
   while (nowImpl() < deadline) {
-    const response = await pollRemoteResponse({ config, responseTopic, requestId, allowed, fetchImpl });
+    const response = await pollRemoteResponse({ config, responseTopic, requestId, allowed, kind, fetchImpl });
     if (response !== null) return response;
     const remaining = deadline - nowImpl();
     if (remaining <= 0) break;
@@ -231,6 +232,7 @@ async function requestDecision({
   const response = await waitRemoteResponse({
     config,
     ...remote,
+    kind,
     timeoutMs,
     pollIntervalMs,
     fetchImpl,

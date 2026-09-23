@@ -38,3 +38,10 @@ test('parseResponseMessage rejects refinement without text', () => {
   });
   assert.equal(result, null);
 });
+
+test('parseResponseMessage accepts refine as an ordinary choice value without text', () => {
+  const result = parseResponseMessage(JSON.stringify({ v: 1, requestId: 'nfx_test', decision: 'refine' }), {
+    requestId: 'nfx_test', allowed: ['refine'], kind: 'choice'
+  });
+  assert.deepEqual(result, { decision: 'refine' });
+});

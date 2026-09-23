@@ -137,6 +137,41 @@ test('requestChoice confirms reserved option words as choices rather than approv
   assert.doesNotMatch(published[1].title, /Approved/);
 });
 
+test('requestChoice accepts refine as an ordinary choice value without refinement text', async () => {
+  let requestId;
+  let now = 0;
+  const published = [];
+  const fetchImpl = async (url, init = {}) => {
+    if (init.method === 'POST') {
+      const payload = JSON.parse(init.body);
+      published.push(payload);
+      if (payload.actions) requestId = JSON.parse(payload.actions[0].body).requestId;
+      return jsonResponse({ id: 'published' });
+    }
+    return jsonResponse(`{"event":"message","message":${JSON.stringify(JSON.stringify({ v: 1, requestId, decision: 'refine' }))}}\n`);
+  };
+
+  const result = await requestChoice({
+    config,
+    title: 'Pick',
+    message: 'Choose',
+    options: [
+      { value: 'refine', label: 'Refine mode' },
+      { value: 'ship', label: 'Ship' }
+    ],
+    fetchImpl,
+    timeoutMs: 10,
+    pollIntervalMs: 5,
+    nowImpl: () => now,
+    sleepImpl: async (ms) => { now += ms; }
+  });
+
+  assert.equal(result.decision, 'refine');
+  assert.equal('text' in result, false);
+  assert.equal(published.length, 2);
+  assert.match(published[1].title, /^Choice received/);
+});
+
 test('non-2xx publish fails without pretending the notification was delivered', async () => {
   await assert.rejects(() => sendNotification({
     config,
