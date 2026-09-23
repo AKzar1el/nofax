@@ -110,6 +110,27 @@ test('wait persists terminal approval, confirms phone, and permits caller to act
   assert.equal(stored.decision, 'allow');
 });
 
+test('choice results stay choice semantics when option values use reserved decision words', async (t) => {
+  for (const decision of ['allow', 'deny', 'refine']) {
+    const home = await makeHome(t);
+    const handlers = makeHandlers({ home, pollResult: { decision } });
+    const pending = await handlers.requestChoice({
+      title: 'Pick one',
+      message: 'Choose an explicit option',
+      options: [
+        { value: decision, label: `Choose ${decision}` },
+        { value: 'ship', label: 'Ship' }
+      ]
+    });
+    const result = await handlers.waitForResponse({ requestId: pending.requestId, waitSeconds: 2 });
+
+    assert.equal(result.status, 'resolved');
+    assert.equal(result.decision, decision);
+    assert.equal(result.instruction, 'Human choice received. Apply only that explicit choice within the caller\'s existing authority.');
+    assert.equal('text' in result, false);
+  }
+});
+
 test('concurrent waits never confirm a losing terminal response', async (t) => {
   const home = await makeHome(t);
   const confirmations = [];

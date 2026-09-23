@@ -28,6 +28,23 @@ function pendingResult(requestId) {
 }
 
 function terminalResult(request) {
+  if (request.kind === 'choice') {
+    return {
+      status: 'resolved',
+      requestId: request.requestId,
+      decision: request.decision,
+      instruction: 'Human choice received. Apply only that explicit choice within the caller\'s existing authority.'
+    };
+  }
+  if (request.kind === 'refinement') {
+    return {
+      status: 'resolved',
+      requestId: request.requestId,
+      decision: request.decision,
+      ...(request.text === undefined ? {} : { text: request.text }),
+      instruction: 'Apply the human refinement. If the resulting action still requires approval, create a new approval request and wait for that new terminal response before acting.'
+    };
+  }
   if (request.decision === 'allow') {
     return {
       status: 'resolved',
@@ -229,6 +246,7 @@ export function createMcpToolHandlers(overrides = {}) {
             await deps.sendResponseConfirmationImpl({
               config: current,
               response,
+              kind: request.kind,
               title: request.kind === 'approval' ? 'Approval' : request.kind === 'refinement' ? 'Refinement' : 'Choice'
             });
           }
