@@ -4,10 +4,17 @@ const MAX_TITLE = 120;
 const MAX_MESSAGE = 2200;
 const DEFAULT_REFINE_SHORTCUT = 'Nofax Refine';
 
+function safeSliceEnd(text, end) {
+  const previous = text.charCodeAt(end - 1);
+  return previous >= 0xD800 && previous <= 0xDBFF ? end - 1 : end;
+}
+
 function boundText(value, max, name) {
   if (typeof value !== 'string' || value.trim().length === 0) throw new Error(`NOFAX_${name}_REQUIRED`);
   const text = value.trim();
-  return text.length <= max ? text : `${text.slice(0, max - 14)}…[truncated]`;
+  if (text.length <= max) return text;
+  const end = safeSliceEnd(text, max - 14);
+  return `${text.slice(0, end)}…[truncated]`;
 }
 
 function sleep(ms) {

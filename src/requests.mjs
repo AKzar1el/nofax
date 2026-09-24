@@ -14,10 +14,16 @@ function validateRequestId(value) {
   return value;
 }
 
+function safeSliceEnd(text, end) {
+  const previous = text.charCodeAt(end - 1);
+  return previous >= 0xD800 && previous <= 0xDBFF ? end - 1 : end;
+}
+
 function boundResponseText(value) {
   const text = value.trim();
   if (text.length <= MAX_RESPONSE_TEXT) return text;
-  return `${text.slice(0, MAX_RESPONSE_TEXT - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
+  const end = safeSliceEnd(text, MAX_RESPONSE_TEXT - TRUNCATION_MARKER.length);
+  return `${text.slice(0, end)}${TRUNCATION_MARKER}`;
 }
 
 function validateRequest(input) {

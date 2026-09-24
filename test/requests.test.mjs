@@ -113,11 +113,12 @@ test('direct refinement resolution visibly marks bounded text', async (t) => {
   const result = await resolveRequest({
     home: root,
     requestId: refinementPending.requestId,
-    response: { decision: 'refine', text: 'x'.repeat(2100) },
+    response: { decision: 'refine', text: 'x'.repeat(1987) + '\u{1F600}' + 'z'.repeat(30) },
     resolvedAt: '2026-09-09T18:01:00.000Z'
   });
 
-  assert.equal(result.text.length, 2000);
+  assert.equal(result.text.length <= 2000, true);
+  assert.equal(Buffer.from(result.text, 'utf8').toString('utf8'), result.text);
   assert.match(result.text, /…\[truncated\]$/);
 });
 

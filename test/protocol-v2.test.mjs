@@ -25,12 +25,13 @@ test('parseResponseMessage preserves refinement text beyond the summary string b
 });
 
 test('parseResponseMessage bounds refinement text at the response limit', () => {
-  const text = 'r'.repeat(2200);
+  const text = 'r'.repeat(1987) + '\u{1F600}' + 'z'.repeat(30);
   const result = parseResponseMessage(JSON.stringify({ v: 1, requestId: 'nfx_test', decision: 'refine', text }), {
     requestId: 'nfx_test', allowed: ['refine']
   });
   assert.equal(result?.decision, 'refine');
-  assert.equal(result?.text.length, 2000);
+  assert.equal(result?.text.length <= 2000, true);
+  assert.equal(Buffer.from(result?.text ?? '', 'utf8').toString('utf8'), result?.text);
   assert.match(result?.text ?? '', /…\[truncated\]$/);
 });
 
