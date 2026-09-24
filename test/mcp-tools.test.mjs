@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMcpToolHandlers, WAIT_REQUIRED } from '../src/mcp-tools.mjs';
 import { createRemoteRequest } from '../src/ntfy.mjs';
-import { listPendingRequests, loadRequest } from '../src/requests.mjs';
+import { listPendingRequests, loadRequest, resolveRequest } from '../src/requests.mjs';
 
 const config = {
   version: 1,
@@ -231,6 +231,44 @@ test('wait returns pending and repeats the mandatory wait contract when no phone
   assert.equal(result.status, 'pending');
   assert.equal(result.mustWait, true);
   assert.equal(result.instruction, WAIT_REQUIRED(pending.requestId));
+});
+
+test('wait converges on a durable terminal response resolved by another waiter', async (t) => {
+  const home = await makeHome(t);
+  const requestId = 'nfx_abcdefghijklmnopqrstuv95';
+  let resolved = false;
+  const handlers = createMcpToolHandlers({
+    home,
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: async (input) => {
+      const remote = {
+        requestId,
+        responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz1295',
+        allowed: ['allow', 'deny']
+      };
+      await input.beforePublish(remote);
+      return remote;
+    },
+    pollRemoteResponseImpl: async () => {
+      if (!resolved) {
+        resolved = true;
+        await resolveRequest({ home, requestId, response: { decision: 'allow' } });
+      }
+      return null;
+    },
+    nowImpl: (() => { let now = 0; return () => (now += 1000); })(),
+    sleepImpl: async () => {}
+  });
+
+  const pending = await handlers.requestApproval({ title: 'Deploy?', message: 'Release ready' });
+  const result = await handlers.waitForResponse({ requestId: pending.requestId, waitSeconds: 2 });
+
+  assert.deepEqual(result, {
+    status: 'resolved',
+    requestId,
+    decision: 'allow',
+    instruction: 'Human approved this request. The caller may continue only within its existing authority.'
+  });
 });
 
 test('wait persists terminal approval, confirms phone, and permits caller to act', async (t) => {
