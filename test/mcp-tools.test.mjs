@@ -233,6 +233,39 @@ test('wait returns pending and repeats the mandatory wait contract when no phone
   assert.equal(result.instruction, WAIT_REQUIRED(pending.requestId));
 });
 
+test('wait bounds response polling by waitSeconds and remains pending', async (t) => {
+  const home = await makeHome(t);
+  const requestId = 'nfx_abcdefghijklmnopqrstuv94';
+  let pollTimeoutMs;
+  const handlers = createMcpToolHandlers({
+    home,
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: async (input) => {
+      const remote = {
+        requestId,
+        responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz1294',
+        allowed: ['allow', 'deny']
+      };
+      await input.beforePublish(remote);
+      return remote;
+    },
+    pollRemoteResponseImpl: async ({ timeoutMs }) => {
+      pollTimeoutMs = timeoutMs;
+      return null;
+    },
+    nowImpl: (() => { let now = 0; return () => (now += 250); })(),
+    sleepImpl: async () => {}
+  });
+
+  const pending = await handlers.requestApproval({ title: 'Deploy?', message: 'Release ready' });
+  const result = await handlers.waitForResponse({ requestId: pending.requestId, waitSeconds: 1 });
+
+  assert.equal(pollTimeoutMs > 0 && pollTimeoutMs <= 1000, true);
+  assert.equal(result.status, 'pending');
+  assert.equal(result.mustWait, true);
+  assert.equal(result.instruction, WAIT_REQUIRED(pending.requestId));
+});
+
 test('wait converges on a durable terminal response resolved by another waiter', async (t) => {
   const home = await makeHome(t);
   const requestId = 'nfx_abcdefghijklmnopqrstuv95';

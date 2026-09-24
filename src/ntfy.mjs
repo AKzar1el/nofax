@@ -3,6 +3,7 @@ import { createRequestId, createResponseTopic, parseResponseMessage } from './pr
 const MAX_TITLE = 120;
 const MAX_MESSAGE = 2200;
 const DEFAULT_REFINE_SHORTCUT = 'Nofax Refine';
+const POLL_TIMEOUT = Symbol('NOFAX_POLL_TIMEOUT');
 // ntfy rejects validation and rate-limit responses before accepting the publish.
 const NOT_APPLIED_PUBLISH_STATUSES = new Set([400, 429]);
 
@@ -179,18 +180,46 @@ function parseNtfyPoll(text, requestId, allowed, kind) {
   return null;
 }
 
-export async function pollRemoteResponse({ config, responseTopic, requestId, allowed, kind, fetchImpl = fetch }) {
-  let response;
+export async function pollRemoteResponse({ config, responseTopic, requestId, allowed, kind, timeoutMs, fetchImpl = fetch }) {
+  let timeoutId;
+  const controller = timeoutMs === undefined ? null : new AbortController();
+  const timeout = controller === null
+    ? null
+    : new Promise((resolve) => {
+        timeoutId = setTimeout(() => {
+          controller.abort();
+          resolve(POLL_TIMEOUT);
+        }, timeoutMs);
+      });
   try {
-    response = await fetchImpl(`${config.server}/${responseTopic}/json?poll=1&since=all`, {
-      method: 'GET',
-      headers: { accept: 'application/x-ndjson' }
-    });
-  } catch (error) {
-    throw new Error(`NOFAX_NTFY_POLL_NETWORK: ${error?.message ?? String(error)}`);
+    let response;
+    try {
+      const request = fetchImpl(`${config.server}/${responseTopic}/json?poll=1&since=all`, {
+        method: 'GET',
+        headers: { accept: 'application/x-ndjson' },
+        ...(controller === null ? {} : { signal: controller.signal })
+      });
+      response = timeout === null ? await request : await Promise.race([request, timeout]);
+    } catch (error) {
+      if (controller?.signal.aborted) return null;
+      throw new Error(`NOFAX_NTFY_POLL_NETWORK: ${error?.message ?? String(error)}`);
+    }
+    if (response === POLL_TIMEOUT) return null;
+    await ensureOk(response, 'NOFAX_NTFY_POLL');
+
+    let text;
+    try {
+      const body = response.text();
+      text = timeout === null ? await body : await Promise.race([body, timeout]);
+    } catch (error) {
+      if (controller?.signal.aborted) return null;
+      throw error;
+    }
+    if (text === POLL_TIMEOUT) return null;
+    return parseNtfyPoll(text, requestId, allowed, kind);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
   }
-  await ensureOk(response, 'NOFAX_NTFY_POLL');
-  return parseNtfyPoll(await response.text(), requestId, allowed, kind);
 }
 
 export async function sendResponseConfirmation({ config, response, kind, title = 'Nofax', fetchImpl = fetch }) {
@@ -235,8 +264,18 @@ export async function waitRemoteResponse({
   sleepImpl = sleep
 }) {
   const deadline = nowImpl() + timeoutMs;
-  while (nowImpl() < deadline) {
-    const response = await pollRemoteResponse({ config, responseTopic, requestId, allowed, kind, fetchImpl });
+  while (true) {
+    const remainingBeforePoll = deadline - nowImpl();
+    if (remainingBeforePoll <= 0) break;
+    const response = await pollRemoteResponse({
+      config,
+      responseTopic,
+      requestId,
+      allowed,
+      kind,
+      timeoutMs: remainingBeforePoll,
+      fetchImpl
+    });
     if (response !== null) return response;
     const remaining = deadline - nowImpl();
     if (remaining <= 0) break;

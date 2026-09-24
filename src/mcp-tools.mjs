@@ -260,13 +260,16 @@ export function createMcpToolHandlers(overrides = {}) {
         ? { server: request.server, topic: request.topic }
         : await config();
       const deadline = deps.nowImpl() + seconds * 1000;
-      while (deps.nowImpl() < deadline) {
+      while (true) {
+        const remainingBeforePoll = deadline - deps.nowImpl();
+        if (remainingBeforePoll <= 0) break;
         const response = await deps.pollRemoteResponseImpl({
           config: current,
           responseTopic: request.responseTopic,
           requestId: request.requestId,
           allowed: request.allowed,
-          kind: request.kind
+          kind: request.kind,
+          timeoutMs: remainingBeforePoll
         });
         if (response !== null) {
           const resolution = await deps.resolveRequestWithClaimImpl({
