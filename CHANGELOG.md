@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.40 - 2026-09-24
+
+### Changed
+
+- CLI commands now reject recognized flags that the selected command does not support before loading configuration or performing any notification/approval side effect, preventing ignored routing or timing flags from making a malformed invocation look valid.
+- Commands that do not accept positional input now reject unexpected trailing arguments before configuration loading, transport, MCP startup, or hook approval work, while message-bearing commands keep their documented positional behavior.
+
+Pending, timeout, disconnect, setup/config failure, transport failure, and notification delivery still never mean approval. Explicit Allow/Deny behavior, response-topic secrecy, first-terminal-wins semantics, notification authority, and the narrower remote Worker boundary are unchanged.
+
 ## 0.2.39 - 2026-09-24
 
 ### Changed
