@@ -294,6 +294,8 @@ export function createMcpToolHandlers(overrides = {}) {
         if (remaining <= 0) break;
         await deps.sleepImpl(Math.min(1000, remaining));
       }
+      request = await deps.loadRequestImpl({ home: deps.home, env: deps.env, requestId });
+      if (request.status === 'resolved') return terminalResult(request);
       return pendingResult(request.requestId);
     },
 
