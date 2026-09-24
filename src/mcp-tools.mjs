@@ -95,7 +95,8 @@ function publicRequest(request) {
 
 function validateText(value, name, max = 2200) {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`NOFAX_${name}_REQUIRED`);
-  return value.trim().slice(0, max);
+  const text = value.trim();
+  return text.length <= max ? text : `${text.slice(0, max - 14)}…[truncated]`;
 }
 
 function validateWaitSeconds(value) {
