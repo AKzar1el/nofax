@@ -263,6 +263,30 @@ test('refinement shortcut rejects a choice that reuses its reserved refine decis
   assert.equal(fetchCalls, 0);
 });
 
+test('refinement shortcut rejects a choice with the same visible Refine label', async () => {
+  let persistCalls = 0;
+  let fetchCalls = 0;
+  await assert.rejects(() => createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Choose or refine',
+    options: [
+      { value: 'review', label: 'Refine' },
+      { value: 'ship', label: 'Ship' }
+    ],
+    includeRefine: true,
+    beforePublish: async () => {
+      persistCalls += 1;
+    },
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return jsonResponse({ id: 'unexpected' });
+    }
+  }), /NOFAX_CHOICE_DUPLICATE/);
+  assert.equal(persistCalls, 0);
+  assert.equal(fetchCalls, 0);
+});
+
 test('non-2xx publish fails without pretending the notification was delivered', async () => {
   await assert.rejects(() => sendNotification({
     config,

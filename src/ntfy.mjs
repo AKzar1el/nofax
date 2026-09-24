@@ -113,6 +113,7 @@ export async function createRemoteRequest({
 }) {
   const normalized = normalizeOptions(options);
   if (includeRefine && normalized.some((option) => option.value === 'refine')) throw new Error('NOFAX_CHOICE_DUPLICATE');
+  if (includeRefine && normalized.some((option) => option.label === 'Refine')) throw new Error('NOFAX_CHOICE_DUPLICATE');
   const totalActions = normalized.length + (includeRefine ? 1 : 0);
   if (totalActions < 1 || totalActions > 3) throw new Error('NOFAX_CHOICE_LIMIT');
 
