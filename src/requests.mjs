@@ -6,10 +6,18 @@ const REQUEST_ID = /^nfx_[A-Za-z0-9_-]{20,80}$/;
 const RESPONSE_TOPIC = /^nofax_r_[A-Za-z0-9_-]{20,120}$/;
 const KINDS = new Set(['approval', 'choice', 'refinement']);
 const STATUSES = new Set(['pending', 'resolved']);
+const MAX_RESPONSE_TEXT = 2000;
+const TRUNCATION_MARKER = '…[truncated]';
 
 function validateRequestId(value) {
   if (typeof value !== 'string' || !REQUEST_ID.test(value)) throw new Error('NOFAX_REQUEST_ID_INVALID');
   return value;
+}
+
+function boundResponseText(value) {
+  const text = value.trim();
+  if (text.length <= MAX_RESPONSE_TEXT) return text;
+  return `${text.slice(0, MAX_RESPONSE_TEXT - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
 }
 
 function validateRequest(input) {
@@ -47,7 +55,7 @@ function validateRequest(input) {
     base.decision = decision;
     if (input.text !== undefined) {
       if (typeof input.text !== 'string' || !input.text.trim()) throw new Error('NOFAX_REQUEST_TEXT_INVALID');
-      base.text = input.text.trim().slice(0, 2000);
+      base.text = boundResponseText(input.text);
     }
   }
   return base;

@@ -29,7 +29,9 @@ test('parseResponseMessage bounds refinement text at the response limit', () => 
   const result = parseResponseMessage(JSON.stringify({ v: 1, requestId: 'nfx_test', decision: 'refine', text }), {
     requestId: 'nfx_test', allowed: ['refine']
   });
-  assert.deepEqual(result, { decision: 'refine', text: text.slice(0, 2000) });
+  assert.equal(result?.decision, 'refine');
+  assert.equal(result?.text.length, 2000);
+  assert.match(result?.text ?? '', /…\[truncated\]$/);
 });
 
 test('parseResponseMessage rejects refinement without text', () => {
