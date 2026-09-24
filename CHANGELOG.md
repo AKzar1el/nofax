@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.43 - 2026-09-24
+
+### Changed
+
+- CLI value-taking flags now reject a following `--flag` token as a missing value instead of consuming that flag as data and potentially reaching a notification side effect under malformed arguments.
+- `nofax_wait_for_response` now performs a final authoritative durable-state check before reporting pending, so a terminal first-wins response already persisted by another waiter/process is returned instead of stale pending.
+
+Pending, timeout, disconnect, setup/config failure, ambiguous transport failure, and notification delivery still never mean approval. Explicit Allow/Deny behavior, durable first-terminal-wins semantics, response-topic secrecy, notification authority, and the narrower remote Worker boundary are unchanged.
+
 ## 0.2.42 - 2026-09-24
 
 ### Changed
