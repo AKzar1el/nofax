@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.41 - 2026-09-24
+
+### Changed
+
+- Durable MCP requests created before ntfy publication are now removed only when ntfy authoritatively rejects that publish with a validation or rate-limit response; network and other delivery-ambiguous failures keep the pending record for safe recovery, and an already-terminal human response is never discarded.
+- Human-visible choice labels now preserve valid UTF-16 at the existing 32-code-unit ntfy action-label boundary, so an astral Unicode character is never split into an unpaired surrogate while the full decision value and duplicate-label safeguards remain unchanged.
+
+Pending, timeout, disconnect, setup/config failure, ambiguous transport failure, and notification delivery still never mean approval. Explicit Allow/Deny behavior, response-topic secrecy, first-terminal-wins semantics, notification authority, and the narrower remote Worker boundary are unchanged.
+
 ## 0.2.40 - 2026-09-24
 
 ### Changed
