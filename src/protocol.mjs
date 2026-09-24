@@ -201,8 +201,10 @@ export function createPhoneTopic() {
 
 function boundString(value) {
   const redacted = redactSecretText(value);
-  const bounded = redacted.length <= MAX_STRING ? redacted : redacted.slice(0, MAX_STRING);
-  return value.length <= MAX_STRING ? bounded : `${bounded}…[truncated]`;
+  const bounded = redacted.length <= MAX_STRING
+    ? redacted
+    : redacted.slice(0, safeSliceEnd(redacted, MAX_STRING));
+  return value.length <= MAX_STRING ? bounded : `${bounded}${TRUNCATION_MARKER}`;
 }
 
 export function redactAndBound(value, options = {}) {
@@ -260,7 +262,8 @@ function serializeBounded(value) {
     serialized = '[unserializable]';
   }
   if (serialized.length <= 1400) return serialized;
-  return `${serialized.slice(0, 1400)}\n…[truncated]`;
+  const end = safeSliceEnd(serialized, 1400);
+  return `${serialized.slice(0, end)}\n${TRUNCATION_MARKER}`;
 }
 
 export function buildAgentSummary({ source, toolName, cwd, toolInput, message }) {
@@ -272,7 +275,8 @@ export function buildAgentSummary({ source, toolName, cwd, toolInput, message })
   if (toolInput !== undefined) lines.push('', 'Request:', serializeBounded(toolInput));
   const result = lines.join('\n').trim();
   if (result.length <= MAX_SUMMARY) return result;
-  return `${result.slice(0, MAX_SUMMARY - 14)}\n…[truncated]`;
+  const end = safeSliceEnd(result, MAX_SUMMARY - 14);
+  return `${result.slice(0, end)}\n${TRUNCATION_MARKER}`;
 }
 
 export function parseResponseMessage(message, { requestId, allowed, kind }) {

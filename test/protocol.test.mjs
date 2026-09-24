@@ -620,6 +620,52 @@ test('redacts secrets before applying the per-string truncation boundary', () =>
   assert.ok(redacted.length <= 520);
 });
 
+test('summary truncation never splits astral Unicode', () => {
+  const hasUnpairedSurrogate = (value) => {
+    for (let index = 0; index < value.length; index += 1) {
+      const code = value.charCodeAt(index);
+      if (code >= 0xd800 && code <= 0xdbff) {
+        const next = value.charCodeAt(index + 1);
+        if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+        index += 1;
+      } else if (code >= 0xdc00 && code <= 0xdfff) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const perString = redactAndBound(`${'a'.repeat(499)}\u{1F680}${'z'.repeat(30)}`);
+  assert.equal(hasUnpairedSurrogate(perString), false);
+
+  const baseInput = {
+    first: 'a'.repeat(500),
+    second: 'b'.repeat(500),
+    third: `\u{1F680}${'z'.repeat(500)}`
+  };
+  const baseSerialized = JSON.stringify(redactAndBound(baseInput), null, 2);
+  const padding = 1399 - baseSerialized.indexOf('\u{1F680}');
+  assert.ok(padding > 0 && padding < 500);
+  const serializedBoundary = buildAgentSummary({
+    toolInput: {
+      ...baseInput,
+      third: `${'c'.repeat(padding)}\u{1F680}${'z'.repeat(500)}`
+    }
+  });
+  assert.equal(hasUnpairedSurrogate(serializedBoundary), false);
+
+  for (let paddingLength = 0; paddingLength <= 300; paddingLength += 1) {
+    const finalBoundary = buildAgentSummary({
+      source: 's'.repeat(500),
+      toolName: 't'.repeat(500),
+      cwd: 'c'.repeat(500),
+      message: 'm'.repeat(500),
+      toolInput: { note: `${'x'.repeat(paddingLength)}\u{1F680}${'y'.repeat(300)}` }
+    });
+    assert.equal(hasUnpairedSurrogate(finalBoundary), false);
+  }
+});
+
 test('redacts embedded private-key blocks without hiding public certificate blocks', () => {
   const marker = 'NOFAX_PRIVATE_KEY_SECRET_CANARY_XYZ';
   const result = redactAndBound({
