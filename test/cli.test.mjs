@@ -201,3 +201,27 @@ test('version flags print the installed package version without config access', 
     assert.equal(stderr.read(), '');
   }
 });
+
+test('command-specific flags are rejected instead of silently ignored', async () => {
+  for (const [args, unexpectedFlag] of [
+    [['notify', '--server', 'https://example.com', 'hello'], '--server'],
+    [['approve', '--timeout', '5', 'ship it'], '--timeout'],
+    [['refine', '--topic', 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF', 'rewrite it'], '--topic']
+  ]) {
+    const stdout = capture();
+    const stderr = capture();
+    let sideEffects = 0;
+    const code = await runCli(args, {
+      stdout,
+      stderr,
+      loadConfigImpl: async () => ({ version: 1, server: 'https://ntfy.sh', topic: 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF', timeoutSeconds: 300 }),
+      sendNotificationImpl: async () => { sideEffects += 1; },
+      requestApprovalImpl: async () => { sideEffects += 1; return { decision: 'allow' }; },
+      requestRefinementImpl: async () => { sideEffects += 1; return { decision: 'refine', text: 'ok' }; }
+    });
+    assert.equal(code, 1);
+    assert.equal(sideEffects, 0);
+    assert.equal(stdout.read(), '');
+    assert.match(stderr.read(), new RegExp(`NOFAX_UNKNOWN_FLAG:${unexpectedFlag}`));
+  }
+});

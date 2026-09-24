@@ -17,16 +17,18 @@ async function readPackageVersion() {
   return metadata.version;
 }
 
-function parseArgs(args) {
+function parseArgs(args, allowedFlags = []) {
   const flags = {};
   const positionals = [];
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
     if (value === '--force') {
+      if (!allowedFlags.includes(value)) throw new Error(`NOFAX_UNKNOWN_FLAG:${value}`);
       flags.force = true;
       continue;
     }
     if (['--title', '--server', '--topic', '--timeout'].includes(value)) {
+      if (!allowedFlags.includes(value)) throw new Error(`NOFAX_UNKNOWN_FLAG:${value}`);
       const next = args[index + 1];
       if (next === undefined) throw new Error(`NOFAX_FLAG_VALUE:${value}`);
       flags[value.slice(2)] = next;
@@ -124,7 +126,7 @@ export async function runCli(args, overrides = {}) {
 
     const command = args[0];
     if (command === 'init') {
-      const { flags } = parseArgs(args.slice(1));
+      const { flags } = parseArgs(args.slice(1), ['--server', '--topic', '--timeout', '--force']);
       const timeoutSeconds = flags.timeout === undefined ? undefined : Number(flags.timeout);
       const config = await deps.initConfigImpl({
         env: deps.env,
@@ -157,7 +159,7 @@ export async function runCli(args, overrides = {}) {
     }
 
     if (command === 'notify') {
-      const { flags, positionals } = parseArgs(args.slice(1));
+      const { flags, positionals } = parseArgs(args.slice(1), ['--title']);
       if (positionals.length === 0) throw new Error('NOFAX_MESSAGE_REQUIRED');
       const config = await deps.loadConfigImpl({ env: deps.env });
       await deps.sendNotificationImpl({
@@ -170,7 +172,7 @@ export async function runCli(args, overrides = {}) {
     }
 
     if (command === 'approve') {
-      const { flags, positionals } = parseArgs(args.slice(1));
+      const { flags, positionals } = parseArgs(args.slice(1), ['--title']);
       if (positionals.length === 0) throw new Error('NOFAX_MESSAGE_REQUIRED');
       const config = await deps.loadConfigImpl({ env: deps.env });
       const result = await deps.requestApprovalImpl({
@@ -183,7 +185,7 @@ export async function runCli(args, overrides = {}) {
     }
 
     if (command === 'refine') {
-      const { flags, positionals } = parseArgs(args.slice(1));
+      const { flags, positionals } = parseArgs(args.slice(1), ['--title']);
       if (positionals.length === 0) throw new Error('NOFAX_MESSAGE_REQUIRED');
       const config = await deps.loadConfigImpl({ env: deps.env });
       const result = await deps.requestRefinementImpl({
