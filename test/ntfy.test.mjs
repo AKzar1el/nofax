@@ -159,6 +159,24 @@ test('string choice options use the same validation and bounds as object choices
   assert.equal(JSON.parse(payload.actions[0].body).decision, value);
 });
 
+test('choice transport rejects options that collapse to the same visible label', async () => {
+  let fetchCalls = 0;
+  await assert.rejects(() => createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Choose',
+    options: [
+      { value: 'one', label: `${'A'.repeat(32)}-one` },
+      { value: 'two', label: `${'A'.repeat(32)}-two` }
+    ],
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return jsonResponse({ id: 'unexpected' });
+    }
+  }), /NOFAX_CHOICE_DUPLICATE/);
+  assert.equal(fetchCalls, 0);
+});
+
 test('requestChoice confirms reserved option words as choices rather than approval semantics', async () => {
   let requestId;
   const published = [];
