@@ -24,3 +24,17 @@ test("MCP Registry metadata matches the published package contract", async () =>
     { type: "positional", value: "mcp" },
   ]);
 });
+
+test("published package includes the local documentation linked from README", async () => {
+  const packageJson = await readJson("package.json");
+  const packagedFiles = new Set(packageJson.files);
+
+  for (const path of [
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "docs/architecture.md",
+    "docs/remote-mcp.md",
+  ]) {
+    assert.equal(packagedFiles.has(path), true, `${path} must ship with the npm package`);
+  }
+});
