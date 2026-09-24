@@ -135,6 +135,21 @@ export async function savePendingRequest({ home, env, request }) {
   return normalized;
 }
 
+export async function discardPendingRequest({ home, env, requestId }) {
+  const { file, terminal } = paths({ home, env, requestId });
+  if (await loadTerminalClaim(terminal) !== null) return false;
+  try {
+    const current = validateRequest(JSON.parse(await readFile(file, 'utf8')));
+    if (current.status !== 'pending') return false;
+    await unlink(file);
+    return true;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false;
+    if (error instanceof SyntaxError) throw new Error('NOFAX_REQUEST_INVALID_JSON');
+    throw error;
+  }
+}
+
 export async function loadRequest({ home, env, requestId }) {
   const { file, terminal } = paths({ home, env, requestId });
   const claimed = await loadTerminalClaim(terminal);

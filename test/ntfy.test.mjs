@@ -288,10 +288,39 @@ test('refinement shortcut rejects a choice with the same visible Refine label', 
 });
 
 test('non-2xx publish fails without pretending the notification was delivered', async () => {
-  await assert.rejects(() => sendNotification({
-    config,
-    title: 'x',
-    message: 'y',
-    fetchImpl: async () => jsonResponse({ error: 'rate limited' }, 429)
-  }), /NOFAX_NTFY_PUBLISH_429/);
+  await assert.rejects(
+    () => sendNotification({
+      config,
+      title: 'x',
+      message: 'y',
+      fetchImpl: async () => jsonResponse({ error: 'rate limited' }, 429)
+    }),
+    (error) => error?.message === 'NOFAX_NTFY_PUBLISH_429' && error.deliveryState === 'not_applied'
+  );
+});
+
+test('network publish failure remains delivery-ambiguous', async () => {
+  await assert.rejects(
+    () => sendNotification({
+      config,
+      title: 'x',
+      message: 'y',
+      fetchImpl: async () => {
+        throw new Error('connection lost');
+      }
+    }),
+    (error) => error?.message === 'NOFAX_NTFY_PUBLISH_NETWORK: connection lost' && error.deliveryState === 'ambiguous'
+  );
+});
+
+test('server-side publish failure remains delivery-ambiguous', async () => {
+  await assert.rejects(
+    () => sendNotification({
+      config,
+      title: 'x',
+      message: 'y',
+      fetchImpl: async () => jsonResponse({ error: 'unavailable' }, 503)
+    }),
+    (error) => error?.message === 'NOFAX_NTFY_PUBLISH_503' && error.deliveryState === 'ambiguous'
+  );
 });

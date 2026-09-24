@@ -6,6 +6,7 @@ import {
   sendResponseConfirmation
 } from './ntfy.mjs';
 import {
+  discardPendingRequest,
   listPendingRequests,
   loadRequest,
   resolveRequestWithClaim,
@@ -146,6 +147,7 @@ export function createMcpToolHandlers(overrides = {}) {
     createRemoteRequestImpl: overrides.createRemoteRequestImpl ?? createRemoteRequest,
     pollRemoteResponseImpl: overrides.pollRemoteResponseImpl ?? pollRemoteResponse,
     sendResponseConfirmationImpl: overrides.sendResponseConfirmationImpl ?? sendResponseConfirmation,
+    discardPendingRequestImpl: overrides.discardPendingRequestImpl ?? discardPendingRequest,
     savePendingRequestImpl: overrides.savePendingRequestImpl ?? savePendingRequest,
     loadRequestImpl: overrides.loadRequestImpl ?? loadRequest,
     resolveRequestWithClaimImpl: overrides.resolveRequestWithClaimImpl ?? resolveRequestWithClaim,
@@ -176,13 +178,24 @@ export function createMcpToolHandlers(overrides = {}) {
 
   async function createDurableRemote(kind, input) {
     let persisted;
-    const remote = await deps.createRemoteRequestImpl({
-      ...input,
-      beforePublish: async (prepared) => {
-        persisted = await persistRemote({ kind, remote: prepared, requestConfig: input.config });
+    try {
+      const remote = await deps.createRemoteRequestImpl({
+        ...input,
+        beforePublish: async (prepared) => {
+          persisted = await persistRemote({ kind, remote: prepared, requestConfig: input.config });
+        }
+      });
+      return persisted ?? persistRemote({ kind, remote, requestConfig: input.config });
+    } catch (error) {
+      if (persisted && error?.deliveryState === 'not_applied') {
+        try {
+          await deps.discardPendingRequestImpl({ home: deps.home, env: deps.env, requestId: persisted.requestId });
+        } catch (cleanupError) {
+          error.cleanupError = cleanupError;
+        }
       }
-    });
-    return persisted ?? persistRemote({ kind, remote, requestConfig: input.config });
+      throw error;
+    }
   }
 
   return {

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { savePendingRequest, loadRequest, resolveRequest, resolveRequestWithClaim, listPendingRequests } from '../src/requests.mjs';
+import { discardPendingRequest, savePendingRequest, loadRequest, resolveRequest, resolveRequestWithClaim, listPendingRequests } from '../src/requests.mjs';
 
 async function home(t) {
   const root = await mkdtemp(join(tmpdir(), 'nofax-req-'));
@@ -27,6 +27,30 @@ test('pending requests persist and reload without losing the response topic', as
   assert.deepEqual(await loadRequest({ home: root, requestId: pending.requestId }), pending);
   const stored = JSON.parse(await readFile(join(root, 'requests', `${pending.requestId}.json`), 'utf8'));
   assert.equal(stored.responseTopic, pending.responseTopic);
+});
+
+test('discardPendingRequest removes only unresolved pending state', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  assert.equal(await discardPendingRequest({ home: root, requestId: pending.requestId }), true);
+  await assert.rejects(() => loadRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_NOT_FOUND/);
+  assert.equal(await discardPendingRequest({ home: root, requestId: pending.requestId }), false);
+});
+
+test('discardPendingRequest never removes a terminal winner', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  await resolveRequest({
+    home: root,
+    requestId: pending.requestId,
+    response: { decision: 'allow' },
+    resolvedAt: '2026-09-09T18:01:00.000Z'
+  });
+
+  assert.equal(await discardPendingRequest({ home: root, requestId: pending.requestId }), false);
+  const stored = await loadRequest({ home: root, requestId: pending.requestId });
+  assert.equal(stored.status, 'resolved');
+  assert.equal(stored.decision, 'allow');
 });
 
 test('pending requests preserve optional notification transport affinity', async (t) => {

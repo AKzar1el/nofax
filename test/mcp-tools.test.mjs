@@ -4,7 +4,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMcpToolHandlers, WAIT_REQUIRED } from '../src/mcp-tools.mjs';
-import { loadRequest } from '../src/requests.mjs';
+import { createRemoteRequest } from '../src/ntfy.mjs';
+import { listPendingRequests, loadRequest } from '../src/requests.mjs';
 
 const config = {
   version: 1,
@@ -80,6 +81,66 @@ test('approval persists its durable request before remote publication continues'
   assert.equal(result.requestId, requestId);
   assert.equal(storedBeforePublish.status, 'pending');
   assert.equal(storedBeforePublish.requestId, requestId);
+});
+
+test('authoritative ntfy publish rejection removes the durable pending residue', async (t) => {
+  const home = await makeHome(t);
+  const handlers = createMcpToolHandlers({
+    home,
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: (input) => createRemoteRequest({
+      ...input,
+      fetchImpl: async () => new Response(JSON.stringify({ error: 'rate limited' }), { status: 429 })
+    })
+  });
+
+  await assert.rejects(
+    () => handlers.requestApproval({ title: 'Deploy?', message: 'Release ready' }),
+    /NOFAX_NTFY_PUBLISH_429/
+  );
+  assert.deepEqual(await listPendingRequests({ home }), []);
+});
+
+test('ambiguous ntfy network failure preserves the durable pending request', async (t) => {
+  const home = await makeHome(t);
+  const handlers = createMcpToolHandlers({
+    home,
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: (input) => createRemoteRequest({
+      ...input,
+      fetchImpl: async () => {
+        throw new Error('connection lost');
+      }
+    })
+  });
+
+  await assert.rejects(
+    () => handlers.requestApproval({ title: 'Deploy?', message: 'Release ready' }),
+    /NOFAX_NTFY_PUBLISH_NETWORK/
+  );
+  const pending = await listPendingRequests({ home });
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].status, 'pending');
+});
+
+test('ambiguous ntfy server failure preserves the durable pending request', async (t) => {
+  const home = await makeHome(t);
+  const handlers = createMcpToolHandlers({
+    home,
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: (input) => createRemoteRequest({
+      ...input,
+      fetchImpl: async () => new Response(JSON.stringify({ error: 'upstream unavailable' }), { status: 503 })
+    })
+  });
+
+  await assert.rejects(
+    () => handlers.requestApproval({ title: 'Deploy?', message: 'Release ready' }),
+    /NOFAX_NTFY_PUBLISH_503/
+  );
+  const pending = await listPendingRequests({ home });
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].status, 'pending');
 });
 
 test('durable wait stays bound to the server and topic used when the request was published', async (t) => {
