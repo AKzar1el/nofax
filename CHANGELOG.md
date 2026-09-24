@@ -42,6 +42,14 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.35 - 2026-09-24
+
+### Changed
+
+- Overlong MCP/direct-library approval titles and messages remain within their existing bounds but now end with an explicit truncation marker, so human reviewers can distinguish clipped request context from complete context.
+- Overlong local human refinement responses remain within the existing 2,000-character ceiling but now end with the same explicit truncation marker before the agent consumes or persists them.
+
+Pending, timeout, disconnect, setup/config failure, transport failure, and notification delivery still never mean approval. Explicit Allow/Deny behavior, response-topic secrecy, first-terminal-wins semantics, notification authority, and the narrower remote Worker boundary are unchanged.
 ## 0.2.34 - 2026-09-24
 
 ### Changed
