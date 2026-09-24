@@ -7,6 +7,7 @@ const MAX_ARRAY = 20;
 const MAX_OBJECT_KEYS = 30;
 const MAX_SUMMARY = 2200;
 const MAX_RESPONSE_TEXT = 2000;
+const TRUNCATION_MARKER = '…[truncated]';
 
 function normalizeSecretKeyName(key) {
   let normalized = '';
@@ -175,6 +176,11 @@ function randomBase64Url(bytes) {
   return randomBytes(bytes).toString('base64url');
 }
 
+function boundResponseText(value) {
+  if (value.length <= MAX_RESPONSE_TEXT) return value;
+  return `${value.slice(0, MAX_RESPONSE_TEXT - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
+}
+
 export function createRequestId() {
   return `nfx_${randomBase64Url(18)}`;
 }
@@ -282,7 +288,7 @@ export function parseResponseMessage(message, { requestId, allowed, kind }) {
     if (typeof parsed.text !== 'string') return null;
     const text = parsed.text.trim();
     if (!text) return null;
-    return { decision: 'refine', text: text.slice(0, MAX_RESPONSE_TEXT) };
+    return { decision: 'refine', text: boundResponseText(text) };
   }
 
   return { decision };

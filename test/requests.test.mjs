@@ -100,6 +100,27 @@ test('non-choice refine terminal responses require refinement text', async (t) =
   assert.equal('text' in choice, false);
 });
 
+test('direct refinement resolution visibly marks bounded text', async (t) => {
+  const root = await home(t);
+  const refinementPending = {
+    ...pending,
+    requestId: 'nfx_abcdefghijklmnopqrstuvw7',
+    kind: 'refinement',
+    allowed: ['refine']
+  };
+  await savePendingRequest({ home: root, request: refinementPending });
+
+  const result = await resolveRequest({
+    home: root,
+    requestId: refinementPending.requestId,
+    response: { decision: 'refine', text: 'x'.repeat(2100) },
+    resolvedAt: '2026-09-09T18:01:00.000Z'
+  });
+
+  assert.equal(result.text.length, 2000);
+  assert.match(result.text, /…\[truncated\]$/);
+});
+
 test('terminal resolution keeps the original projection pending and persists the sidecar winner', async (t) => {
   const root = await home(t);
   await savePendingRequest({ home: root, request: pending });
