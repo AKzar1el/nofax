@@ -16,7 +16,11 @@
     "src/",
     "README.md",
     "LICENSE",
-    "SECURITY.md"
+    "SECURITY.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "docs/architecture.md",
+    "docs/remote-mcp.md"
   ],
   "scripts": {
     "test": "node --test test/*.test.mjs",
