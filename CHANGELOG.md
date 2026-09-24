@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.38 - 2026-09-24
+
+### Changed
+
+- The npm package now includes the local changelog, contribution guide, architecture guide, and remote-MCP guide linked from its README, so installed/offline package documentation no longer points to missing files.
+- Redacted strings now show the existing truncation marker when secret replacement expands an originally short value beyond the per-string bound, preventing bounded human/agent context from looking complete after it was shortened.
+
+Pending, timeout, disconnect, setup/config failure, transport failure, and notification delivery still never mean approval. Secret redaction, Unicode-safe slicing, explicit Allow/Deny behavior, response-topic secrecy, first-terminal-wins semantics, notification authority, and the narrower remote Worker boundary are unchanged.
+
 ## 0.2.37 - 2026-09-24
 
 ### Changed
