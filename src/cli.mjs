@@ -41,6 +41,10 @@ function parseArgs(args, allowedFlags = []) {
   return { flags, positionals };
 }
 
+function rejectUnexpectedArgs(positionals) {
+  if (positionals.length > 0) throw new Error(`NOFAX_UNEXPECTED_ARGUMENT:${positionals[0]}`);
+}
+
 async function readStdin(stdinText) {
   if (stdinText !== undefined) return stdinText;
   let text = '';
@@ -126,7 +130,8 @@ export async function runCli(args, overrides = {}) {
 
     const command = args[0];
     if (command === 'init') {
-      const { flags } = parseArgs(args.slice(1), ['--server', '--topic', '--timeout', '--force']);
+      const { flags, positionals } = parseArgs(args.slice(1), ['--server', '--topic', '--timeout', '--force']);
+      rejectUnexpectedArgs(positionals);
       const timeoutSeconds = flags.timeout === undefined ? undefined : Number(flags.timeout);
       const config = await deps.initConfigImpl({
         env: deps.env,
@@ -142,12 +147,14 @@ export async function runCli(args, overrides = {}) {
     }
 
     if (command === 'config') {
+      rejectUnexpectedArgs(args.slice(1));
       const config = await deps.loadConfigImpl({ env: deps.env });
       deps.stdout.write(`${JSON.stringify(config, null, 2)}\n`);
       return 0;
     }
 
     if (command === 'test') {
+      rejectUnexpectedArgs(args.slice(1));
       const config = await deps.loadConfigImpl({ env: deps.env });
       await deps.sendNotificationImpl({
         config,
@@ -201,6 +208,7 @@ export async function runCli(args, overrides = {}) {
     }
 
     if (command === 'mcp') {
+      rejectUnexpectedArgs(args.slice(1));
       await deps.runMcpServerImpl();
       return 0;
     }
@@ -208,6 +216,7 @@ export async function runCli(args, overrides = {}) {
     if (command === 'hook') {
       const adapter = args[1];
       if (!adapter) throw new Error('NOFAX_HOOK_REQUIRED');
+      rejectUnexpectedArgs(args.slice(2));
       try {
         return await runHook(adapter, deps);
       } catch (error) {
