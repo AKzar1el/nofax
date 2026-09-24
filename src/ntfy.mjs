@@ -11,6 +11,10 @@ function safeSliceEnd(text, end) {
   return previous >= 0xD800 && previous <= 0xDBFF ? end - 1 : end;
 }
 
+function boundChoiceLabel(value) {
+  return value.slice(0, safeSliceEnd(value, 32));
+}
+
 function boundText(value, max, name) {
   if (typeof value !== 'string' || value.trim().length === 0) throw new Error(`NOFAX_${name}_REQUIRED`);
   const text = value.trim();
@@ -100,13 +104,13 @@ function normalizeOptions(options) {
     if (typeof option === 'string') {
       const value = option.trim();
       if (!value || value.length > 80) throw new Error('NOFAX_CHOICE_INVALID');
-      return { value, label: value.slice(0, 32) };
+      return { value, label: boundChoiceLabel(value) };
     }
     if (!option || typeof option.value !== 'string' || typeof option.label !== 'string') throw new Error('NOFAX_CHOICE_INVALID');
     const value = option.value.trim();
     const label = option.label.trim();
     if (!value || !label || value.length > 80) throw new Error('NOFAX_CHOICE_INVALID');
-    return { value, label: label.slice(0, 32) };
+    return { value, label: boundChoiceLabel(label) };
   });
   if (new Set(normalized.map((option) => option.value)).size !== normalized.length) throw new Error('NOFAX_CHOICE_DUPLICATE');
   if (new Set(normalized.map((option) => option.label)).size !== normalized.length) throw new Error('NOFAX_CHOICE_DUPLICATE');
