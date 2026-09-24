@@ -201,10 +201,11 @@ export function createPhoneTopic() {
 
 function boundString(value) {
   const redacted = redactSecretText(value);
+  const truncated = value.length > MAX_STRING || redacted.length > MAX_STRING;
   const bounded = redacted.length <= MAX_STRING
     ? redacted
     : redacted.slice(0, safeSliceEnd(redacted, MAX_STRING));
-  return value.length <= MAX_STRING ? bounded : `${bounded}${TRUNCATION_MARKER}`;
+  return truncated ? `${bounded}${TRUNCATION_MARKER}` : bounded;
 }
 
 export function redactAndBound(value, options = {}) {
