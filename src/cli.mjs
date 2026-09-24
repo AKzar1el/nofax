@@ -30,7 +30,7 @@ function parseArgs(args, allowedFlags = []) {
     if (['--title', '--server', '--topic', '--timeout'].includes(value)) {
       if (!allowedFlags.includes(value)) throw new Error(`NOFAX_UNKNOWN_FLAG:${value}`);
       const next = args[index + 1];
-      if (next === undefined) throw new Error(`NOFAX_FLAG_VALUE:${value}`);
+      if (next === undefined || next.startsWith('--')) throw new Error(`NOFAX_FLAG_VALUE:${value}`);
       flags[value.slice(2)] = next;
       index += 1;
       continue;

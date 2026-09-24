@@ -226,6 +226,22 @@ test('command-specific flags are rejected instead of silently ignored', async ()
   }
 });
 
+test('value-taking flags do not swallow a following recognized flag', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  let sideEffects = 0;
+  const code = await runCli(['notify', '--title', '--server', 'hello'], {
+    stdout,
+    stderr,
+    loadConfigImpl: async () => ({ version: 1, server: 'https://ntfy.sh', topic: 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF', timeoutSeconds: 300 }),
+    sendNotificationImpl: async () => { sideEffects += 1; }
+  });
+  assert.equal(code, 1);
+  assert.equal(sideEffects, 0);
+  assert.equal(stdout.read(), '');
+  assert.match(stderr.read(), /NOFAX_FLAG_VALUE:--title/);
+});
+
 test('commands without positional arguments reject trailing input before side effects', async () => {
   for (const args of [
     ['init', 'unexpected'],
