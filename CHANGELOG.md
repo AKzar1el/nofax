@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.36 - 2026-09-24
+
+### Changed
+
+- Local approval titles, messages, and refinement responses now preserve valid UTF-16 at truncation boundaries, so astral Unicode characters are never split into unpaired surrogate code units before human review or agent consumption.
+- Redacted string values, serialized tool-input summaries, and final agent/hook summaries now use the same surrogate-safe truncation rule, preventing malformed Unicode in bounded approval context while preserving existing size ceilings and truncation markers.
+
+Pending, timeout, disconnect, setup/config failure, transport failure, and notification delivery still never mean approval. Explicit Allow/Deny behavior, response-topic secrecy, first-terminal-wins semantics, notification authority, and the narrower remote Worker boundary are unchanged.
+
 ## 0.2.35 - 2026-09-24
 
 ### Changed
