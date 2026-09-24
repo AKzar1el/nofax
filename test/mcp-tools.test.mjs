@@ -82,6 +82,35 @@ test('approval persists its durable request before remote publication continues'
   assert.equal(storedBeforePublish.requestId, requestId);
 });
 
+test('approval marks truncated title and message before remote publication', async (t) => {
+  const home = await makeHome(t);
+  let publishedInput;
+  const handlers = createMcpToolHandlers({
+    home,
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: async (input) => {
+      publishedInput = input;
+      const remote = {
+        requestId: 'nfx_abcdefghijklmnopqrstuv97',
+        responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz1297',
+        allowed: ['allow', 'deny']
+      };
+      await input.beforePublish(remote);
+      return remote;
+    }
+  });
+
+  await handlers.requestApproval({
+    title: 't'.repeat(121),
+    message: 'm'.repeat(2201)
+  });
+
+  assert.equal(publishedInput.title.length <= 120, true);
+  assert.equal(publishedInput.message.length <= 2200, true);
+  assert.match(publishedInput.title, /…\[truncated\]$/);
+  assert.match(publishedInput.message, /…\[truncated\]$/);
+});
+
 test('wait returns pending and repeats the mandatory wait contract when no phone response exists', async (t) => {
   const home = await makeHome(t);
   const handlers = makeHandlers({ home });
