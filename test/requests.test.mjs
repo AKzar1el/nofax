@@ -281,6 +281,21 @@ test('pending list keeps the newest requests when the bounded limit is reached',
   assert.equal(list.some((request) => request.requestId === olderIds[0]), false);
 });
 
+test('pending list fails closed when a valid request file is corrupted', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  await writeFile(
+    join(root, 'requests', `${pending.requestId}.json`),
+    '{not-json\n',
+    'utf8'
+  );
+
+  await assert.rejects(
+    listPendingRequests({ home: root }),
+    /NOFAX_REQUEST_INVALID_JSON/
+  );
+});
+
 test('durable allowed values reject whitespace-only decisions', async (t) => {
   const root = await home(t);
   await assert.rejects(
