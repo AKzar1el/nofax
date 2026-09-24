@@ -176,9 +176,15 @@ function randomBase64Url(bytes) {
   return randomBytes(bytes).toString('base64url');
 }
 
+function safeSliceEnd(text, end) {
+  const previous = text.charCodeAt(end - 1);
+  return previous >= 0xD800 && previous <= 0xDBFF ? end - 1 : end;
+}
+
 function boundResponseText(value) {
   if (value.length <= MAX_RESPONSE_TEXT) return value;
-  return `${value.slice(0, MAX_RESPONSE_TEXT - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
+  const end = safeSliceEnd(value, MAX_RESPONSE_TEXT - TRUNCATION_MARKER.length);
+  return `${value.slice(0, end)}${TRUNCATION_MARKER}`;
 }
 
 export function createRequestId() {

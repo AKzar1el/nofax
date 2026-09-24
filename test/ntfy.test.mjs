@@ -27,6 +27,23 @@ test('sendNotification publishes bounded JSON to the configured phone topic', as
   assert.equal(payload.actions, undefined);
 });
 
+test('sendNotification preserves Unicode at truncation boundaries', async () => {
+  let payload;
+  await sendNotification({
+    config,
+    title: 't'.repeat(105) + '\u{1F600}' + 'z'.repeat(30),
+    message: 'm'.repeat(2185) + '\u{1F600}' + 'z'.repeat(30),
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'published' });
+    }
+  });
+
+  assert.equal(Buffer.from(payload.title, 'utf8').toString('utf8'), payload.title);
+  assert.equal(Buffer.from(payload.message, 'utf8').toString('utf8'), payload.message);
+  assert.match(payload.title, /…\[truncated\]$/);
+  assert.match(payload.message, /…\[truncated\]$/);
+});
 test('requestApproval publishes Allow/Deny HTTP actions and returns matching remote decision', async () => {
   const calls = [];
   let responseTopic;

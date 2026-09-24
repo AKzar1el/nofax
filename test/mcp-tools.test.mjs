@@ -101,12 +101,14 @@ test('approval marks truncated title and message before remote publication', asy
   });
 
   await handlers.requestApproval({
-    title: 't'.repeat(121),
-    message: 'm'.repeat(2201)
+    title: 't'.repeat(105) + '\u{1F600}' + 'z'.repeat(30),
+    message: 'm'.repeat(2185) + '\u{1F600}' + 'z'.repeat(30)
   });
 
   assert.equal(publishedInput.title.length <= 120, true);
   assert.equal(publishedInput.message.length <= 2200, true);
+  assert.equal(Buffer.from(publishedInput.title, 'utf8').toString('utf8'), publishedInput.title);
+  assert.equal(Buffer.from(publishedInput.message, 'utf8').toString('utf8'), publishedInput.message);
   assert.match(publishedInput.title, /…\[truncated\]$/);
   assert.match(publishedInput.message, /…\[truncated\]$/);
 });
