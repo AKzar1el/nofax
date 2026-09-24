@@ -244,6 +244,25 @@ test('requestChoice accepts refine as an ordinary choice value without refinemen
   assert.equal(published[1].message, 'Nofax recorded: refine');
 });
 
+test('refinement shortcut rejects a choice that reuses its reserved refine decision', async () => {
+  let fetchCalls = 0;
+  await assert.rejects(() => createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Choose or refine',
+    options: [
+      { value: 'refine', label: 'Use refine mode' },
+      { value: 'ship', label: 'Ship' }
+    ],
+    includeRefine: true,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return jsonResponse({ id: 'unexpected' });
+    }
+  }), /NOFAX_CHOICE_DUPLICATE/);
+  assert.equal(fetchCalls, 0);
+});
+
 test('non-2xx publish fails without pretending the notification was delivered', async () => {
   await assert.rejects(() => sendNotification({
     config,
