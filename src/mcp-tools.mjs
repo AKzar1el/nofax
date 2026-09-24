@@ -115,19 +115,24 @@ function validateWaitSeconds(value) {
   return seconds;
 }
 
+function boundChoiceLabel(label) {
+  const end = safeSliceEnd(label, Math.min(label.length, 32));
+  return label.slice(0, end);
+}
+
 function validateChoiceOptions(options) {
   if (!Array.isArray(options) || options.length < 1 || options.length > 3) throw new Error('NOFAX_CHOICE_LIMIT');
   const normalized = options.map((option) => {
     if (typeof option === 'string') {
       const value = option.trim();
       if (!value || value.length > 80) throw new Error('NOFAX_CHOICE_INVALID');
-      return { value, label: value.slice(0, 32) };
+      return { value, label: boundChoiceLabel(value) };
     }
     if (!option || typeof option.value !== 'string' || typeof option.label !== 'string') throw new Error('NOFAX_CHOICE_INVALID');
     const value = option.value.trim();
     const label = option.label.trim();
     if (!value || !label || value.length > 80) throw new Error('NOFAX_CHOICE_INVALID');
-    return { value, label: label.slice(0, 32) };
+    return { value, label: boundChoiceLabel(label) };
   });
   if (new Set(normalized.map((option) => option.value)).size !== normalized.length) {
     throw new Error('NOFAX_CHOICE_DUPLICATE');

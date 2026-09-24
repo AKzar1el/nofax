@@ -323,6 +323,31 @@ test('choice handlers reject options that collapse to the same visible label bef
   assert.equal(transportCalls, 0);
 });
 
+test('choice handlers preserve Unicode integrity when bounding visible labels', async () => {
+  let transportedLabel;
+  const handlers = createMcpToolHandlers({
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: async (input) => {
+      transportedLabel = input.options[0].label;
+      return {
+        requestId: 'nfx_abcdefghijklmnopqrstuv97',
+        responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz1297',
+        allowed: input.options.map((option) => option.value)
+      };
+    },
+    savePendingRequestImpl: async () => {}
+  });
+
+  await handlers.requestChoice({
+    title: 'Pick one',
+    message: 'Choose an explicit option',
+    options: [{ value: 'ship', label: `${'A'.repeat(31)}😀` }]
+  });
+
+  assert.equal(transportedLabel, 'A'.repeat(31));
+  assert.equal(Buffer.from(transportedLabel, 'utf8').toString('utf8'), transportedLabel);
+});
+
 test('choice results stay choice semantics when option values use reserved decision words', async (t) => {
   for (const decision of ['allow', 'deny', 'refine']) {
     const home = await makeHome(t);
