@@ -42,6 +42,14 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.37 - 2026-09-24
+
+### Changed
+
+- Durable local MCP approval, choice, and refinement requests now retain the exact ntfy server/topic used at publication, so later waits and confirmations remain bound to the original transport even if local configuration changes while a request is pending. Legacy pending records without transport affinity remain compatible.
+- Choice requests now reject option sets whose normalized 32-character human-facing labels collide, preventing indistinguishable phone actions from mapping to different terminal decision values before transport or persistence.
+
+Pending, timeout, disconnect, setup/config failure, transport failure, and notification delivery still never mean approval. Explicit Allow/Deny behavior, response-topic secrecy, first-terminal-wins semantics, notification authority, and the narrower remote Worker boundary are unchanged.
 ## 0.2.36 - 2026-09-24
 
 ### Changed
