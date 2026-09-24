@@ -26,6 +26,18 @@ describe("worker protocol", () => {
     expect(boundText("abcdefghijk", 10, "MESSAGE").length).toBeLessThanOrEqual(10);
   });
 
+  it("does not split astral Unicode when truncating user-visible text", () => {
+    const marker = "\u2026[truncated]";
+    const max = 20;
+    const cut = max - marker.length;
+    const result = boundText(`${"a".repeat(cut - 1)}\u{1F680}${"z".repeat(30)}`, max, "MESSAGE");
+    const beforeMarker = result.slice(0, -marker.length);
+    const lastCodeUnit = beforeMarker.charCodeAt(beforeMarker.length - 1);
+
+    expect(result.endsWith(marker)).toBe(true);
+    expect(lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff).toBe(false);
+  });
+
   it("escapes HTML-sensitive characters", () => {
     const escaped = escapeHtml(`<script>alert("x")</script>&'`);
     expect(escaped).not.toContain("<script>");

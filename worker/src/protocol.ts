@@ -25,14 +25,20 @@ export async function hashCallbackToken(token: string): Promise<string> {
     .join("");
 }
 
+function safeSliceEnd(text: string, end: number): number {
+  const previous = text.charCodeAt(end - 1);
+  return previous >= 0xd800 && previous <= 0xdbff ? end - 1 : end;
+}
+
 export function boundText(value: unknown, max: number, name: string): string {
   if (!Number.isInteger(max) || max < 1) throw new Error("NOFAX_TEXT_BOUND_INVALID");
   if (typeof value !== "string" || !value.trim()) throw new Error(`NOFAX_${name}_REQUIRED`);
   const text = value.trim();
   if (text.length <= max) return text;
   const marker = "…[truncated]";
-  if (max <= marker.length) return text.slice(0, max);
-  return `${text.slice(0, max - marker.length)}${marker}`;
+  if (max <= marker.length) return text.slice(0, safeSliceEnd(text, max));
+  const end = safeSliceEnd(text, max - marker.length);
+  return `${text.slice(0, end)}${marker}`;
 }
 
 const HTML_ESCAPES: Record<string, string> = {
