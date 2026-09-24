@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.39 - 2026-09-24
+
+### Changed
+
+- Choice requests that expose the dedicated refinement shortcut now reject an ordinary option whose normalized decision value is `refine`, preventing two actions from resolving to the same reserved refinement decision before persistence or notification transport.
+- The same refinement shortcut now rejects an ordinary option whose human-visible action label is `Refine`, preventing indistinguishable phone actions from mapping to different semantics.
+- Bounded approval summaries now append an explicit truncation marker when array items or object fields are omitted, including collision-safe object marking, so compact human context cannot silently appear complete after content was dropped.
+
+Pending, timeout, disconnect, setup/config failure, transport failure, and notification delivery still never mean approval. Secret redaction, explicit Allow/Deny behavior, response-topic secrecy, first-terminal-wins semantics, notification authority, and the narrower remote Worker boundary are unchanged.
 ## 0.2.38 - 2026-09-24
 
 ### Changed
