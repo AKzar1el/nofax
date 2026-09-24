@@ -108,7 +108,7 @@ function validateWaitSeconds(value) {
 
 function validateChoiceOptions(options) {
   if (!Array.isArray(options) || options.length < 1 || options.length > 3) throw new Error('NOFAX_CHOICE_LIMIT');
-  return options.map((option) => {
+  const normalized = options.map((option) => {
     if (typeof option === 'string') {
       const value = option.trim();
       if (!value || value.length > 80) throw new Error('NOFAX_CHOICE_INVALID');
@@ -120,6 +120,10 @@ function validateChoiceOptions(options) {
     if (!value || !label || value.length > 80) throw new Error('NOFAX_CHOICE_INVALID');
     return { value, label: label.slice(0, 32) };
   });
+  if (new Set(normalized.map((option) => option.value)).size !== normalized.length) {
+    throw new Error('NOFAX_CHOICE_DUPLICATE');
+  }
+  return normalized;
 }
 
 export function createMcpToolHandlers(overrides = {}) {

@@ -21,7 +21,7 @@ function validateRequest(input) {
     throw new Error('NOFAX_REQUEST_ALLOWED_INVALID');
   }
   const allowed = input.allowed.map((value) => value.trim());
-  if (allowed.some((value) => !value || value.length > 80)) {
+  if (allowed.some((value) => !value || value.length > 80) || new Set(allowed).size !== allowed.length) {
     throw new Error('NOFAX_REQUEST_ALLOWED_INVALID');
   }
   if (!STATUSES.has(input.status)) throw new Error('NOFAX_REQUEST_STATUS_INVALID');
