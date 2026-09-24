@@ -229,7 +229,7 @@ export function redactAndBound(value, options = {}) {
     }
     const bounded = value.slice(0, MAX_ARRAY);
     const pairedLength = bounded.length - (bounded.length % 2);
-    return bounded.map((item, index) => (
+    const out = bounded.map((item, index) => (
       index < pairedLength
       && index % 2 === 1
       && typeof bounded[index - 1] === 'string'
@@ -237,20 +237,28 @@ export function redactAndBound(value, options = {}) {
         ? '[REDACTED]'
         : redactAndBound(item, { seen, depth: depth + 1 })
     ));
+    if (value.length > MAX_ARRAY) out.push(TRUNCATION_MARKER);
+    return out;
   }
 
-  const entryName = Object.entries(value).find(([key, child]) => (
+  const entries = Object.entries(value);
+  const entryName = entries.find(([key, child]) => (
     typeof child === 'string'
     && (key.toLowerCase() === 'name' || key.toLowerCase() === 'key' || key.toLowerCase() === 'header')
   ))?.[1] ?? null;
   const redactEntryValue = entryName !== null && isSecretKey(entryName);
 
   const out = {};
-  for (const [key, child] of Object.entries(value).slice(0, MAX_OBJECT_KEYS)) {
+  for (const [key, child] of entries.slice(0, MAX_OBJECT_KEYS)) {
     const normalizedKey = key.toLowerCase();
     out[key] = isSecretKey(key) || (redactEntryValue && (normalizedKey === 'value' || normalizedKey === 'values'))
       ? '[REDACTED]'
       : redactAndBound(child, { seen, depth: depth + 1 });
+  }
+  if (entries.length > MAX_OBJECT_KEYS) {
+    let markerKey = TRUNCATION_MARKER;
+    while (Object.hasOwn(out, markerKey)) markerKey += '*';
+    out[markerKey] = true;
   }
   return out;
 }
