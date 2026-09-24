@@ -71,7 +71,7 @@ function publishError(message, deliveryState) {
   return error;
 }
 
-export async function sendNotification({ config, title, message, actions, priority = 4, tags = ['bell'], fetchImpl = fetch }) {
+export async function sendNotification({ config, title, message, actions, priority = 4, tags = ['bell'], signal, fetchImpl = fetch }) {
   const payload = {
     topic: config.topic,
     title: boundText(title, MAX_TITLE, 'TITLE'),
@@ -86,7 +86,8 @@ export async function sendNotification({ config, title, message, actions, priori
     response = await fetchImpl(`${config.server}/`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      ...(signal === undefined ? {} : { signal })
     });
   } catch (error) {
     throw publishError(`NOFAX_NTFY_PUBLISH_NETWORK: ${error?.message ?? String(error)}`, 'ambiguous');
@@ -193,7 +194,7 @@ export async function pollRemoteResponse({ config, responseTopic, requestId, all
   return parseNtfyPoll(await response.text(), requestId, allowed, kind);
 }
 
-export async function sendResponseConfirmation({ config, response, kind, title = 'Nofax', fetchImpl = fetch }) {
+export async function sendResponseConfirmation({ config, response, kind, title = 'Nofax', timeoutMs = 5000, fetchImpl = fetch }) {
   let confirmationTitle = 'Response received';
   let tag = 'white_check_mark';
   if (kind === 'choice') confirmationTitle = 'Choice received';
@@ -205,8 +206,15 @@ export async function sendResponseConfirmation({ config, response, kind, title =
   } else if (response.decision === 'refine') confirmationTitle = 'Refinement received';
   else confirmationTitle = 'Choice received';
 
-  try {
-    await sendNotification({
+  const controller = new AbortController();
+  let timeoutId;
+  const timeout = new Promise((resolve) => {
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      resolve(false);
+    }, timeoutMs);
+  });
+  const delivery = sendNotification({
       config,
       title: `${confirmationTitle} - ${title}`,
       message: kind !== 'choice' && response.decision === 'refine'
@@ -214,11 +222,13 @@ export async function sendResponseConfirmation({ config, response, kind, title =
           : `Nofax recorded: ${response.decision}`,
       priority: 2,
       tags: [tag],
+      signal: controller.signal,
       fetchImpl
-    });
-    return true;
-  } catch {
-    return false;
+    }).then(() => true, () => false);
+  try {
+    return await Promise.race([delivery, timeout]);
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

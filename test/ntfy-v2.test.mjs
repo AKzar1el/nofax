@@ -4,7 +4,8 @@ import {
   buildRefineShortcutUrl,
   createRemoteRequest,
   pollRemoteResponse,
-  requestApproval
+  requestApproval,
+  sendResponseConfirmation
 } from '../src/ntfy.mjs';
 
 const config = {
@@ -146,4 +147,38 @@ test('requestApproval sends best-effort phone confirmation after Allow', async (
   assert.equal(published.length, 2);
   assert.match(published[1].title, /Approved/);
   assert.equal(polls, 1);
+});
+
+test('sendResponseConfirmation bounds a stalled best-effort confirmation', async () => {
+  const outcome = await Promise.race([
+    sendResponseConfirmation({
+      config,
+      response: { decision: 'allow' },
+      kind: 'approval',
+      title: 'Approval',
+      timeoutMs: 5,
+      fetchImpl: async () => new Promise(() => {})
+    }),
+    new Promise((resolve) => setTimeout(() => resolve('hung'), 100))
+  ]);
+  assert.equal(outcome, false);
+});
+
+test('sendResponseConfirmation aborts the stalled confirmation transport at its bound', async () => {
+  let aborted = false;
+  const outcome = await sendResponseConfirmation({
+    config,
+    response: { decision: 'allow' },
+    kind: 'approval',
+    title: 'Approval',
+    timeoutMs: 5,
+    fetchImpl: async (_url, init = {}) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => {
+        aborted = true;
+        reject(new Error('aborted'));
+      }, { once: true });
+    })
+  });
+  assert.equal(outcome, false);
+  assert.equal(aborted, true);
 });
