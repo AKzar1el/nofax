@@ -3,6 +3,8 @@ import { createRequestId, createResponseTopic, parseResponseMessage } from './pr
 const MAX_TITLE = 120;
 const MAX_MESSAGE = 2200;
 const DEFAULT_REFINE_SHORTCUT = 'Nofax Refine';
+// ntfy rejects validation and rate-limit responses before accepting the publish.
+const NOT_APPLIED_PUBLISH_STATUSES = new Set([400, 429]);
 
 function safeSliceEnd(text, end) {
   const previous = text.charCodeAt(end - 1);
@@ -59,6 +61,12 @@ async function ensureOk(response, code) {
   return response;
 }
 
+function publishError(message, deliveryState) {
+  const error = new Error(message);
+  error.deliveryState = deliveryState;
+  return error;
+}
+
 export async function sendNotification({ config, title, message, actions, priority = 4, tags = ['bell'], fetchImpl = fetch }) {
   const payload = {
     topic: config.topic,
@@ -77,9 +85,13 @@ export async function sendNotification({ config, title, message, actions, priori
       body: JSON.stringify(payload)
     });
   } catch (error) {
-    throw new Error(`NOFAX_NTFY_PUBLISH_NETWORK: ${error?.message ?? String(error)}`);
+    throw publishError(`NOFAX_NTFY_PUBLISH_NETWORK: ${error?.message ?? String(error)}`, 'ambiguous');
   }
-  await ensureOk(response, 'NOFAX_NTFY_PUBLISH');
+  if (!response?.ok) {
+    const status = response?.status ?? 'NETWORK';
+    const deliveryState = NOT_APPLIED_PUBLISH_STATUSES.has(status) ? 'not_applied' : 'ambiguous';
+    throw publishError(`NOFAX_NTFY_PUBLISH_${status}`, deliveryState);
+  }
 }
 
 function normalizeOptions(options) {
