@@ -29,6 +29,45 @@ test('pending requests persist and reload without losing the response topic', as
   assert.equal(stored.responseTopic, pending.responseTopic);
 });
 
+test('pending requests preserve optional notification transport affinity', async (t) => {
+  const root = await home(t);
+  const request = {
+    ...pending,
+    requestId: 'nfx_abcdefghijklmnopqrstuvw8',
+    server: 'https://ntfy.example/',
+    topic: 'nofax_affinity_abcdefghijklmnopqrstuvwxyz'
+  };
+
+  const saved = await savePendingRequest({ home: root, request });
+  assert.equal(saved.server, 'https://ntfy.example');
+  assert.equal(saved.topic, request.topic);
+  assert.deepEqual(await loadRequest({ home: root, requestId: request.requestId }), saved);
+
+  const resolved = await resolveRequest({
+    home: root,
+    requestId: request.requestId,
+    response: { decision: 'allow' },
+    resolvedAt: '2026-09-09T18:01:00.000Z'
+  });
+  assert.equal(resolved.server, 'https://ntfy.example');
+  assert.equal(resolved.topic, request.topic);
+});
+
+test('pending request transport affinity is either complete or absent for legacy compatibility', async (t) => {
+  const root = await home(t);
+  await assert.rejects(
+    savePendingRequest({ home: root, request: { ...pending, server: 'https://ntfy.example' } }),
+    /NOFAX_REQUEST_TRANSPORT_INVALID/
+  );
+  await assert.rejects(
+    savePendingRequest({ home: root, request: { ...pending, topic: 'nofax_affinity_abcdefghijklmnopqrstuvwxyz' } }),
+    /NOFAX_REQUEST_TRANSPORT_INVALID/
+  );
+
+  await savePendingRequest({ home: root, request: pending });
+  assert.deepEqual(await loadRequest({ home: root, requestId: pending.requestId }), pending);
+});
+
 test('first terminal response wins', async (t) => {
   const root = await home(t);
   await savePendingRequest({ home: root, request: pending });

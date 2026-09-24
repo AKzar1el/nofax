@@ -155,13 +155,15 @@ export function createMcpToolHandlers(overrides = {}) {
     return deps.loadConfigImpl({ home: deps.home, env: deps.env });
   }
 
-  async function persistRemote({ kind, remote }) {
+  async function persistRemote({ kind, remote, requestConfig }) {
     const request = {
       version: 1,
       requestId: remote.requestId,
       kind,
       responseTopic: remote.responseTopic,
       allowed: remote.allowed,
+      server: requestConfig.server,
+      topic: requestConfig.topic,
       status: 'pending',
       createdAt: new Date(deps.nowImpl()).toISOString()
     };
@@ -174,10 +176,10 @@ export function createMcpToolHandlers(overrides = {}) {
     const remote = await deps.createRemoteRequestImpl({
       ...input,
       beforePublish: async (prepared) => {
-        persisted = await persistRemote({ kind, remote: prepared });
+        persisted = await persistRemote({ kind, remote: prepared, requestConfig: input.config });
       }
     });
-    return persisted ?? persistRemote({ kind, remote });
+    return persisted ?? persistRemote({ kind, remote, requestConfig: input.config });
   }
 
   return {
@@ -233,7 +235,9 @@ export function createMcpToolHandlers(overrides = {}) {
       let request = await deps.loadRequestImpl({ home: deps.home, env: deps.env, requestId });
       if (request.status === 'resolved') return terminalResult(request);
 
-      const current = await config();
+      const current = request.server && request.topic
+        ? { server: request.server, topic: request.topic }
+        : await config();
       const deadline = deps.nowImpl() + seconds * 1000;
       while (deps.nowImpl() < deadline) {
         const response = await deps.pollRemoteResponseImpl({

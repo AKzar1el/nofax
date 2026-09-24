@@ -1,9 +1,10 @@
 import { chmod, link, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { resolveNofaxHome } from './config.mjs';
+import { normalizeServer, resolveNofaxHome } from './config.mjs';
 
 const REQUEST_ID = /^nfx_[A-Za-z0-9_-]{20,80}$/;
 const RESPONSE_TOPIC = /^nofax_r_[A-Za-z0-9_-]{20,120}$/;
+const PHONE_TOPIC = /^[A-Za-z0-9_-]{24,128}$/;
 const KINDS = new Set(['approval', 'choice', 'refinement']);
 const STATUSES = new Set(['pending', 'resolved']);
 const MAX_RESPONSE_TEXT = 2000;
@@ -40,6 +41,9 @@ function validateRequest(input) {
   }
   if (!STATUSES.has(input.status)) throw new Error('NOFAX_REQUEST_STATUS_INVALID');
   if (typeof input.createdAt !== 'string' || Number.isNaN(Date.parse(input.createdAt))) throw new Error('NOFAX_REQUEST_CREATED_AT_INVALID');
+  const hasServer = input.server !== undefined;
+  const hasTopic = input.topic !== undefined;
+  if (hasServer !== hasTopic) throw new Error('NOFAX_REQUEST_TRANSPORT_INVALID');
   const base = {
     version: 1,
     requestId,
@@ -49,6 +53,13 @@ function validateRequest(input) {
     status: input.status,
     createdAt: input.createdAt
   };
+  if (hasServer) {
+    if (typeof input.server !== 'string' || typeof input.topic !== 'string' || !PHONE_TOPIC.test(input.topic)) {
+      throw new Error('NOFAX_REQUEST_TRANSPORT_INVALID');
+    }
+    base.server = normalizeServer(input.server);
+    base.topic = input.topic;
+  }
   if (input.status === 'resolved') {
     if (typeof input.resolvedAt !== 'string' || Number.isNaN(Date.parse(input.resolvedAt))) throw new Error('NOFAX_REQUEST_RESOLVED_AT_INVALID');
     if (typeof input.decision !== 'string') throw new Error('NOFAX_REQUEST_DECISION_INVALID');

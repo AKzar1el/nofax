@@ -82,6 +82,55 @@ test('approval persists its durable request before remote publication continues'
   assert.equal(storedBeforePublish.requestId, requestId);
 });
 
+test('durable wait stays bound to the server and topic used when the request was published', async (t) => {
+  const home = await makeHome(t);
+  const originalConfig = {
+    ...config,
+    server: 'https://original.ntfy.example',
+    topic: 'nofax_original_abcdefghijklmnopqrstuvwxyz'
+  };
+  const movedConfig = {
+    ...config,
+    server: 'https://moved.ntfy.example',
+    topic: 'nofax_moved_abcdefghijklmnopqrstuvwxyz'
+  };
+  let configLoads = 0;
+  let polledConfig;
+  let confirmationConfig;
+  const handlers = createMcpToolHandlers({
+    home,
+    loadConfigImpl: async () => (configLoads++ === 0 ? originalConfig : movedConfig),
+    createRemoteRequestImpl: async (input) => {
+      const remote = {
+        requestId: 'nfx_abcdefghijklmnopqrstuv96',
+        responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz1296',
+        allowed: ['allow', 'deny']
+      };
+      await input.beforePublish(remote);
+      return remote;
+    },
+    pollRemoteResponseImpl: async ({ config: pollConfig }) => {
+      polledConfig = pollConfig;
+      return { decision: 'allow' };
+    },
+    sendResponseConfirmationImpl: async ({ config: confirmConfig }) => {
+      confirmationConfig = confirmConfig;
+    },
+    nowImpl: (() => { let now = 0; return () => (now += 1000); })(),
+    sleepImpl: async () => {}
+  });
+
+  const pending = await handlers.requestApproval({ title: 'Deploy?', message: 'Release ready' });
+  const result = await handlers.waitForResponse({ requestId: pending.requestId, waitSeconds: 2 });
+
+  assert.equal(result.decision, 'allow');
+  assert.equal(polledConfig.server, originalConfig.server);
+  assert.equal(polledConfig.topic, originalConfig.topic);
+  assert.equal(confirmationConfig.server, originalConfig.server);
+  assert.equal(confirmationConfig.topic, originalConfig.topic);
+  assert.equal(configLoads, 1);
+});
+
 test('approval marks truncated title and message before remote publication', async (t) => {
   const home = await makeHome(t);
   let publishedInput;
