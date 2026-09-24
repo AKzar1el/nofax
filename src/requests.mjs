@@ -206,7 +206,10 @@ export async function listPendingRequests({ home, env, limit = 20 } = {}) {
     try {
       const request = await loadRequest({ home: root, requestId });
       if (request.status === 'pending') results.push(request);
-    } catch {}
+    } catch (error) {
+      if (error?.message === 'NOFAX_REQUEST_NOT_FOUND') continue;
+      throw error;
+    }
   }
   return results
     .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt) || right.requestId.localeCompare(left.requestId))
