@@ -620,6 +620,16 @@ test('redacts secrets before applying the per-string truncation boundary', () =>
   assert.ok(redacted.length <= 520);
 });
 
+test('marks truncation when redaction expansion crosses the per-string boundary', () => {
+  const input = Array.from({ length: 45 }, (_, index) => `token=t${index}`).join(' ');
+  assert.ok(input.length <= 500);
+
+  const redacted = redactAndBound(input);
+
+  assert.doesNotMatch(redacted, /token=t\d+/);
+  assert.match(redacted, /…\[truncated\]$/);
+});
+
 test('summary truncation never splits astral Unicode', () => {
   const hasUnpairedSurrogate = (value) => {
     for (let index = 0; index < value.length; index += 1) {
