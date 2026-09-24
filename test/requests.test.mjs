@@ -207,6 +207,17 @@ test('durable allowed values reject whitespace-only decisions', async (t) => {
   );
 });
 
+test('durable allowed values reject duplicates after normalization', async (t) => {
+  const root = await home(t);
+  await assert.rejects(
+    savePendingRequest({
+      home: root,
+      request: { ...pending, kind: 'choice', allowed: ['ship', ' ship '] }
+    }),
+    /NOFAX_REQUEST_ALLOWED_INVALID/
+  );
+});
+
 test('durable allowed values normalize surrounding whitespace before persistence and resolution', async (t) => {
   const root = await home(t);
   const request = {
