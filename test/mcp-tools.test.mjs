@@ -240,6 +240,28 @@ test('choice handlers reject duplicate normalized decision values before transpo
   assert.equal(transportCalls, 0);
 });
 
+test('choice handlers reject options that collapse to the same visible label before transport', async () => {
+  let transportCalls = 0;
+  const handlers = createMcpToolHandlers({
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: async () => {
+      transportCalls += 1;
+      throw new Error('transport should not be called');
+    }
+  });
+
+  await assert.rejects(() => handlers.requestChoice({
+    title: 'Pick one',
+    message: 'Choose an explicit option',
+    options: [
+      { value: 'one', label: `${'A'.repeat(32)}-one` },
+      { value: 'two', label: `${'A'.repeat(32)}-two` }
+    ]
+  }), /NOFAX_CHOICE_DUPLICATE/);
+
+  assert.equal(transportCalls, 0);
+});
+
 test('choice results stay choice semantics when option values use reserved decision words', async (t) => {
   for (const decision of ['allow', 'deny', 'refine']) {
     const home = await makeHome(t);

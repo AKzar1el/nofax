@@ -131,6 +131,9 @@ function validateChoiceOptions(options) {
   if (new Set(normalized.map((option) => option.value)).size !== normalized.length) {
     throw new Error('NOFAX_CHOICE_DUPLICATE');
   }
+  if (new Set(normalized.map((option) => option.label)).size !== normalized.length) {
+    throw new Error('NOFAX_CHOICE_DUPLICATE');
+  }
   return normalized;
 }
 
