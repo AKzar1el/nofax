@@ -112,6 +112,7 @@ export async function createRemoteRequest({
   fetchImpl = fetch
 }) {
   const normalized = normalizeOptions(options);
+  if (includeRefine && normalized.some((option) => option.value === 'refine')) throw new Error('NOFAX_CHOICE_DUPLICATE');
   const totalActions = normalized.length + (includeRefine ? 1 : 0);
   if (totalActions < 1 || totalActions > 3) throw new Error('NOFAX_CHOICE_LIMIT');
 
