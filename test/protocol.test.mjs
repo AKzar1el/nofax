@@ -20,6 +20,28 @@ test('redacts secret-like keys and bounds nested values', () => {
   assert.equal(result.self, '[CIRCULAR]');
 });
 
+test('bounded arrays and objects visibly mark omitted approval context', () => {
+  const array = Array.from({ length: 21 }, (_, index) => `item-${index}`);
+  const object = Object.fromEntries(Array.from({ length: 31 }, (_, index) => [`key${index}`, `value-${index}`]));
+  const markerCollision = {
+    '…[truncated]': 'user-value',
+    ...Object.fromEntries(Array.from({ length: 30 }, (_, index) => [`collision${index}`, `value-${index}`]))
+  };
+
+  const arrayResult = redactAndBound(array);
+  const objectResult = redactAndBound(object);
+  const collisionResult = redactAndBound(markerCollision);
+  const summary = buildAgentSummary({ source: 'Codex', toolName: 'shell', toolInput: object });
+
+  assert.equal(arrayResult.length, 21);
+  assert.equal(arrayResult[20], '…[truncated]');
+  assert.equal(Object.keys(objectResult).length, 31);
+  assert.equal(objectResult['…[truncated]'], true);
+  assert.equal(collisionResult['…[truncated]'], 'user-value');
+  assert.equal(collisionResult['…[truncated]*'], true);
+  assert.match(summary, /…\[truncated\]/);
+});
+
 test('redacts camelCase and PascalCase variants of known secret keys', () => {
   const result = redactAndBound({
     accessToken: 'access-secret',
