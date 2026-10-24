@@ -42,6 +42,19 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.44 - 2026-10-24
+
+### Security
+
+- Updated the local MCP server and Zod runtime dependencies to patched, audited versions. The remote Worker MCP, Agents, and Zod dependency manifests were also updated; their production deployment is a separate operation.
+
+### Fixed
+
+- Response polling now bounds fetch and response-body reads by each CLI/MCP caller's remaining deadline, so a stalled ntfy response stream cannot indefinitely extend a pending wait.
+- Best-effort notification confirming an already-persisted human response now has a bounded transport deadline rather than potentially blocking the caller indefinitely.
+
+Pending, timeout, disconnect, transport errors, and notification delivery never mean approval. Durable human-decision ownership, response-topic secrecy, and the intentionally narrower remote Worker authority remain unchanged.
+
 ## 0.2.43 - 2026-09-24
 
 ### Changed
