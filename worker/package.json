@@ -21,5 +21,8 @@
     "typescript": "^6.0.3",
     "vitest": "^4.1.0",
     "wrangler": "^4.115.0"
+  },
+  "overrides": {
+    "undici": "7.30.1"
   }
 }
