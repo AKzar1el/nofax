@@ -97,6 +97,16 @@ Start the local stdio MCP server:
 nofax mcp
 ```
 
+### Connect an MCP client
+
+Claude Code can launch the published local MCP server directly:
+
+```bash
+claude mcp add nofax -- npx -y nofax mcp
+```
+
+For other stdio MCP clients, set the command to `npx` with arguments `["-y", "nofax", "mcp"]`. The final `mcp` argument is required: running `npx -y nofax` without it prints the CLI usage and exits instead of starting a server. Complete the Quick start configuration before using notification or approval tools.
+
 Local MCP exposes:
 
 - `nofax_notify`
