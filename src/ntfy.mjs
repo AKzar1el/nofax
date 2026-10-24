@@ -4,6 +4,8 @@ const MAX_TITLE = 120;
 const MAX_MESSAGE = 2200;
 const DEFAULT_REFINE_SHORTCUT = 'Nofax Refine';
 const POLL_TIMEOUT = Symbol('NOFAX_POLL_TIMEOUT');
+const PUBLISH_TIMEOUT = Symbol('NOFAX_PUBLISH_TIMEOUT');
+const DEFAULT_PUBLISH_TIMEOUT_MS = 15_000;
 // ntfy rejects validation and rate-limit responses before accepting the publish.
 const NOT_APPLIED_PUBLISH_STATUSES = new Set([400, 429]);
 
@@ -127,6 +129,7 @@ export async function createRemoteRequest({
   includeRefine = false,
   shortcutName = config.refineShortcutName ?? DEFAULT_REFINE_SHORTCUT,
   beforePublish = async () => {},
+  publishTimeoutMs = DEFAULT_PUBLISH_TIMEOUT_MS,
   fetchImpl = fetch
 }) {
   const normalized = normalizeOptions(options);
@@ -161,7 +164,25 @@ export async function createRemoteRequest({
 
   const remote = { requestId, responseTopic, allowed };
   await beforePublish(remote);
-  await sendNotification({ config, title, message, actions, fetchImpl });
+  if (!Number.isFinite(publishTimeoutMs) || publishTimeoutMs <= 0) throw new Error('NOFAX_PUBLISH_TIMEOUT_INVALID');
+  const controller = new AbortController();
+  let timeoutId;
+  const timeout = new Promise((resolve) => {
+    timeoutId = setTimeout(() => {
+      resolve(PUBLISH_TIMEOUT);
+      controller.abort();
+    }, publishTimeoutMs);
+  });
+  try {
+    const delivered = await Promise.race([
+      sendNotification({ config, title, message, actions, signal: controller.signal, fetchImpl }),
+      timeout
+    ]);
+    // A timed-out POST may have reached ntfy. Never discard persisted pending state.
+    if (delivered === PUBLISH_TIMEOUT) throw publishError('NOFAX_NTFY_PUBLISH_TIMEOUT', 'ambiguous');
+  } finally {
+    clearTimeout(timeoutId);
+  }
   return remote;
 }
 
@@ -302,12 +323,13 @@ async function requestDecision({
   kind,
   includeRefine = false,
   fetchImpl = fetch,
+  publishTimeoutMs = DEFAULT_PUBLISH_TIMEOUT_MS,
   timeoutMs = config.timeoutSeconds * 1000,
   pollIntervalMs = 1000,
   nowImpl = Date.now,
   sleepImpl = sleep
 }) {
-  const remote = await createRemoteRequest({ config, title, message, options, includeRefine, fetchImpl });
+  const remote = await createRemoteRequest({ config, title, message, options, includeRefine, publishTimeoutMs, fetchImpl });
   const response = await waitRemoteResponse({
     config,
     ...remote,

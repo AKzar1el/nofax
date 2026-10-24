@@ -79,6 +79,44 @@ test('createRemoteRequest prepares response handles before publishing the notifi
   assert.equal(prepared.responseTopic.startsWith('nofax_r_'), true);
 });
 
+test('initial notification POST has a deadline even when fetch ignores abort', async () => {
+  let persisted;
+  let publishSignal;
+  await assert.rejects(() => createRemoteRequest({
+    config,
+    title: 'Deploy?',
+    message: 'Release ready',
+    options: [{ value: 'allow', label: 'Allow' }],
+    publishTimeoutMs: 20,
+    beforePublish: async (remote) => { persisted = { ...remote, status: 'pending' }; },
+    fetchImpl: async (_url, init) => {
+      publishSignal = init.signal;
+      return new Promise(() => {});
+    }
+  }), (error) => error?.message === 'NOFAX_NTFY_PUBLISH_TIMEOUT' && error.deliveryState === 'ambiguous');
+  assert.equal(persisted.status, 'pending');
+  assert.ok(persisted.requestId.startsWith('nfx_'));
+  assert.equal(publishSignal.aborted, true);
+});
+
+test('initial notification deadline aborts an abort-aware fetch without granting approval', async () => {
+  let aborted = false;
+  await assert.rejects(() => createRemoteRequest({
+    config,
+    title: 'Deploy?',
+    message: 'Release ready',
+    options: [{ value: 'allow', label: 'Allow' }],
+    publishTimeoutMs: 20,
+    fetchImpl: async (_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => {
+        aborted = true;
+        reject(init.signal.reason);
+      }, { once: true });
+    })
+  }), (error) => error?.deliveryState === 'ambiguous' && /NOFAX_NTFY_PUBLISH_(TIMEOUT|NETWORK)/.test(error.message));
+  assert.equal(aborted, true);
+});
+
 test('pollRemoteResponse returns structured refinement text', async () => {
   const fetchImpl = async () => ({
     ok: true,
