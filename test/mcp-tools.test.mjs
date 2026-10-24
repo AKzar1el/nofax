@@ -123,6 +123,33 @@ test('ambiguous ntfy network failure preserves the durable pending request', asy
   assert.equal(pending[0].status, 'pending');
 });
 
+test('stalled initial notification times out but retains durable MCP pending authority', async (t) => {
+  const home = await makeHome(t);
+  let aborted = false;
+  const handlers = createMcpToolHandlers({
+    home,
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: (input) => createRemoteRequest({
+      ...input,
+      publishTimeoutMs: 20,
+      fetchImpl: async (_url, init) => {
+        init.signal.addEventListener('abort', () => { aborted = true; }, { once: true });
+        return new Promise(() => {});
+      }
+    })
+  });
+
+  await assert.rejects(
+    () => handlers.requestApproval({ title: 'Deploy?', message: 'Release ready' }),
+    (error) => error?.message === 'NOFAX_NTFY_PUBLISH_TIMEOUT' && error.deliveryState === 'ambiguous'
+  );
+  assert.equal(aborted, true);
+  const pending = await listPendingRequests({ home });
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].status, 'pending');
+  assert.deepEqual(pending[0].allowed, ['allow', 'deny']);
+});
+
 test('ambiguous ntfy server failure preserves the durable pending request', async (t) => {
   const home = await makeHome(t);
   const handlers = createMcpToolHandlers({
