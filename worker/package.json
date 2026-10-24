@@ -16,13 +16,14 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.0.0",
+    "@cloudflare/vitest-plugin": "^1.4.7",
     "@cloudflare/workers-types": "^5.20260729.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.12",
-    "wrangler": "^4.115.0"
+    "wrangler": "^4.152.0"
   },
   "overrides": {
-    "undici": "7.30.1"
+    "undici": "7.30.1",
+    "zod": "4.6.7"
   }
 }
