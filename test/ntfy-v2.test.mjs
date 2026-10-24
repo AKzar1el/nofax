@@ -115,6 +115,71 @@ test('pollRemoteResponse replays the full cached response topic for durable reco
   assert.equal(parsed.searchParams.get('poll'), '1');
   assert.equal(parsed.searchParams.get('since'), 'all');
 });
+
+test('requestApproval bounds a hung response poll by its approval timeout', async () => {
+  let published = false;
+  let pollSignal;
+  const fetchImpl = async (_url, init = {}) => {
+    if (init.method === 'POST') {
+      published = true;
+      return { ok: true, status: 200 };
+    }
+    pollSignal = init.signal;
+    assert.ok(pollSignal instanceof AbortSignal);
+    return new Promise((_resolve, reject) => {
+      if (pollSignal.aborted) {
+        reject(pollSignal.reason);
+        return;
+      }
+      pollSignal.addEventListener('abort', () => reject(pollSignal.reason), { once: true });
+    });
+  };
+
+  const result = await requestApproval({
+    config,
+    title: 'Test',
+    message: 'Approve?',
+    fetchImpl,
+    timeoutMs: 50,
+    pollIntervalMs: 1
+  });
+
+  assert.equal(published, true);
+  assert.ok(pollSignal instanceof AbortSignal);
+  assert.equal(result.decision, 'timeout');
+});
+
+test('requestApproval keeps the poll deadline active while reading the response body', async () => {
+  let pollSignal;
+  const fetchImpl = async (_url, init = {}) => {
+    if (init.method === 'POST') return { ok: true, status: 200 };
+    pollSignal = init.signal;
+    assert.ok(pollSignal instanceof AbortSignal);
+    return {
+      ok: true,
+      status: 200,
+      text: async () => new Promise((_resolve, reject) => {
+        const guard = setTimeout(() => reject(new Error('NOFAX_TEST_BODY_NOT_ABORTED')), 200);
+        pollSignal.addEventListener('abort', () => {
+          clearTimeout(guard);
+          reject(pollSignal.reason);
+        }, { once: true });
+      })
+    };
+  };
+
+  const result = await requestApproval({
+    config,
+    title: 'Test',
+    message: 'Approve?',
+    fetchImpl,
+    timeoutMs: 50,
+    pollIntervalMs: 1
+  });
+
+  assert.ok(pollSignal instanceof AbortSignal);
+  assert.equal(result.decision, 'timeout');
+});
 test('requestApproval sends best-effort phone confirmation after Allow', async () => {
   const published = [];
   let polls = 0;
