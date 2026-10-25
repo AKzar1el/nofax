@@ -119,6 +119,22 @@ gemini mcp add --scope user --transport stdio nofax npx -- -y nofax mcp
 
 Gemini CLI may mark configured servers **Disabled** when the current workspace is untrusted. Review and trust only workspaces you control through Gemini's normal trust flow; do not use `--trust` to bypass MCP tool-call confirmations. Registering an MCP server does not automatically install the separate permission hooks documented below.
 
+VS Code can register Nofax in its user-profile MCP configuration. Open the Command Palette, choose `MCP: Open User Configuration`, and add this entry to `mcp.json`:
+
+```json
+{
+  "servers": {
+    "nofax": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "nofax", "mcp"]
+    }
+  }
+}
+```
+
+Merge the `nofax` entry with any existing servers rather than replacing them. Review VS Code's normal server-trust prompt before starting it; MCP registration does not install separate permission hooks.
+
 For other stdio MCP clients, set the command to `npx` with arguments `["-y", "nofax", "mcp"]`. The final `mcp` argument is required: running `npx -y nofax` without it prints the CLI usage and exits instead of starting a server. Complete the Quick start configuration before using notification or approval tools.
 
 Local MCP exposes:
