@@ -42,6 +42,15 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.45 - 2026-10-25
+
+### Fixed
+
+- Initial approval, choice, and refinement notification publication now has a bounded transport deadline when ntfy does not settle.
+- Standalone CLI, MCP, and advisory hook notifications now abort stalled ntfy publication after 15 seconds and report ambiguous delivery rather than hanging indefinitely.
+
+Pending requests, transport timeouts, uncertain notification delivery, and disconnects never constitute human approval. No automatic publication retry or remote Worker authority expansion is introduced.
+
 ## 0.2.44 - 2026-10-24
 
 ### Security
