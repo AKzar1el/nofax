@@ -80,32 +80,58 @@ export async function publishNotification({
   env,
   title,
   message,
-  fetchImpl = fetch
+  fetchImpl = fetch,
+  timeoutMs = 15_000
 }: {
   env: Env;
   title: string;
   message: string;
   fetchImpl?: FetchLike;
+  timeoutMs?: number;
 }): Promise<void> {
   const topic = env.NTFY_TOPIC?.trim();
   if (!topic) throw new Error("NOFAX_NTFY_TOPIC_REQUIRED");
-
-  let response: Response;
-  try {
-    response = await fetchImpl(`${serverUrl(env)}/`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        topic,
-        title: boundText(title, 120, "TITLE"),
-        message: boundText(message, 2200, "MESSAGE"),
-        priority: 4,
-        tags: ["bell"]
-      })
-    });
-  } catch (error) {
-    throw new Error(`NOFAX_NTFY_PUBLISH_NETWORK: ${error instanceof Error ? error.message : String(error)}`);
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error("NOFAX_NTFY_PUBLISH_TIMEOUT_INVALID");
   }
 
-  if (!response.ok) throw await publishError(response);
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  const deadline = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      reject(new Error("NOFAX_NTFY_PUBLISH_TIMEOUT"));
+    }, timeoutMs);
+  });
+
+  const publish = async () => {
+    let response: Response;
+    try {
+      response = await fetchImpl(serverUrl(env) + "/", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          topic,
+          title: boundText(title, 120, "TITLE"),
+          message: boundText(message, 2200, "MESSAGE"),
+          priority: 4,
+          tags: ["bell"]
+        })
+      });
+    } catch (error) {
+      if (timedOut) throw new Error("NOFAX_NTFY_PUBLISH_TIMEOUT");
+      throw new Error("NOFAX_NTFY_PUBLISH_NETWORK: " + (error instanceof Error ? error.message : String(error)));
+    }
+
+    if (!response.ok) throw await publishError(response);
+  };
+
+  try {
+    await Promise.race([publish(), deadline]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
 }
