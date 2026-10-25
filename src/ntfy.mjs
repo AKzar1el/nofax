@@ -74,7 +74,7 @@ function publishError(message, deliveryState) {
   return error;
 }
 
-export async function sendNotification({ config, title, message, actions, priority = 4, tags = ['bell'], signal, fetchImpl = fetch }) {
+export async function sendNotification({ config, title, message, actions, priority = 4, tags = ['bell'], signal, fetchImpl = fetch, timeoutMs = DEFAULT_PUBLISH_TIMEOUT_MS }) {
   const payload = {
     topic: config.topic,
     title: boundText(title, MAX_TITLE, 'TITLE'),
@@ -84,17 +84,35 @@ export async function sendNotification({ config, title, message, actions, priori
   };
   if (actions?.length) payload.actions = actions;
 
+  // Caller-managed approval publication and confirmation already have a deadline.
+  // A direct notification needs its own bounded transport when no signal is supplied.
+  const ownsTimeout = signal === undefined;
+  if (ownsTimeout && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
+    throw new Error('NOFAX_PUBLISH_TIMEOUT_INVALID');
+  }
+  const controller = ownsTimeout ? new AbortController() : null;
+  let timeoutId;
+  const timeout = controller === null ? null : new Promise((resolve) => {
+    timeoutId = setTimeout(() => {
+      resolve(PUBLISH_TIMEOUT);
+      controller.abort();
+    }, timeoutMs);
+  });
   let response;
   try {
-    response = await fetchImpl(`${config.server}/`, {
+    const request = fetchImpl(`${config.server}/`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
-      ...(signal === undefined ? {} : { signal })
+      signal: controller === null ? signal : controller.signal
     });
+    response = timeout === null ? await request : await Promise.race([request, timeout]);
   } catch (error) {
     throw publishError(`NOFAX_NTFY_PUBLISH_NETWORK: ${error?.message ?? String(error)}`, 'ambiguous');
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
   }
+  if (response === PUBLISH_TIMEOUT) throw publishError('NOFAX_NTFY_PUBLISH_TIMEOUT', 'ambiguous');
   if (!response?.ok) {
     const status = response?.status ?? 'NETWORK';
     const deliveryState = NOT_APPLIED_PUBLISH_STATUSES.has(status) ? 'not_applied' : 'ambiguous';

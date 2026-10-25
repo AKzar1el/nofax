@@ -27,6 +27,24 @@ test('sendNotification publishes bounded JSON to the configured phone topic', as
   assert.equal(payload.actions, undefined);
 });
 
+test('standalone notification times out ambiguously even when fetch ignores abort', async () => {
+  let observedSignal;
+  await assert.rejects(
+    () => sendNotification({
+      config,
+      title: 'Build done',
+      message: 'All tests pass',
+      timeoutMs: 20,
+      fetchImpl: (_url, init) => {
+        observedSignal = init.signal;
+        return new Promise(() => {});
+      }
+    }),
+    (error) => error?.message === 'NOFAX_NTFY_PUBLISH_TIMEOUT' && error.deliveryState === 'ambiguous'
+  );
+  assert.equal(observedSignal.aborted, true);
+});
+
 test('sendNotification preserves Unicode at truncation boundaries', async () => {
   let payload;
   await sendNotification({
