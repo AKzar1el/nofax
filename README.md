@@ -242,6 +242,31 @@ Current Gemini CLI builds expose a synchronous `BeforeTool` hook that can allow 
 
 Adjust the matcher to the tools you want Nofax to gate. Keep the hook timeout longer than Nofax's configured approval timeout (`timeoutSeconds`, 300 seconds by default).
 
+### Pi (native MCP support)
+
+Pi builds with native MCP support, such as [the `@earendil-works/pi-coding-agent` release](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md), can launch the local Nofax stdio server. After `nofax init`, register and check it:
+
+```bash
+pi mcp add nofax -- npx -y nofax mcp
+pi mcp list
+```
+
+Pi's default MCP request timeout is 60 seconds. If you use `nofax_wait_for_response` with waits longer than that (up to Nofax's 240-second maximum), add `"timeout": 300` to the existing `nofax` entry in `~/.pi/agent/mcp.json`. Do not replace unrelated server entries or settings:
+
+```json
+{
+  "mcpServers": {
+    "nofax": {
+      "command": "npx",
+      "args": ["-y", "nofax", "mcp"],
+      "timeout": 300
+    }
+  }
+}
+```
+
+This registers MCP tools, **not an automatic permission hook or idle-session wake-up**. While a request is pending, the agent must call `nofax_wait_for_response` again; a missing reply, timeout, or disconnect is never approval. Use Pi's normal trust/permission workflow and verify your installed Pi build exposes `pi mcp` before applying these instructions.
+
 ## Optional remote Cloudflare Worker
 
 The `worker/` package provides a private, self-deployed MCP endpoint:
