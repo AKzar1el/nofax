@@ -244,7 +244,7 @@ Adjust the matcher to the tools you want Nofax to gate. Keep the hook timeout lo
 
 ### Pi (native MCP support)
 
-Pi builds with native MCP support, such as [the `@earendil-works/pi-coding-agent` release](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md), can launch the local Nofax stdio server. After `nofax init`, register and check it:
+Pi 1.x has built-in MCP support for local stdio servers; see [Pi's official MCP documentation](https://pi.dev/docs/latest/mcp). After `nofax init`, register and check the Nofax server:
 
 ```bash
 pi mcp add nofax -- npx -y nofax mcp
@@ -264,6 +264,8 @@ Pi's default MCP request timeout is 60 seconds. If you use `nofax_wait_for_respo
   }
 }
 ```
+
+Pi's built-in MCP configuration lives in `~/.pi/agent/mcp.json`. Third-party extensions that replace `/mcp` (such as `pi-mcp-adapter`) take over the interactive MCP integration and may not load that built-in configuration. Verify which MCP implementation your Pi session is using before adding or changing a server; do not disable Pi's permission gates or install a second MCP runtime just for Nofax.
 
 This registers MCP tools, **not an automatic permission hook or idle-session wake-up**. While a request is pending, the agent must call `nofax_wait_for_response` again; a missing reply, timeout, or disconnect is never approval. Use Pi's normal trust/permission workflow and verify your installed Pi build exposes `pi mcp` before applying these instructions.
 
