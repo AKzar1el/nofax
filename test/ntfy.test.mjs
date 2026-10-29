@@ -360,3 +360,20 @@ test('server-side publish failure remains delivery-ambiguous', async () => {
     (error) => error?.message === 'NOFAX_NTFY_PUBLISH_503' && error.deliveryState === 'ambiguous'
   );
 });
+
+
+test('sendNotification retains approval context as inline ntfy UTF-8 message', async () => {
+  let payload;
+  await sendNotification({
+    config,
+    title: 'Unicode approval',
+    message: '漢'.repeat(2200),
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'published' });
+    }
+  });
+  assert.ok(Buffer.byteLength(payload.message, 'utf8') <= 4096, 'ntfy inline text must not become an attachment');
+  assert.match(payload.message, /…\[truncated\]$/);
+  assert.ok(!payload.message.includes('\uFFFD'));
+});
