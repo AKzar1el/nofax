@@ -2,6 +2,7 @@ import { createRequestId, createResponseTopic, parseResponseMessage } from './pr
 
 const MAX_TITLE = 120;
 const MAX_MESSAGE = 2200;
+const MAX_NTFY_MESSAGE_BYTES = 4096;
 const DEFAULT_REFINE_SHORTCUT = 'Nofax Refine';
 const POLL_TIMEOUT = Symbol('NOFAX_POLL_TIMEOUT');
 const PUBLISH_TIMEOUT = Symbol('NOFAX_PUBLISH_TIMEOUT');
@@ -24,6 +25,23 @@ function boundText(value, max, name) {
   if (text.length <= max) return text;
   const end = safeSliceEnd(text, max - 14);
   return `${text.slice(0, end)}…[truncated]`;
+}
+
+function boundMessageText(value) {
+  const text = boundText(value, MAX_MESSAGE, 'MESSAGE');
+  if (Buffer.byteLength(text, 'utf8') <= MAX_NTFY_MESSAGE_BYTES) return text;
+
+  const marker = '…[truncated]';
+  const maxContentBytes = MAX_NTFY_MESSAGE_BYTES - Buffer.byteLength(marker, 'utf8');
+  let bytes = 0;
+  let end = 0;
+  for (const character of text) {
+    const characterBytes = Buffer.byteLength(character, 'utf8');
+    if (bytes + characterBytes > maxContentBytes) break;
+    bytes += characterBytes;
+    end += character.length;
+  }
+  return `${text.slice(0, end)}${marker}`;
 }
 
 function sleep(ms) {
@@ -78,7 +96,7 @@ export async function sendNotification({ config, title, message, actions, priori
   const payload = {
     topic: config.topic,
     title: boundText(title, MAX_TITLE, 'TITLE'),
-    message: boundText(message, MAX_MESSAGE, 'MESSAGE'),
+    message: boundMessageText(message),
     priority,
     tags
   };
