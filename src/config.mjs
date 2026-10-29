@@ -30,7 +30,7 @@ export function normalizeServer(input) {
 }
 
 function validateTopic(topic) {
-  if (typeof topic !== 'string' || topic.length < 24 || topic.length > 128 || !/^[A-Za-z0-9_-]+$/.test(topic)) {
+  if (typeof topic !== 'string' || topic.length < 24 || topic.length > 64 || !/^[A-Za-z0-9_-]+$/.test(topic)) {
     throw new Error('NOFAX_TOPIC_INVALID');
   }
   return topic;
