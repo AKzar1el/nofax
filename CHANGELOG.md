@@ -42,6 +42,20 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.46 - 2026-10-29
+
+### Fixed
+
+- Bound ntfy notification bodies to the 4,096-byte UTF-8 inline-message limit while preserving Unicode-safe truncation, the existing character cap, and the explicit truncation marker.
+- Reject custom ntfy topics longer than the provider's 64-character maximum during configuration validation.
+
+### Documentation
+
+- Clarified iOS notification dismissal and web-browser HTTP action limitations: neither substitutes for explicit NoFax approval.
+- Documented native Pi MCP setup and fail-closed polling behavior without promising automatic idle-session wake-up.
+
+Pending, timeout, disconnect, notification delivery, and absent human response never approve any operation. The remote Worker's limited authority is unchanged.
+
 ## 0.2.45 - 2026-10-25
 
 ### Fixed
