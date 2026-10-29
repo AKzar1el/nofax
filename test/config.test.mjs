@@ -34,3 +34,11 @@ test('normalizes server and rejects credentials/query fragments', () => {
 test('NOFAX_HOME overrides default home', () => {
   assert.equal(resolveNofaxHome({ env: { NOFAX_HOME: '/tmp/nofax-custom' } }), resolve('/tmp/nofax-custom'));
 });
+
+
+test('ntfy topic maximum is 64 characters', async () => {
+  const { validateConfig } = await import('../src/config.mjs');
+  const config = { version: 1, server: 'https://ntfy.sh', topic: 'a'.repeat(64), timeoutSeconds: 300 };
+  assert.equal(validateConfig(config).topic.length, 64);
+  assert.throws(() => validateConfig({ ...config, topic: 'a'.repeat(65) }), /NOFAX_TOPIC_INVALID/);
+});
