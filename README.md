@@ -89,6 +89,8 @@ or:
 
 If the request is still pending, times out, disconnects, or hits a transport error, Nofax never converts that condition into approval.
 
+**ntfy client compatibility:** On iOS, the ntfy app may leave an HTTP action notification visible after you tap Allow or Deny, even when the action requests `clear: true` ([upstream ntfy issue #1728](https://github.com/binwiederhier/ntfy/issues/1728)). A still-visible notification does not prove whether Nofax recorded a decision: rely on Nofax's terminal `allow`/`deny` response or pending/timeout state, not on whether the notification disappears. If you use the ntfy web app instead of the mobile app, HTTP action buttons in notifications are supported in Chrome, Edge, and Opera but not Firefox or Safari; cross-origin callbacks also need the target server to allow CORS ([ntfy web-app support](https://docs.ntfy.sh/subscribe/web/)).
+
 ## MCP
 
 Start the local stdio MCP server:
