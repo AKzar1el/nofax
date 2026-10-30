@@ -784,3 +784,16 @@ test('redacts legacy signed URL Signature credentials without hiding nonsecret m
   assert.equal(structured.signature, 'function(arg) => result');
   assert.equal(structured.mode, 'read');
 });
+
+
+test('redacts Azure Blob Storage SAS signatures in agent approval summaries', () => {
+  const marker = 'NOFAX_SYNTHETIC_AZURE_SAS_SECRET_20261030';
+  const url = 'https://account.blob.core.windows.net/container/blob?sv=2024-11-04&sp=r&se=2030-01-01T00%3A00%3A00Z&sig=' + marker + '&spr=https';
+  const summary = buildAgentSummary({
+    source: 'Codex', toolName: 'shell', message: 'Review ' + url, toolInput: { url }
+  });
+  assert.doesNotMatch(summary, /NOFAX_SYNTHETIC_AZURE_SAS_SECRET_20261030/);
+  assert.match(summary, /sig=\[REDACTED\]/);
+  assert.match(summary, /sv=2024-11-04/);
+  assert.match(summary, /sp=r/);
+});
