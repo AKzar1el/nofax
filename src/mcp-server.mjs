@@ -45,6 +45,7 @@ const WAIT_OUTPUT_SCHEMA = z.object({
   mustWait: z.boolean().optional().describe('Present and true while the request remains pending.'),
   decision: z.string().min(1).max(80).optional().describe('Terminal human decision when resolved, such as allow, deny, refine, or an explicit choice value.'),
   text: z.string().min(1).max(2000).optional().describe('Human free-text refinement when the terminal decision is refine.'),
+  confirmationStatus: z.literal('failed').optional().describe('Confirmation notification failed after an explicit human decision was durably recorded; this is never itself approval.'),
   instruction: z.string().min(1).describe('Safety-preserving instruction describing what the caller may do next.')
 });
 
