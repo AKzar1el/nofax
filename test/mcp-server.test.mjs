@@ -128,6 +128,7 @@ test('every local MCP tool advertises an object-root output contract matching st
       assert.ok(tool.outputSchema, `${name} must advertise an output schema`);
 
       const jsonSchema = z.toJSONSchema(tool.outputSchema);
+      if (name === 'nofax_wait_for_response') assert.equal(jsonSchema.properties.confirmationStatus?.const, 'failed');
       assert.equal(jsonSchema.type, 'object', `${name} output schema must keep a compatibility-safe object root`);
 
       const response = await tool.handler(args[name]);

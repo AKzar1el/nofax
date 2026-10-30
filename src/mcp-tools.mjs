@@ -283,15 +283,21 @@ export function createMcpToolHandlers(overrides = {}) {
           const acceptedResponse = resolution.claimed
             && request.decision === response.decision
             && (request.text ?? undefined) === (response.text ?? undefined);
+          let confirmationStatus;
           if (acceptedResponse) {
-            await deps.sendResponseConfirmationImpl({
-              config: current,
-              response,
-              kind: request.kind,
-              title: request.kind === 'approval' ? 'Approval' : request.kind === 'refinement' ? 'Refinement' : 'Choice'
-            });
+            try {
+              await deps.sendResponseConfirmationImpl({
+                config: current,
+                response,
+                kind: request.kind,
+                title: request.kind === 'approval' ? 'Approval' : request.kind === 'refinement' ? 'Refinement' : 'Choice'
+              });
+            } catch {
+              confirmationStatus = 'failed';
+            }
           }
-          return terminalResult(request);
+          const result = terminalResult(request);
+          return confirmationStatus ? { ...result, confirmationStatus } : result;
         }
         const remaining = deadline - deps.nowImpl();
         if (remaining <= 0) break;
