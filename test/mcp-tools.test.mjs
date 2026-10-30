@@ -619,3 +619,29 @@ test('listPending exposes safe metadata only', async (t) => {
   assert.equal(list.requests[0].requestId, pending.requestId);
   assert.equal('responseTopic' in list.requests[0], false);
 });
+test('durable human answer survives confirmation transport failure', async (t) => {
+  for (const decision of ['allow', 'deny']) {
+    const home = await makeHome(t);
+    let confirmations = 0;
+    const handlers = makeHandlers({
+      home,
+      pollResult: { decision },
+      onConfirm: () => {
+        confirmations += 1;
+        throw new Error('SYNTHETIC_CONFIRM_FAIL');
+      }
+    });
+    const pending = await handlers.requestApproval({ title: 'Deploy?', message: 'Ready' });
+    const result = await handlers.waitForResponse({ requestId: pending.requestId, waitSeconds: 2 });
+    assert.equal(result.status, 'resolved');
+    assert.equal(result.decision, decision);
+    assert.equal(result.confirmationStatus, 'failed');
+    assert.equal(confirmations, 1);
+    const stored = await loadRequest({ home, requestId: pending.requestId });
+    assert.equal(stored.status, 'resolved');
+    assert.equal(stored.decision, decision);
+    const again = await handlers.waitForResponse({ requestId: pending.requestId, waitSeconds: 2 });
+    assert.equal(again.decision, decision);
+    assert.equal(confirmations, 1);
+  }
+});
