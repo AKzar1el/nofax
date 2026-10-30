@@ -58,7 +58,8 @@ function isSecretKey(key) {
     || lower === 'pass_phrase'
     || lower.endsWith('_passphrase')
     || lower.endsWith('_pass_phrase');
-  return lower === 'auth' || isAuthHeader || isAuthHeaderValue || isPassphrase || SECRET_KEY.test(normalized);
+  const isSignedUrlSignature = lower === 'x_amz_signature' || lower === 'x_goog_signature';
+  return lower === 'auth' || isSignedUrlSignature || isAuthHeader || isAuthHeaderValue || isPassphrase || SECRET_KEY.test(normalized);
 }
 
 function redactSecretText(value) {
@@ -110,7 +111,7 @@ function redactSecretText(value) {
   );
 
   redacted = redacted.replace(
-    /([?&#])([A-Za-z][A-Za-z0-9_-]{0,63})=([^&\s"'`,;]+)/g,
+    /([?&#])([A-Za-z][A-Za-z0-9._-]{0,63})=([^&\s"'`,;]+)/g,
     (match, prefix, key) => isSecretKey(key)
       ? `${prefix}${key}=[REDACTED]`
       : match
