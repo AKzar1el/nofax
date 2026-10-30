@@ -58,7 +58,7 @@ function isSecretKey(key) {
     || lower === 'pass_phrase'
     || lower.endsWith('_passphrase')
     || lower.endsWith('_pass_phrase');
-  const isSignedUrlSignature = lower === 'x_amz_signature' || lower === 'x_goog_signature';
+  const isSignedUrlSignature = lower === 'sig' || lower === 'x_amz_signature' || lower === 'x_goog_signature';
   return lower === 'auth' || isSignedUrlSignature || isAuthHeader || isAuthHeaderValue || isPassphrase || SECRET_KEY.test(normalized);
 }
 
