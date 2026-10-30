@@ -42,6 +42,12 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.47 - 2026-10-30
+
+### Security
+
+- Redact credential-bearing URL query parameters in agent approval summaries, including dotted API keys and AWS/Google signed URL signature values. Synthetic regression covers the leak; explicit human consent remains mandatory.
+
 ## 0.2.46 - 2026-10-29
 
 ### Fixed
