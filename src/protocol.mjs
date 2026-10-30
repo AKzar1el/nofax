@@ -112,7 +112,7 @@ function redactSecretText(value) {
 
   redacted = redacted.replace(
     /([?&#])([A-Za-z][A-Za-z0-9._-]{0,63})=([^&\s"'`,;]+)/g,
-    (match, prefix, key) => isSecretKey(key)
+    (match, prefix, key) => (isSecretKey(key) || key.toLowerCase() === 'signature')
       ? `${prefix}${key}=[REDACTED]`
       : match
   );
