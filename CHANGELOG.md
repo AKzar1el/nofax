@@ -42,6 +42,12 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.48 - 2026-10-30
+
+### Security
+
+- Redact legacy AWS S3 V2 and Google Cloud Storage V2 signed-URL `Signature` query tokens from agent approval summaries; synthetic regression verifies protection without changing explicit human consent.
+
 ## 0.2.47 - 2026-10-30
 
 ### Security
