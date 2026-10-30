@@ -42,6 +42,12 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.49 - 2026-10-30
+
+### Security
+
+- Redact Azure Blob Storage SAS sig query signatures from agent approval summaries; synthetic regression covers both message and tool input without expanding human consent.
+
 ## 0.2.48 - 2026-10-30
 
 ### Security
