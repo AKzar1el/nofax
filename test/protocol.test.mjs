@@ -766,3 +766,21 @@ test('redacts dotted API-key and signed URL credentials from agent summaries', (
   assert.ok(summary.includes('X-Amz-Date=20261030T010000Z'));
   assert.ok(summary.includes('mode=read'));
 });
+
+test('redacts legacy signed URL Signature credentials without hiding nonsecret metadata', () => {
+  const urls = [
+    'https://storage.googleapis.com/example/object?GoogleAccessId=demo%40example.invalid&Expires=1810000000&Signature=NOFAX_SYNTHETIC_GCS_V2_SIG',
+    'https://example.s3.amazonaws.com/object?AWSAccessKeyId=EXAMPLEONLY&Expires=1810000000&Signature=NOFAX_SYNTHETIC_S3_V2_SIG'
+  ];
+  for (const url of urls) {
+    const summary = buildAgentSummary({
+      source: 'Codex', toolName: 'shell', message: 'Review ' + url, toolInput: { url }
+    });
+    assert.doesNotMatch(summary, /NOFAX_SYNTHETIC_(?:GCS|S3)_V2_SIG/);
+    assert.match(summary, /Signature=\[REDACTED\]/);
+    assert.match(summary, /Expires=1810000000/);
+  }
+  const structured = redactAndBound({ signature: 'function(arg) => result', mode: 'read' });
+  assert.equal(structured.signature, 'function(arg) => result');
+  assert.equal(structured.mode, 'read');
+});
