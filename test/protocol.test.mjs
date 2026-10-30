@@ -748,3 +748,21 @@ test('buildAgentSummary is stable, bounded, and does not expose known secret key
   assert.doesNotMatch(summary, /ghi789/);
   assert.ok(summary.length <= 2200);
 });
+
+
+test('redacts dotted API-key and signed URL credentials from agent summaries', () => {
+  const marker = 'NOFAX_SYNTHETIC_URL_SECRET_20261030';
+  const url = 'https://example.invalid/object?api.key=' + marker + '&X-Amz-Signature=' + marker + '&X-Goog-Signature=' + marker + '&X-Amz-Date=20261030T010000Z&mode=read';
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'shell',
+    message: 'Review ' + url,
+    toolInput: { url }
+  });
+  assert.doesNotMatch(summary, new RegExp(marker));
+  assert.ok(summary.includes('api.key=[REDACTED]'));
+  assert.ok(summary.includes('X-Amz-Signature=[REDACTED]'));
+  assert.ok(summary.includes('X-Goog-Signature=[REDACTED]'));
+  assert.ok(summary.includes('X-Amz-Date=20261030T010000Z'));
+  assert.ok(summary.includes('mode=read'));
+});
