@@ -126,8 +126,9 @@ export async function sendNotification({ config, title, message, actions, priori
     }, timeoutMs);
   });
   let response;
+  let request;
   try {
-    const request = fetchImpl(`${config.server}/`, {
+    request = fetchImpl(`${config.server}/`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
@@ -139,7 +140,11 @@ export async function sendNotification({ config, title, message, actions, priori
   } finally {
     if (timeoutId !== undefined) clearTimeout(timeoutId);
   }
-  if (response === PUBLISH_TIMEOUT) throw publishError('NOFAX_NTFY_PUBLISH_TIMEOUT', 'ambiguous');
+  if (response === PUBLISH_TIMEOUT) {
+    // Some fetch implementations ignore abort and return a body after the deadline.
+    void Promise.resolve(request).then(releasePublishResponse, () => {});
+    throw publishError('NOFAX_NTFY_PUBLISH_TIMEOUT', 'ambiguous');
+  }
   releasePublishResponse(response);
   if (!response?.ok) {
     const status = response?.status ?? 'NETWORK';

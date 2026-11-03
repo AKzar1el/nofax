@@ -121,6 +121,33 @@ test('standalone notification times out ambiguously even when fetch ignores abor
   assert.equal(observedSignal.aborted, true);
 });
 
+test('sendNotification releases a publish body that arrives after its timeout', async () => {
+  let resolveRequest;
+  let signal;
+  const pendingRequest = new Promise((resolve) => { resolveRequest = resolve; });
+  const publication = sendNotification({
+    config,
+    title: 'Build done',
+    message: 'All tests pass',
+    timeoutMs: 20,
+    fetchImpl: (_url, init) => {
+      signal = init.signal;
+      return pendingRequest;
+    }
+  });
+
+  await assert.rejects(
+    publication,
+    (error) => error?.message === 'NOFAX_NTFY_PUBLISH_TIMEOUT' && error.deliveryState === 'ambiguous'
+  );
+  assert.equal(signal.aborted, true);
+
+  let cancelled = 0;
+  resolveRequest(new Response(new ReadableStream({ cancel() { cancelled += 1; } })));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(cancelled, 1, 'a fetch resolving after its deadline must not retain an unread body');
+});
+
 test('sendNotification preserves Unicode at truncation boundaries', async () => {
   let payload;
   await sendNotification({
