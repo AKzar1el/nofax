@@ -92,6 +92,15 @@ function publishError(message, deliveryState) {
   return error;
 }
 
+function releasePublishResponse(response) {
+  try {
+    // Start disposal without allowing a slow cleanup to delay an approval result.
+    void Promise.resolve(response?.body?.cancel()).catch(() => {});
+  } catch {
+    // Response cleanup must not change the notification's delivery classification.
+  }
+}
+
 export async function sendNotification({ config, title, message, actions, priority = 4, tags = ['bell'], signal, fetchImpl = fetch, timeoutMs = DEFAULT_PUBLISH_TIMEOUT_MS }) {
   const payload = {
     topic: config.topic,
@@ -131,6 +140,7 @@ export async function sendNotification({ config, title, message, actions, priori
     if (timeoutId !== undefined) clearTimeout(timeoutId);
   }
   if (response === PUBLISH_TIMEOUT) throw publishError('NOFAX_NTFY_PUBLISH_TIMEOUT', 'ambiguous');
+  releasePublishResponse(response);
   if (!response?.ok) {
     const status = response?.status ?? 'NETWORK';
     const deliveryState = NOT_APPLIED_PUBLISH_STATUSES.has(status) ? 'not_applied' : 'ambiguous';

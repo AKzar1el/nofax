@@ -27,6 +27,59 @@ test('sendNotification publishes bounded JSON to the configured phone topic', as
   assert.equal(payload.actions, undefined);
 });
 
+test('sendNotification releases an unread successful publish response body', async () => {
+  let cancelled = 0;
+  const response = new Response(new ReadableStream({
+    cancel() { cancelled += 1; }
+  }));
+
+  await sendNotification({
+    config,
+    title: 'Build done',
+    message: 'All tests pass',
+    fetchImpl: async () => response
+  });
+  assert.equal(cancelled, 1);
+});
+
+test('sendNotification releases failed response bodies without changing delivery classification', async () => {
+  for (const [status, deliveryState] of [[400, 'not_applied'], [429, 'not_applied'], [503, 'ambiguous']]) {
+    let cancelled = 0;
+    const response = new Response(new ReadableStream({
+      cancel() { cancelled += 1; }
+    }), { status });
+
+    await assert.rejects(
+      () => sendNotification({ config, title: 'Build done', message: 'All tests pass', fetchImpl: async () => response }),
+      (error) => error?.message === `NOFAX_NTFY_PUBLISH_${status}` && error.deliveryState === deliveryState
+    );
+    assert.equal(cancelled, 1, `HTTP ${status} must release its unread body`);
+  }
+});
+
+test('sendNotification does not let response cleanup failure mask the publish result', async () => {
+  for (const status of [200, 503]) {
+    let cancellationAttempted = 0;
+    const response = {
+      ok: status === 200,
+      status,
+      body: { cancel: () => {
+        cancellationAttempted += 1;
+        return Promise.reject(new Error('synthetic cleanup failure'));
+      } }
+    };
+    const publish = () => sendNotification({
+      config,
+      title: 'Build done',
+      message: 'All tests pass',
+      fetchImpl: async () => response
+    });
+    if (status === 200) await publish();
+    else await assert.rejects(publish, (error) => error?.deliveryState === 'ambiguous');
+    assert.equal(cancellationAttempted, 1);
+  }
+});
+
 test('createRemoteRequest rejects invalid input before persisting or publishing', async () => {
   const invalidCases = [
     { title: '   ', message: 'Choose an action', publishTimeoutMs: 1000, error: /NOFAX_TITLE_REQUIRED/ },
