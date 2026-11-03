@@ -199,8 +199,11 @@ export async function createRemoteRequest({
   }
 
   const remote = { requestId, responseTopic, allowed };
-  await beforePublish(remote);
+  // Validate synchronously before the persistence callback can record a pending request.
+  boundText(title, MAX_TITLE, 'TITLE');
+  boundMessageText(message);
   if (!Number.isFinite(publishTimeoutMs) || publishTimeoutMs <= 0) throw new Error('NOFAX_PUBLISH_TIMEOUT_INVALID');
+  await beforePublish(remote);
   const controller = new AbortController();
   let timeoutId;
   const timeout = new Promise((resolve) => {

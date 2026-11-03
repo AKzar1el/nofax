@@ -286,12 +286,13 @@ export function createMcpToolHandlers(overrides = {}) {
           let confirmationStatus;
           if (acceptedResponse) {
             try {
-              await deps.sendResponseConfirmationImpl({
+              const confirmationDelivered = await deps.sendResponseConfirmationImpl({
                 config: current,
                 response,
                 kind: request.kind,
                 title: request.kind === 'approval' ? 'Approval' : request.kind === 'refinement' ? 'Refinement' : 'Choice'
               });
+              if (confirmationDelivered === false) confirmationStatus = 'failed';
             } catch {
               confirmationStatus = 'failed';
             }
