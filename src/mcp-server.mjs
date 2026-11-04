@@ -1,7 +1,10 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
+import { readFileSync } from 'node:fs';
 import * as z from 'zod/v4';
 import { createMcpToolHandlers } from './mcp-tools.mjs';
+
+const PACKAGE_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 export const MCP_TOOL_NAMES = Object.freeze([
   'nofax_notify',
@@ -75,7 +78,7 @@ const LIST_PENDING_OUTPUT_SCHEMA = z.object({
 
 export function buildMcpServer({ handlers = createMcpToolHandlers() } = {}) {
   const server = new McpServer(
-    { name: 'nofax', version: '0.2.46' },
+    { name: 'nofax', version: PACKAGE_VERSION },
     { instructions: SERVER_INSTRUCTIONS }
   );
 

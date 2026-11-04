@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { MCP_TOOL_NAMES } from '../src/mcp-server.mjs';
@@ -51,6 +52,8 @@ test('packaged CLI entrypoint negotiates MCP over stdio and exposes the safe too
     const initialization = await receive();
     assert.equal(initialization.id, 1);
     assert.equal(initialization.result.serverInfo.name, 'nofax');
+    const packageVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+    assert.equal(initialization.result.serverInfo.version, packageVersion);
     assert.equal(initialization.result.protocolVersion, '2025-11-25');
     assert.match(initialization.result.instructions, /Do not infer approval/);
 
