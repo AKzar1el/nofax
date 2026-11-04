@@ -130,6 +130,8 @@ export async function publishNotification({
     try {
       response = await fetchImpl(serverUrl(env) + "/", {
         method: "POST",
+        // Never forward the notification payload to a redirect target.
+        redirect: "error",
         headers: { "content-type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({
