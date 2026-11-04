@@ -92,6 +92,31 @@ describe("remote ntfy publisher", () => {
     })).rejects.toThrow("NOFAX_NTFY_TOPIC_REQUIRED");
   });
 
+  it("rejects unsafe topic configurations before publishing anything", async () => {
+    let fetchCalls = 0;
+    const fetchImpl = (async () => {
+      fetchCalls += 1;
+      return new Response("unexpected");
+    }) as typeof fetch;
+    const topics = [
+      "short",
+      "x".repeat(24),
+      "x".repeat(65),
+      "nofax/abcdefghijklmnopqrstuvwxyz123456",
+      "nofax.abcdefghijklmnopqrstuvwxyz123456",
+      "nofax_abcdefghijklmnopqrstuvwxyz123456?x=1"
+    ];
+    for (const topic of topics) {
+      await expect(publishNotification({
+        env: env({ NTFY_TOPIC: topic }),
+        title: "Alert",
+        message: "Synthetic",
+        fetchImpl
+      })).rejects.toThrow("NOFAX_NTFY_TOPIC_INVALID");
+    }
+    expect(fetchCalls).toBe(0);
+  });
+
   it("preserves bounded ntfy rate-limit diagnostics", async () => {
     const fetchImpl = async () => new Response(JSON.stringify({
       code: 42901,

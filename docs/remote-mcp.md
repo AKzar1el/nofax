@@ -153,6 +153,31 @@ Generate a high-entropy secret outside the repository. For example:
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
 ```
 
+The Worker rejects obviously weak or malformed remote keys: after trimming, the
+key must have 32–128 URL-safe ASCII characters (`A-Z`, `a-z`, `0-9`, `_`,
+`-`) and at least eight distinct characters. These checks **cannot prove
+entropy**. Use cryptographic randomness as above; do not use memorable tokens,
+repeated patterns, or values copied from example configurations.
+
+Generate a separate random ntfy topic (32 URL-safe characters from 24 random
+bytes) on your own machine:
+
+```bash
+node -e "console.log(require('node:crypto').randomBytes(24).toString('base64url'))"
+```
+
+The Worker requires the ntfy topic to contain 24–64 URL-safe ASCII characters
+and at least eight distinct characters. It rejects path separators, dots and
+query characters rather than publishing to an unexpected topic. The topic is
+a bearer-like secret; neither length nor character checks establish secrecy.
+
+**Existing deployment migration:** Before updating the Worker, check that
+your current `NOFAX_REMOTE_KEY` and `NTFY_TOPIC` meet these requirements.
+Rotate weak values using `wrangler secret put`, and update MCP client
+credentials and ntfy subscriptions as needed. A weak remote key now causes
+MCP authentication to fail closed (401/404); a weak topic blocks publication.
+No migration, secret rotation, or deployment is automatic.
+
 ### 2. Store the secret and deploy
 
 From `worker/`:

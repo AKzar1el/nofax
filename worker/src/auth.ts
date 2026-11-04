@@ -3,7 +3,10 @@ import type { Env } from "./env";
 function configuredKey(env: Env): string | null {
   if (typeof env.NOFAX_REMOTE_KEY !== "string") return null;
   const key = env.NOFAX_REMOTE_KEY.trim();
-  return key.length > 0 ? key : null;
+  // This rejects obvious weak/malformed keys; it cannot prove random generation.
+  if (key.length < 32 || key.length > 128 || !/^[A-Za-z0-9_-]+$/.test(key)) return null;
+  if (new Set(key).size < 8) return null;
+  return key;
 }
 
 export function constantTimeEqual(left: string, right: string): boolean {

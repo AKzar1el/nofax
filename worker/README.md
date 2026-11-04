@@ -59,6 +59,14 @@ Legacy internal mutation methods may remain for schema/backward compatibility, b
 - high-entropy `NOFAX_REMOTE_KEY` Worker secret
 - `NTFY_TOPIC` Worker secret when using the included ntfy notification transport
 
+Before upgrading an existing deployment, verify the key and topic: the Worker
+now rejects remote keys shorter than 32 or longer than 128 URL-safe ASCII
+characters, and ntfy topics outside 24–64 URL-safe ASCII characters. Both
+also require at least eight distinct characters as a basic weak-value guard;
+these shape checks cannot replace secure random generation. Rotate unsuitable
+secrets **before deploying** and update MCP clients and ntfy subscriptions.
+See [remote MCP deployment instructions](../docs/remote-mcp.md).
+
 The publisher defaults to `https://ntfy.sh` unless `NTFY_SERVER` is configured.
 
 ## Deploy
