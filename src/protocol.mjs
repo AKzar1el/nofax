@@ -75,6 +75,15 @@ function redactSecretText(value) {
     '$1$2:[REDACTED]@'
   );
 
+  // Commands may embed a JSON string containing another serialized JSON object,
+  // such as \"api_key\":\"value\". Redact escaped credential fields too.
+  redacted = redacted.replace(
+    /(?<!\\)(\\+")([A-Za-z][A-Za-z0-9_-]{0,63})\1(\s*[:=]\s*)\1[\s\S]*?(?<!\\)\1/g,
+    (match, quote, key, separator) => isSecretKey(key)
+      ? quote + key + quote + separator + quote + '[REDACTED]' + quote
+      : match
+  );
+
   redacted = redacted.replace(
     /(["'])((?:proxy[-_])?authorization)(?!\s*[:=]\s*(?:bearer|basic)\b)(\s*[:=]\s*)((?:\\.|(?!\1).)*)\1/gi,
     '$1$2$3[REDACTED]$1'
