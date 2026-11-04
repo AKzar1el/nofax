@@ -24,6 +24,23 @@ test('redacts credentials from escaped and double-escaped JSON in agent summarie
   }
 });
 
+test('redacts credentials whose JSON property names use Unicode escapes', () => {
+  const marker = 'NOFAX_SYNTHETIC_UNICODE_KEY_CANARY_98765';
+  const raw = `{"\\u0061pi\\u005fkey":"${marker}","note":"safe detail"}`;
+  const quoted = `{"access\\u0054oken":"prefix\\\"${marker}\\\"suffix","note":"safe detail"}`;
+  for (const serialized of [raw, quoted]) {
+    for (const text of [serialized, JSON.stringify(serialized), JSON.stringify(JSON.stringify(serialized)), `echo ${serialized}`]) {
+      const summary = buildAgentSummary({ source: 'Codex', toolName: 'shell', toolInput: { command: text } });
+      const bounded = redactAndBound(text);
+      assert.equal(summary.includes(marker), false, 'summary must not expose obfuscated JSON credentials');
+      assert.equal(bounded.includes(marker), false, 'bounded string must not expose obfuscated JSON credentials');
+      assert.match(summary, /safe detail/, 'preserve nonsecret JSON fields');
+    }
+  }
+  const benign = '{"he\\u006clo":"safe detail"}';
+  assert.match(redactAndBound(benign), /safe detail/, 'unrelated Unicode escapes remain visible');
+});
+
 test('request identifiers and response topics are high-entropy URL-safe values', () => {
   const id = createRequestId();
   const topic = createResponseTopic();
