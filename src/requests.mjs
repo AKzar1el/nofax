@@ -1,4 +1,4 @@
-import { chmod, link, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
+import { chmod, link, mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { normalizeServer, resolveNofaxHome } from './config.mjs';
 
@@ -89,14 +89,6 @@ function paths({ home, env, requestId }) {
   };
 }
 
-async function atomicWrite(path, value) {
-  const temp = `${path}.tmp-${process.pid}-${Math.random().toString(16).slice(2)}`;
-  await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-  try { await chmod(temp, 0o600); } catch {}
-  await rename(temp, path);
-  try { await chmod(path, 0o600); } catch {}
-}
-
 async function loadTerminalClaim(path, requestId) {
   try {
     const terminal = validateRequest(JSON.parse(await readFile(path, 'utf8')));
@@ -110,7 +102,7 @@ async function loadTerminalClaim(path, requestId) {
   }
 }
 
-async function claimTerminal(path, value) {
+async function createExclusiveRecord(path, value) {
   const temp = `${path}.tmp-${process.pid}-${Math.random().toString(16).slice(2)}`;
   await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
   try { await chmod(temp, 0o600); } catch {}
@@ -130,9 +122,14 @@ async function claimTerminal(path, value) {
 export async function savePendingRequest({ home, env, request }) {
   const normalized = validateRequest(request);
   if (normalized.status !== 'pending') throw new Error('NOFAX_REQUEST_NOT_PENDING');
-  const { requestsRoot, file } = paths({ home, env, requestId: normalized.requestId });
+  const { requestsRoot, file, terminal } = paths({ home, env, requestId: normalized.requestId });
   await mkdir(requestsRoot, { recursive: true, mode: 0o700 });
-  await atomicWrite(file, normalized);
+  if (await loadTerminalClaim(terminal, normalized.requestId) !== null) {
+    throw new Error('NOFAX_REQUEST_ALREADY_EXISTS');
+  }
+  if (!await createExclusiveRecord(file, normalized)) {
+    throw new Error('NOFAX_REQUEST_ALREADY_EXISTS');
+  }
   return normalized;
 }
 
@@ -181,7 +178,7 @@ export async function resolveRequestWithClaim({ home, env, requestId, response, 
     ...(response.text === undefined ? {} : { text: response.text })
   });
   const { terminal } = paths({ home, env, requestId });
-  if (!await claimTerminal(terminal, resolved)) {
+  if (!await createExclusiveRecord(terminal, resolved)) {
     return { request: await loadRequest({ home, env, requestId }), claimed: false };
   }
   return { request: resolved, claimed: true };
