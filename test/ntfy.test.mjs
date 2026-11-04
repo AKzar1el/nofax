@@ -200,8 +200,14 @@ test('sendNotification releases an unread successful publish response body', asy
   assert.equal(cancelled, 1);
 });
 
-test('sendNotification releases failed response bodies without changing delivery classification', async () => {
-  for (const [status, deliveryState] of [[400, 'not_applied'], [429, 'not_applied'], [503, 'ambiguous']]) {
+test('sendNotification releases failed response bodies and treats auth refusals as not applied', async () => {
+  for (const [status, deliveryState] of [
+    [400, 'not_applied'],
+    [401, 'not_applied'],
+    [403, 'not_applied'],
+    [429, 'not_applied'],
+    [503, 'ambiguous']
+  ]) {
     let cancelled = 0;
     const response = new Response(new ReadableStream({
       cancel() { cancelled += 1; }

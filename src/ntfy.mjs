@@ -7,8 +7,9 @@ const DEFAULT_REFINE_SHORTCUT = 'Nofax Refine';
 const POLL_TIMEOUT = Symbol('NOFAX_POLL_TIMEOUT');
 const PUBLISH_TIMEOUT = Symbol('NOFAX_PUBLISH_TIMEOUT');
 const DEFAULT_PUBLISH_TIMEOUT_MS = 15_000;
-// ntfy rejects validation and rate-limit responses before accepting the publish.
-const NOT_APPLIED_PUBLISH_STATUSES = new Set([400, 429]);
+// ntfy rejects invalid requests, unauthorized/forbidden publishing and rate
+// limits before accepting the message. These must not leave orphan approvals.
+const NOT_APPLIED_PUBLISH_STATUSES = new Set([400, 401, 403, 429]);
 
 function safeSliceEnd(text, end) {
   const previous = text.charCodeAt(end - 1);

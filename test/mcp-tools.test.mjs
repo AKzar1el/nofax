@@ -83,22 +83,24 @@ test('approval persists its durable request before remote publication continues'
   assert.equal(storedBeforePublish.requestId, requestId);
 });
 
-test('authoritative ntfy publish rejection removes the durable pending residue', async (t) => {
-  const home = await makeHome(t);
-  const handlers = createMcpToolHandlers({
-    home,
-    loadConfigImpl: async () => config,
-    createRemoteRequestImpl: (input) => createRemoteRequest({
-      ...input,
-      fetchImpl: async () => new Response(JSON.stringify({ error: 'rate limited' }), { status: 429 })
-    })
-  });
+test('ntfy 401/403 authentication refusal and other definitive rejections discard pending approvals', async (t) => {
+  for (const status of [400, 401, 403, 429]) {
+    const home = await makeHome(t);
+    const handlers = createMcpToolHandlers({
+      home,
+      loadConfigImpl: async () => config,
+      createRemoteRequestImpl: (input) => createRemoteRequest({
+        ...input,
+        fetchImpl: async () => new Response(JSON.stringify({ error: 'not accepted' }), { status })
+      })
+    });
 
-  await assert.rejects(
-    () => handlers.requestApproval({ title: 'Deploy?', message: 'Release ready' }),
-    /NOFAX_NTFY_PUBLISH_429/
-  );
-  assert.deepEqual(await listPendingRequests({ home }), []);
+    await assert.rejects(
+      () => handlers.requestApproval({ title: 'Deploy?', message: 'Release ready' }),
+      (error) => error.message === `NOFAX_NTFY_PUBLISH_${status}` && error.deliveryState === 'not_applied'
+    );
+    assert.deepEqual(await listPendingRequests({ home }), [], `HTTP ${status} must not orphan pending approval`);
+  }
 });
 
 test('ambiguous ntfy network failure preserves the durable pending request', async (t) => {
