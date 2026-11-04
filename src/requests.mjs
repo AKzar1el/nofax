@@ -97,10 +97,11 @@ async function atomicWrite(path, value) {
   try { await chmod(path, 0o600); } catch {}
 }
 
-async function loadTerminalClaim(path) {
+async function loadTerminalClaim(path, requestId) {
   try {
     const terminal = validateRequest(JSON.parse(await readFile(path, 'utf8')));
     if (terminal.status !== 'resolved') throw new Error('NOFAX_REQUEST_TERMINAL_INVALID');
+    if (terminal.requestId !== requestId) throw new Error('NOFAX_REQUEST_ID_MISMATCH');
     return terminal;
   } catch (error) {
     if (error?.code === 'ENOENT') return null;
@@ -137,9 +138,10 @@ export async function savePendingRequest({ home, env, request }) {
 
 export async function discardPendingRequest({ home, env, requestId }) {
   const { file, terminal } = paths({ home, env, requestId });
-  if (await loadTerminalClaim(terminal) !== null) return false;
+  if (await loadTerminalClaim(terminal, requestId) !== null) return false;
   try {
     const current = validateRequest(JSON.parse(await readFile(file, 'utf8')));
+    if (current.requestId !== requestId) throw new Error('NOFAX_REQUEST_ID_MISMATCH');
     if (current.status !== 'pending') return false;
     await unlink(file);
     return true;
@@ -152,10 +154,12 @@ export async function discardPendingRequest({ home, env, requestId }) {
 
 export async function loadRequest({ home, env, requestId }) {
   const { file, terminal } = paths({ home, env, requestId });
-  const claimed = await loadTerminalClaim(terminal);
+  const claimed = await loadTerminalClaim(terminal, requestId);
   if (claimed !== null) return claimed;
   try {
-    return validateRequest(JSON.parse(await readFile(file, 'utf8')));
+    const request = validateRequest(JSON.parse(await readFile(file, 'utf8')));
+    if (request.requestId !== requestId) throw new Error('NOFAX_REQUEST_ID_MISMATCH');
+    return request;
   } catch (error) {
     if (error?.code === 'ENOENT') throw new Error('NOFAX_REQUEST_NOT_FOUND');
     if (error instanceof SyntaxError) throw new Error('NOFAX_REQUEST_INVALID_JSON');

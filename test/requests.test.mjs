@@ -29,6 +29,41 @@ test('pending requests persist and reload without losing the response topic', as
   assert.equal(stored.responseTopic, pending.responseTopic);
 });
 
+test('request filename and stored requestId must match before returning a pending request', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  await writeFile(join(root, 'requests', `${pending.requestId}.json`), JSON.stringify({
+    ...pending,
+    requestId: 'nfx_abcdefghijklmnopqrstuvw9'
+  }), 'utf8');
+
+  await assert.rejects(
+    loadRequest({ home: root, requestId: pending.requestId }),
+    /NOFAX_REQUEST_ID_MISMATCH/
+  );
+});
+
+test('a terminal sidecar for another requestId cannot authorize the requested ID', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  await writeFile(join(root, 'requests', `${pending.requestId}.terminal.json`), JSON.stringify({
+    ...pending,
+    requestId: 'nfx_abcdefghijklmnopqrstuvw9',
+    status: 'resolved',
+    resolvedAt: '2026-09-09T18:01:00.000Z',
+    decision: 'allow'
+  }), 'utf8');
+
+  await assert.rejects(
+    loadRequest({ home: root, requestId: pending.requestId }),
+    /NOFAX_REQUEST_ID_MISMATCH/
+  );
+  await assert.rejects(
+    resolveRequestWithClaim({ home: root, requestId: pending.requestId, response: { decision: 'deny' } }),
+    /NOFAX_REQUEST_ID_MISMATCH/
+  );
+});
+
 test('discardPendingRequest removes only unresolved pending state', async (t) => {
   const root = await home(t);
   await savePendingRequest({ home: root, request: pending });
