@@ -42,6 +42,22 @@ test('generic approve prints stable machine-readable JSON', async () => {
   assert.equal(stderr.read(), '');
 });
 
+test('generic approve exit codes distinguish explicit allow, deny, timeout and invalid decisions', async () => {
+  for (const [decision, exitCode] of [['allow', 0], ['deny', 2], ['timeout', 3], ['unexpected', 1]]) {
+    const stdout = capture();
+    const stderr = capture();
+    const code = await runCli(['approve', 'Run deployment?'], {
+      stdout,
+      stderr,
+      loadConfigImpl: async () => ({}),
+      requestApprovalImpl: async () => ({ decision })
+    });
+    assert.equal(code, exitCode, `decision ${decision} must not be mistaken for success`);
+    assert.equal(stdout.read(), `${JSON.stringify({ decision })}\n`);
+    assert.equal(stderr.read(), '');
+  }
+});
+
 test('Claude hook stdout contains only native hook JSON', async () => {
   const stdout = capture();
   const stderr = capture();

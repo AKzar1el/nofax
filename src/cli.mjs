@@ -203,7 +203,10 @@ export async function runCli(args, overrides = {}) {
         message: positionals.join(' ')
       });
       writeJson(deps.stdout, { decision: result.decision });
-      return result.decision === 'timeout' ? 3 : 0;
+      // Shell callers must not mistake a denied or invalid decision for approval.
+      if (result.decision === 'allow') return 0;
+      if (result.decision === 'deny') return 2;
+      return result.decision === 'timeout' ? 3 : 1;
     }
 
     if (command === 'refine') {
