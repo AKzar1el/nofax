@@ -5,6 +5,7 @@ import {
   createRemoteRequest,
   pollRemoteResponse,
   requestApproval,
+  requestChoice,
   sendResponseConfirmation
 } from '../src/ntfy.mjs';
 
@@ -247,9 +248,64 @@ test('requestApproval sends best-effort phone confirmation after Allow', async (
     nowImpl: (() => { let n = 0; return () => (n += 10); })()
   });
   assert.equal(result.decision, 'allow');
+  assert.equal(result.confirmationStatus, 'failed', 'a failed phone receipt must be visible to standalone callers');
   assert.equal(published.length, 2);
   assert.match(published[1].title, /Approved/);
   assert.equal(polls, 1);
+});
+
+test('standalone Deny and reserved-word choice keep their decisions when phone receipts fail', async () => {
+  for (const { kind, decision } of [
+    { kind: 'approval', decision: 'deny' },
+    { kind: 'choice', decision: 'allow' }
+  ]) {
+    let requestId;
+    const published = [];
+    const fetchImpl = async (_url, init = {}) => {
+      if (init.method === 'POST') {
+        const payload = JSON.parse(init.body);
+        published.push(payload);
+        if (published.length === 1) {
+          requestId = JSON.parse(payload.actions[0].body).requestId;
+          return { ok: true, status: 200 };
+        }
+        return { ok: false, status: 503 };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => `${JSON.stringify({ event: 'message', message: JSON.stringify({ v: 1, requestId, decision }) })}\n`
+      };
+    };
+    const input = { config, title: 'Test', message: 'Decide', fetchImpl, timeoutMs: 1000 };
+    const result = kind === 'approval'
+      ? await requestApproval(input)
+      : await requestChoice({ ...input, options: ['allow', 'ship'] });
+    assert.equal(result.decision, decision);
+    assert.equal(result.confirmationStatus, 'failed');
+    assert.equal(published.length, 2);
+    assert.match(published[1].title, kind === 'choice' ? /^Choice received/ : /^Denied/);
+    if (kind === 'choice') assert.doesNotMatch(published[1].title, /Approved/);
+  }
+});
+
+test('standalone successful receipt does not report confirmation failure', async () => {
+  let requestId;
+  const fetchImpl = async (_url, init = {}) => {
+    if (init.method === 'POST') {
+      const payload = JSON.parse(init.body);
+      if (payload.actions) requestId = JSON.parse(payload.actions[0].body).requestId;
+      return { ok: true, status: 200 };
+    }
+    return {
+      ok: true,
+      status: 200,
+      text: async () => `${JSON.stringify({ event: 'message', message: JSON.stringify({ v: 1, requestId, decision: 'allow' }) })}\n`
+    };
+  };
+  const result = await requestApproval({ config, title: 'Test', message: 'Approve?', fetchImpl, timeoutMs: 1000 });
+  assert.equal(result.decision, 'allow');
+  assert.equal('confirmationStatus' in result, false);
 });
 
 test('sendResponseConfirmation bounds a stalled best-effort confirmation', async () => {
