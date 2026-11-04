@@ -88,7 +88,12 @@ async function readBoundedText(response: Response): Promise<string> {
 
 function safeDiagnostic(value: unknown, maxLength: number): string | undefined {
   if (typeof value !== "string" && typeof value !== "number") return undefined;
-  const text = String(value).replace(/\s+/g, " ").trim();
+  // Provider errors are untrusted text. Escape terminal and bidi controls so
+  // diagnostic output cannot visually erase or reorder the actual error.
+  const text = String(value).replace(/\s+/g, " ").trim().replace(
+    /[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/gu,
+    (character) => `\\u${character.codePointAt(0)!.toString(16).padStart(4, "0")}`
+  );
   if (!text) return undefined;
   return text.slice(0, maxLength);
 }

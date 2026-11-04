@@ -230,6 +230,23 @@ describe("remote ntfy publisher", () => {
       "NOFAX_NTFY_PUBLISH_429: code=42901 retry_after=12 detail=limit reached: too many requests, please be nice"
     );
   });
+
+  it("quotes upstream display controls in diagnostic errors", async () => {
+    const fetchImpl = (async () => new Response(JSON.stringify({
+      code: "429\u001b[0m",
+      error: "limit reached\u001b[2K\u202edeny\u0000"
+    }), { status: 429, headers: { "retry-after": "12" } })) as typeof fetch;
+    let message = "";
+    try {
+      await publishNotification({ env: env(), title: "Alert", message: "Synthetic only", fetchImpl });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("NOFAX_NTFY_PUBLISH_429");
+    expect(message).toContain("code=429\\u001b[0m");
+    expect(message).toContain("detail=limit reached\\u001b[2K\\u202edeny\\u0000");
+    expect(message).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/u);
+  });
 });
 
 describe("bounded remote ntfy publication", () => {
