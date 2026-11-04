@@ -7,6 +7,7 @@ const DEFAULT_REFINE_SHORTCUT = 'Nofax Refine';
 const POLL_TIMEOUT = Symbol('NOFAX_POLL_TIMEOUT');
 const PUBLISH_TIMEOUT = Symbol('NOFAX_PUBLISH_TIMEOUT');
 const DEFAULT_PUBLISH_TIMEOUT_MS = 15_000;
+const MAX_TIMER_TIMEOUT_MS = 2_147_483_647;
 // ntfy rejects invalid requests, unauthorized/forbidden publishing and rate
 // limits before accepting the message. These must not leave orphan approvals.
 const NOT_APPLIED_PUBLISH_STATUSES = new Set([400, 401, 403, 429]);
@@ -93,6 +94,14 @@ function publishError(message, deliveryState) {
   return error;
 }
 
+function validateTimeoutMs(value, errorCode) {
+  // Node timers clamp nonpositive, fractional and overflowing delays; do not
+  // publish an approval that could then immediately time out.
+  if (!Number.isSafeInteger(value) || value < 1 || value > MAX_TIMER_TIMEOUT_MS) {
+    throw new Error(errorCode);
+  }
+}
+
 // The optional ntfy publishing token is process-local, not stored in config.json.
 // Never attach it to approval action URLs or response-topic polling requests.
 function publishAuthorization(config, token) {
@@ -136,9 +145,7 @@ export async function sendNotification({ config, title, message, actions, priori
   // Caller-managed approval publication and confirmation already have a deadline.
   // A direct notification needs its own bounded transport when no signal is supplied.
   const ownsTimeout = signal === undefined;
-  if (ownsTimeout && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
-    throw new Error('NOFAX_PUBLISH_TIMEOUT_INVALID');
-  }
+  if (ownsTimeout) validateTimeoutMs(timeoutMs, 'NOFAX_PUBLISH_TIMEOUT_INVALID');
   const controller = ownsTimeout ? new AbortController() : null;
   let timeoutId;
   const timeout = controller === null ? null : new Promise((resolve) => {
@@ -247,7 +254,7 @@ export async function createRemoteRequest({
   // Validate synchronously before the persistence callback can record a pending request.
   boundText(title, MAX_TITLE, 'TITLE');
   boundMessageText(message);
-  if (!Number.isFinite(publishTimeoutMs) || publishTimeoutMs <= 0) throw new Error('NOFAX_PUBLISH_TIMEOUT_INVALID');
+  validateTimeoutMs(publishTimeoutMs, 'NOFAX_PUBLISH_TIMEOUT_INVALID');
   // Reject invalid/cleartext credential use before persisting a pending approval.
   publishAuthorization(config, authToken);
   await beforePublish(remote);
@@ -417,6 +424,8 @@ async function requestDecision({
   nowImpl = Date.now,
   sleepImpl = sleep
 }) {
+  // Validate the decision window before createRemoteRequest persists or sends.
+  validateTimeoutMs(timeoutMs, 'NOFAX_DECISION_TIMEOUT_INVALID');
   const remote = await createRemoteRequest({ config, title, message, options, includeRefine, publishTimeoutMs, fetchImpl });
   const response = await waitRemoteResponse({
     config,
