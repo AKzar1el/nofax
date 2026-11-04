@@ -1,4 +1,5 @@
 import { createRequestId, createResponseTopic, parseResponseMessage } from './protocol.mjs';
+import { normalizeServer } from './config.mjs';
 
 const MAX_TITLE = 120;
 const MAX_MESSAGE = 2200;
@@ -132,6 +133,7 @@ function releasePublishResponse(response) {
 }
 
 export async function sendNotification({ config, title, message, actions, priority = 4, tags = ['bell'], signal, fetchImpl = fetch, timeoutMs = DEFAULT_PUBLISH_TIMEOUT_MS, authToken = process.env.NOFAX_NTFY_TOKEN }) {
+  const server = normalizeServer(config.server);
   const authorization = publishAuthorization(config, authToken);
   const payload = {
     topic: config.topic,
@@ -157,7 +159,7 @@ export async function sendNotification({ config, title, message, actions, priori
   let response;
   let request;
   try {
-    request = fetchImpl(`${config.server}/`, {
+    request = fetchImpl(`${server}/`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -220,6 +222,7 @@ export async function createRemoteRequest({
   fetchImpl = fetch,
   authToken = process.env.NOFAX_NTFY_TOKEN
 }) {
+  const server = normalizeServer(config.server);
   const normalized = normalizeOptions(options);
   if (includeRefine && normalized.some((option) => option.value === 'refine')) throw new Error('NOFAX_CHOICE_DUPLICATE');
   if (includeRefine && normalized.some((option) => option.label === 'Refine')) throw new Error('NOFAX_CHOICE_DUPLICATE');
@@ -233,19 +236,19 @@ export async function createRemoteRequest({
 
   if (includeRefine && normalized.length === 2) {
     const [first, second] = normalized;
-    actions.push(httpAction({ label: first.label, server: config.server, responseTopic, requestId, decision: first.value }));
+    actions.push(httpAction({ label: first.label, server, responseTopic, requestId, decision: first.value }));
     allowed.push(first.value);
-    actions.push(refineAction({ shortcutName, server: config.server, responseTopic, requestId }));
+    actions.push(refineAction({ shortcutName, server, responseTopic, requestId }));
     allowed.push('refine');
-    actions.push(httpAction({ label: second.label, server: config.server, responseTopic, requestId, decision: second.value }));
+    actions.push(httpAction({ label: second.label, server, responseTopic, requestId, decision: second.value }));
     allowed.push(second.value);
   } else {
     for (const option of normalized) {
-      actions.push(httpAction({ label: option.label, server: config.server, responseTopic, requestId, decision: option.value }));
+      actions.push(httpAction({ label: option.label, server, responseTopic, requestId, decision: option.value }));
       allowed.push(option.value);
     }
     if (includeRefine) {
-      actions.push(refineAction({ shortcutName, server: config.server, responseTopic, requestId }));
+      actions.push(refineAction({ shortcutName, server, responseTopic, requestId }));
       allowed.push('refine');
     }
   }
@@ -296,6 +299,7 @@ function parseNtfyPoll(text, requestId, allowed, kind) {
 }
 
 export async function pollRemoteResponse({ config, responseTopic, requestId, allowed, kind, timeoutMs, fetchImpl = fetch }) {
+  const server = normalizeServer(config.server);
   let timeoutId;
   const controller = timeoutMs === undefined ? null : new AbortController();
   const timeout = controller === null
@@ -309,7 +313,7 @@ export async function pollRemoteResponse({ config, responseTopic, requestId, all
   try {
     let response;
     try {
-      const request = fetchImpl(`${config.server}/${responseTopic}/json?poll=1&since=all`, {
+      const request = fetchImpl(`${server}/${responseTopic}/json?poll=1&since=all`, {
         method: 'GET',
         headers: { accept: 'application/x-ndjson' },
         // The response topic itself is a capability; never disclose it via redirects.

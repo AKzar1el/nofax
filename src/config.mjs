@@ -26,6 +26,14 @@ export function normalizeServer(input) {
   if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('NOFAX_SERVER_PROTOCOL');
   if (url.username || url.password) throw new Error('NOFAX_SERVER_CREDENTIALS');
   if ((url.pathname && url.pathname !== '/') || url.search || url.hash) throw new Error('NOFAX_SERVER_PATH');
+  if (url.protocol === 'http:' &&
+      url.hostname !== 'localhost' &&
+      url.hostname !== '[::1]' &&
+      !/^127\.(?:\d+\.){2}\d+$/.test(url.hostname)) {
+    // Notifications and approval callback URLs contain capabilities; only
+    // explicit loopback development endpoints may use cleartext transport.
+    throw new Error('NOFAX_SERVER_INSECURE_HTTP');
+  }
   return `${url.protocol}//${url.host}`;
 }
 
