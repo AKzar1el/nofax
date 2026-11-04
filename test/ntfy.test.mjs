@@ -185,6 +185,60 @@ test('ntfy publishing and response polling never follow 307/308 redirects', asyn
   }
 });
 
+test('ntfy polling rejects oversized event bodies before accepting a later approval', async () => {
+  const requestId = 'nfx_abcdefghijklmnopqrstuvwx';
+  const event = JSON.stringify({
+    event: 'message',
+    message: JSON.stringify({ v: 1, requestId, decision: 'allow' })
+  }) + '\n';
+  let cancellations = 0;
+  const response = new Response(new ReadableStream({
+    start(controller) {
+      const oversized = new Uint8Array(1024 * 1024 + 1).fill(0x20);
+      oversized[oversized.length - 1] = 0x0a;
+      controller.enqueue(oversized);
+      controller.enqueue(new TextEncoder().encode(event));
+      controller.close();
+    },
+    cancel() { cancellations += 1; }
+  }));
+
+  await assert.rejects(
+    () => pollRemoteResponse({
+      config, responseTopic: 'synthetic_response_topic', requestId,
+      allowed: ['allow', 'deny'], kind: 'approval',
+      fetchImpl: async () => response
+    }),
+    /NOFAX_NTFY_POLL_BODY_TOO_LARGE/
+  );
+  assert.equal(cancellations, 1, 'oversized response stream must be cancelled');
+});
+
+test('ntfy polling decodes UTF-8 characters split between response chunks', async () => {
+  const requestId = 'nfx_abcdefghijklmnopqrstuvwx';
+  const event = JSON.stringify({
+    event: 'message',
+    message: JSON.stringify({ v: 1, requestId, decision: 'allow', marker: '😀' })
+  }) + '\n';
+  const bytes = new TextEncoder().encode(event);
+  const split = bytes.indexOf(0xf0) + 2;
+  assert.ok(split > 2);
+  const chunks = [bytes.subarray(0, split), bytes.subarray(split)];
+  const response = new Response(new ReadableStream({
+    pull(controller) {
+      if (chunks.length) controller.enqueue(chunks.shift());
+      else controller.close();
+    }
+  }));
+
+  const result = await pollRemoteResponse({
+    config, responseTopic: 'synthetic_response_topic', requestId,
+    allowed: ['allow', 'deny'], kind: 'approval',
+    fetchImpl: async () => response
+  });
+  assert.equal(result?.decision, 'allow');
+});
+
 test('sendNotification releases an unread successful publish response body', async () => {
   let cancelled = 0;
   const response = new Response(new ReadableStream({

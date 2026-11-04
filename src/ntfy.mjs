@@ -7,6 +7,7 @@ const DEFAULT_REFINE_SHORTCUT = 'Nofax Refine';
 const POLL_TIMEOUT = Symbol('NOFAX_POLL_TIMEOUT');
 const PUBLISH_TIMEOUT = Symbol('NOFAX_PUBLISH_TIMEOUT');
 const DEFAULT_PUBLISH_TIMEOUT_MS = 15_000;
+const MAX_POLL_BODY_BYTES = 1024 * 1024;
 const MAX_TIMER_TIMEOUT_MS = 2_147_483_647;
 // ntfy rejects invalid requests, unauthorized/forbidden publishing and rate
 // limits before accepting the message. These must not leave orphan approvals.
@@ -295,6 +296,44 @@ function parseNtfyPoll(text, requestId, allowed, kind) {
   return null;
 }
 
+async function readBoundedPollBody(response) {
+  // ntfy `since=all` may return arbitrarily many events. Do not buffer an
+  // unbounded remote response before evaluating a human approval message.
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    const text = await response.text();
+    if (Buffer.byteLength(text, 'utf8') > MAX_POLL_BODY_BYTES) {
+      throw new Error('NOFAX_NTFY_POLL_BODY_TOO_LARGE');
+    }
+    return text;
+  }
+
+  const decoder = new TextDecoder();
+  const parts = [];
+  let bytes = 0;
+  let finished = false;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        finished = true;
+        break;
+      }
+      bytes += chunk.value.byteLength;
+      if (bytes > MAX_POLL_BODY_BYTES) throw new Error('NOFAX_NTFY_POLL_BODY_TOO_LARGE');
+      parts.push(decoder.decode(chunk.value, { stream: true }));
+    }
+    parts.push(decoder.decode());
+    return parts.join('');
+  } finally {
+    if (!finished) {
+      // Never let slow stream disposal delay a fail-closed decision.
+      try { void Promise.resolve(reader.cancel()).catch(() => {}); } catch {}
+    }
+    reader.releaseLock();
+  }
+}
+
 export async function pollRemoteResponse({ config, responseTopic, requestId, allowed, kind, timeoutMs, fetchImpl = fetch }) {
   let timeoutId;
   const controller = timeoutMs === undefined ? null : new AbortController();
@@ -326,7 +365,7 @@ export async function pollRemoteResponse({ config, responseTopic, requestId, all
 
     let text;
     try {
-      const body = response.text();
+      const body = readBoundedPollBody(response);
       text = timeout === null ? await body : await Promise.race([body, timeout]);
     } catch (error) {
       if (controller?.signal.aborted) return null;
