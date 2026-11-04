@@ -82,7 +82,15 @@ async function readStdin(stdinText, stdinStream = process.stdin) {
     }
   }
   if (pendingHighSurrogate) append(Buffer.from(pendingHighSurrogate));
-  return Buffer.concat(chunks, totalBytes).toString('utf8');
+  try {
+    // Replacement characters would make the command shown for human approval
+    // differ from the bytes supplied by the hook. Reject malformed input.
+    // Preserve the previous BOM behavior: JSON.parse must reject a leading BOM.
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+      .decode(Buffer.concat(chunks, totalBytes));
+  } catch {
+    throw new Error('NOFAX_HOOK_INVALID_UTF8');
+  }
 }
 
 function writeJson(stream, value) {
