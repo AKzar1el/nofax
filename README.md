@@ -93,6 +93,26 @@ For scripts using `nofax approve`, exit status `0` means explicit **allow**, `2`
 
 **ntfy client compatibility:** On iOS, the ntfy app may leave an HTTP action notification visible after you tap Allow or Deny, even when the action requests `clear: true` ([upstream ntfy issue #1728](https://github.com/binwiederhier/ntfy/issues/1728)). A still-visible notification does not prove whether Nofax recorded a decision: rely on Nofax's terminal `allow`/`deny` response or pending/timeout state, not on whether the notification disappears. If you use the ntfy web app instead of the mobile app, HTTP action buttons in notifications are supported in Chrome, Edge, and Opera but not Firefox or Safari; cross-origin callbacks also need the target server to allow CORS ([ntfy web-app support](https://docs.ntfy.sh/subscribe/web/)).
 
+### Windows PowerShell with restricted script execution
+
+If PowerShell reports that `npm.ps1` or `npx.ps1` cannot be loaded because
+scripts are disabled, invoke npm's Windows `.cmd` launchers explicitly.
+The usual global install creates a `nofax.cmd` launcher too:
+
+```powershell
+npm.cmd install --global nofax
+nofax.cmd init
+nofax.cmd test
+```
+
+For a one-off local MCP launch without a global Nofax installation, use
+`npx.cmd -y nofax mcp` (the final `mcp` argument is required). An MCP client
+that launches `npx` through PowerShell can set its command to `npx.cmd` with
+arguments `["-y", "nofax", "mcp"]`. These are executable launchers, not a
+request to disable or bypass your organization's PowerShell execution policy.
+If executable launches themselves are restricted, follow your administrator's
+policy instead. See Microsoft's [PowerShell execution policy reference](https://learn.microsoft.com/powershell/module/microsoft.powershell.core/about/about_execution_policies).
+
 ## MCP
 
 Start the local stdio MCP server:
@@ -139,7 +159,7 @@ VS Code can register Nofax in its user-profile MCP configuration. Open the Comma
 
 Merge the `nofax` entry with any existing servers rather than replacing them. Review VS Code's normal server-trust prompt before starting it; MCP registration does not install separate permission hooks.
 
-For other stdio MCP clients, set the command to `npx` with arguments `["-y", "nofax", "mcp"]`. The final `mcp` argument is required: running `npx -y nofax` without it prints the CLI usage and exits instead of starting a server. Complete the Quick start configuration before using notification or approval tools.
+For other stdio MCP clients, set the command to `npx` with arguments `["-y", "nofax", "mcp"]`. The final `mcp` argument is required: running `npx -y nofax` without it prints the CLI usage and exits instead of starting a server. On Windows, use `npx.cmd` when a PowerShell script-execution policy prevents the `.ps1` shim from running. Complete the Quick start configuration before using notification or approval tools.
 
 Local MCP exposes:
 
