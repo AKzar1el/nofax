@@ -26,12 +26,21 @@ function boundNtfyMessage(value: string): string {
 }
 
 function serverUrl(env: Env): string {
-  const raw = (env.NTFY_SERVER ?? "https://ntfy.sh").trim();
-  const url = new URL(raw);
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
+  const raw = env.NTFY_SERVER ?? "https://ntfy.sh";
+  let url: URL;
+  try {
+    if (typeof raw !== "string") throw new Error("invalid server");
+    url = new URL(raw.trim());
+  } catch {
     throw new Error("NOFAX_NTFY_SERVER_INVALID");
   }
-  return url.toString().replace(/\/+$/, "");
+  // Remote Worker notifications must not leak topic capabilities over cleartext
+  // or publish to an embedded path, query, fragment, or credential-bearing URL.
+  if (url.protocol !== "https:" || url.username || url.password ||
+      (url.pathname && url.pathname !== "/") || url.search || url.hash) {
+    throw new Error("NOFAX_NTFY_SERVER_INVALID");
+  }
+  return url.origin;
 }
 
 async function readBoundedText(response: Response): Promise<string> {

@@ -193,6 +193,13 @@ npm run deploy
 
 `NTFY_TOPIC` is a bearer-like capability and should be stored as a Worker secret. The publisher defaults to `https://ntfy.sh` unless `NTFY_SERVER` is configured.
 
+`NTFY_SERVER` must be an **HTTPS origin only** (for example,
+`https://ntfy.example`), without userinfo, paths other than `/`, query strings
+or fragments. Cleartext `http://` is deliberately rejected for remote Worker
+publishing. Before upgrading a deployment that uses a custom ntfy server,
+configure a trusted HTTPS endpoint with a valid certificate; otherwise
+notifications will fail closed. Do not embed credentials in the server URL.
+
 Do not place the remote key in `wrangler.jsonc`, source files, `.env`, `.dev.vars`, screenshots, or issue text.
 
 ### Public ntfy quota caveat
