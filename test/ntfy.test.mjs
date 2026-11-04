@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createRemoteRequest, requestApproval, requestChoice, sendNotification } from '../src/ntfy.mjs';
+import { createServer } from 'node:http';
+import { createRemoteRequest, pollRemoteResponse, requestApproval, requestChoice, sendNotification } from '../src/ntfy.mjs';
 
 const config = { version: 1, server: 'https://ntfy.sh', topic: 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF', timeoutSeconds: 300 };
 
@@ -25,6 +26,56 @@ test('sendNotification publishes bounded JSON to the configured phone topic', as
   assert.equal(payload.title, 'Build done');
   assert.equal(payload.message, 'All tests pass');
   assert.equal(payload.actions, undefined);
+  assert.equal(calls[0].init.redirect, 'error');
+});
+
+test('ntfy publishing and response polling never follow 307/308 redirects', async () => {
+  for (const status of [307, 308]) {
+    const forwarded = [];
+    const destination = createServer((req, res) => {
+      forwarded.push({ method: req.method, path: req.url });
+      res.writeHead(200);
+      res.end('unexpected redirect destination');
+    });
+    await new Promise((resolve) => destination.listen(0, '127.0.0.1', resolve));
+    const redirecting = createServer((_req, res) => {
+      res.writeHead(status, {
+        location: `http://127.0.0.1:${destination.address().port}/intercepted`
+      });
+      res.end();
+    });
+    await new Promise((resolve) => redirecting.listen(0, '127.0.0.1', resolve));
+    try {
+      const localConfig = { ...config, server: `http://127.0.0.1:${redirecting.address().port}` };
+      await assert.rejects(
+        () => sendNotification({
+          config: localConfig,
+          title: 'Synthetic approval',
+          message: 'Synthetic sensitive request',
+          actions: [{ action: 'http', url: 'https://example.invalid/synthetic-response-capability' }]
+        }),
+        (error) => error?.message.startsWith('NOFAX_NTFY_PUBLISH_NETWORK:') &&
+          error.deliveryState === 'ambiguous'
+      );
+      await assert.rejects(
+        () => pollRemoteResponse({
+          config: localConfig,
+          responseTopic: 'synthetic_response_topic_capability',
+          requestId: 'synthetic-request-id',
+          allowed: ['allow', 'deny'],
+          kind: 'approval',
+          timeoutMs: 1000
+        }),
+        /NOFAX_NTFY_POLL_NETWORK/
+      );
+      assert.deepEqual(forwarded, [], `HTTP ${status} must not disclose the POST or GET to the redirect target`);
+    } finally {
+      await Promise.all([
+        new Promise((resolve) => redirecting.close(resolve)),
+        new Promise((resolve) => destination.close(resolve))
+      ]);
+    }
+  }
 });
 
 test('sendNotification releases an unread successful publish response body', async () => {

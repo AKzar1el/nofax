@@ -132,6 +132,8 @@ export async function sendNotification({ config, title, message, actions, priori
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
+      // Do not forward notification content or response-topic actions to a redirect target.
+      redirect: 'error',
       signal: controller === null ? signal : controller.signal
     });
     response = timeout === null ? await request : await Promise.race([request, timeout]);
@@ -273,6 +275,8 @@ export async function pollRemoteResponse({ config, responseTopic, requestId, all
       const request = fetchImpl(`${config.server}/${responseTopic}/json?poll=1&since=all`, {
         method: 'GET',
         headers: { accept: 'application/x-ndjson' },
+        // The response topic itself is a capability; never disclose it via redirects.
+        redirect: 'error',
         ...(controller === null ? {} : { signal: controller.signal })
       });
       response = timeout === null ? await request : await Promise.race([request, timeout]);
