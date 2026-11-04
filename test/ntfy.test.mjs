@@ -248,7 +248,9 @@ test('createRemoteRequest rejects invalid input before persisting or publishing'
   const invalidCases = [
     { title: '   ', message: 'Choose an action', publishTimeoutMs: 1000, error: /NOFAX_TITLE_REQUIRED/ },
     { title: 'Permission', message: '   ', publishTimeoutMs: 1000, error: /NOFAX_MESSAGE_REQUIRED/ },
-    { title: 'Permission', message: 'Choose an action', publishTimeoutMs: 0, error: /NOFAX_PUBLISH_TIMEOUT_INVALID/ }
+    { title: 'Permission', message: 'Choose an action', publishTimeoutMs: 0, error: /NOFAX_PUBLISH_TIMEOUT_INVALID/ },
+    { title: 'Permission', message: 'Choose an action', publishTimeoutMs: Number.NaN, error: /NOFAX_PUBLISH_TIMEOUT_INVALID/ },
+    { title: 'Permission', message: 'Choose an action', publishTimeoutMs: 2_147_483_648, error: /NOFAX_PUBLISH_TIMEOUT_INVALID/ }
   ];
   for (const input of invalidCases) {
     let persisted = 0;
@@ -264,6 +266,40 @@ test('createRemoteRequest rejects invalid input before persisting or publishing'
     }), input.error);
     assert.equal(persisted, 0, 'invalid request must not persist a pending approval');
     assert.equal(published, 0, 'invalid request must not publish a notification');
+  }
+});
+
+test('requestApproval rejects invalid decision deadlines before sending any approval notification', async () => {
+  for (const timeoutMs of [0, -1, 0.5, Number.NaN, Infinity, 2_147_483_648]) {
+    let published = 0;
+    await assert.rejects(
+      () => requestApproval({
+        config,
+        title: 'Permission',
+        message: 'Synthetic approval',
+        timeoutMs,
+        fetchImpl: async () => { published += 1; return jsonResponse({ id: 'unexpected' }); }
+      }),
+      /NOFAX_DECISION_TIMEOUT_INVALID/
+    );
+    assert.equal(published, 0, 'invalid decision deadline must never publish a notification');
+  }
+});
+
+test('direct ntfy publishing rejects timer overflow before contacting the server', async () => {
+  for (const timeoutMs of [0, -1, 0.5, Number.NaN, Infinity, 2_147_483_648]) {
+    let published = 0;
+    await assert.rejects(
+      () => sendNotification({
+        config,
+        title: 'Synthetic',
+        message: 'Synthetic',
+        timeoutMs,
+        fetchImpl: async () => { published += 1; return jsonResponse({ id: 'unexpected' }); }
+      }),
+      /NOFAX_PUBLISH_TIMEOUT_INVALID/
+    );
+    assert.equal(published, 0);
   }
 });
 
