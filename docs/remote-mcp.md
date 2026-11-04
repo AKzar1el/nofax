@@ -200,6 +200,23 @@ publishing. Before upgrading a deployment that uses a custom ntfy server,
 configure a trusted HTTPS endpoint with a valid certificate; otherwise
 notifications will fail closed. Do not embed credentials in the server URL.
 
+### Optional authenticated ntfy publishing
+
+For an ntfy topic requiring an access token, configure the **separate** Worker
+secret from the `worker/` directory:
+
+```bash
+npx wrangler secret put NOFAX_NTFY_TOKEN
+```
+
+The Worker uses `Authorization: Bearer <NOFAX_NTFY_TOKEN>` only when publishing
+to the configured HTTPS ntfy origin. This is not `NOFAX_REMOTE_KEY`, an MCP
+credential, an approval response, or an option to read phone decisions.
+Do not put the token in the server URL, topic, client configuration, source,
+logs, or versioned Wrangler settings. Unset it for unprotected topics.
+Invalid configured tokens fail before sending, and redirects are never
+followed. No credential provisioning, rotation or Worker deployment is automatic.
+
 Do not place the remote key in `wrangler.jsonc`, source files, `.env`, `.dev.vars`, screenshots, or issue text.
 
 ### Public ntfy quota caveat
