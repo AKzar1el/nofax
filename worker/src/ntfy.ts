@@ -108,8 +108,12 @@ export async function publishNotification({
   fetchImpl?: FetchLike;
   timeoutMs?: number;
 }): Promise<void> {
-  const topic = env.NTFY_TOPIC?.trim();
+  const topic = typeof env.NTFY_TOPIC === "string" ? env.NTFY_TOPIC.trim() : "";
   if (!topic) throw new Error("NOFAX_NTFY_TOPIC_REQUIRED");
+  // Topics are bearer-like capabilities: do not publish to short or path-like names.
+  if (topic.length < 24 || topic.length > 64 || !/^[A-Za-z0-9_-]+$/.test(topic) || new Set(topic).size < 8) {
+    throw new Error("NOFAX_NTFY_TOPIC_INVALID");
+  }
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new Error("NOFAX_NTFY_PUBLISH_TIMEOUT_INVALID");
   }

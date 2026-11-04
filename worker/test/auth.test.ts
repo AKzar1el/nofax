@@ -24,6 +24,27 @@ describe("remote MCP authentication", () => {
     }), env()).authorized).toBe(false);
   });
 
+  it("fails closed for short, repetitive, or malformed configured capability keys", () => {
+    const configured = [
+      "short",
+      "A".repeat(64),
+      "remote_key_abcdefghijklmnopqrstuvwxyz.123456",
+      "remote_key_abcdefghijklmnopqrstuvwxyz123456".repeat(4),
+      "  "
+    ];
+    for (const key of configured) {
+      const environment = { ...env(), NOFAX_REMOTE_KEY: key };
+      const bearer = new Request("https://nofax.example/mcp", {
+        headers: { authorization: `Bearer ${key}` }
+      });
+      const capability = new Request(
+        `https://nofax.example/mcp/${encodeURIComponent(key)}`
+      );
+      expect(authorizeMcpRequest(bearer, environment).authorized).toBe(false);
+      expect(authorizeMcpRequest(capability, environment).authorized).toBe(false);
+    }
+  });
+
   it("accepts the exact bearer credential and preserves /mcp", () => {
     const result = authorizeMcpRequest(new Request("https://nofax.example/mcp", {
       headers: { authorization: `Bearer ${env().NOFAX_REMOTE_KEY}` }
