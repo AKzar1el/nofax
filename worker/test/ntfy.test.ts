@@ -30,6 +30,7 @@ describe("remote ntfy publisher", () => {
 
     expect(url).toBe("https://ntfy.sh/");
     expect(init?.method).toBe("POST");
+    expect(init?.redirect).toBe("error");
     expect(JSON.parse(String(init?.body))).toEqual({
       topic: "nofax_abcdefghijklmnopqrstuvwxyz123456",
       title: "Build finished",
@@ -37,6 +38,23 @@ describe("remote ntfy publisher", () => {
       priority: 4,
       tags: ["bell"]
     });
+  });
+
+  it("rejects a redirect rather than forwarding notification contents", async () => {
+    let forwarded = false;
+    const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.redirect === "error") throw new TypeError("synthetic redirect rejected");
+      forwarded = true;
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+
+    await expect(publishNotification({
+      env: env(),
+      title: "Sensitive approval alert",
+      message: "Synthetic action context",
+      fetchImpl
+    })).rejects.toThrow("NOFAX_NTFY_PUBLISH_NETWORK");
+    expect(forwarded).toBe(false);
   });
 
   it("keeps multibyte messages inline within the ntfy 4096-byte limit", async () => {
