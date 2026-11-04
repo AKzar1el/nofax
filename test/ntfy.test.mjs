@@ -27,6 +27,113 @@ test('sendNotification publishes bounded JSON to the configured phone topic', as
   assert.equal(payload.message, 'All tests pass');
   assert.equal(payload.actions, undefined);
   assert.equal(calls[0].init.redirect, 'error');
+  assert.equal(calls[0].init.headers.authorization, undefined);
+});
+
+test('opt-in ntfy bearer token authenticates HTTPS publishing only, never approval callbacks or polling', async () => {
+  const token = 'tk_synthetic_protected_topic_token_123456';
+  const calls = [];
+  let prepared;
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    return jsonResponse({ id: 'synthetic-notification' });
+  };
+  const remote = await createRemoteRequest({
+    config,
+    title: 'Approval requested',
+    message: 'Synthetic approval content',
+    options: ['allow', 'deny'],
+    authToken: token,
+    beforePublish: async (value) => { prepared = value; },
+    fetchImpl
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].init.headers.authorization, `Bearer ${token}`);
+  assert.equal(calls[0].init.redirect, 'error');
+  const publish = JSON.parse(calls[0].init.body);
+  assert.equal(publish.topic, config.topic);
+  assert.equal(publish.actions.length, 2);
+  assert.ok(publish.actions.every((action) => !JSON.stringify(action).includes(token)));
+  assert.equal(JSON.stringify(prepared).includes(token), false);
+  assert.deepEqual(remote, prepared);
+
+  const pollCalls = [];
+  await pollRemoteResponse({
+    config,
+    responseTopic: remote.responseTopic,
+    requestId: remote.requestId,
+    allowed: remote.allowed,
+    kind: 'approval',
+    fetchImpl: async (url, init) => {
+      pollCalls.push({ url, init });
+      return new Response('', { status: 200 });
+    }
+  });
+  assert.equal(pollCalls.length, 1);
+  assert.equal(pollCalls[0].init.headers.authorization, undefined);
+  assert.equal(JSON.stringify(pollCalls).includes(token), false);
+});
+
+test('NOFAX_NTFY_TOKEN environment opt-in is used without changing configuration output', async () => {
+  const token = 'tk_synthetic_env_only_123456789';
+  const prior = process.env.NOFAX_NTFY_TOKEN;
+  process.env.NOFAX_NTFY_TOKEN = token;
+  try {
+    let observed;
+    await sendNotification({
+      config,
+      title: 'Synthetic',
+      message: 'Synthetic',
+      fetchImpl: async (_url, init) => {
+        observed = init.headers.authorization;
+        return jsonResponse({ id: 'synthetic' });
+      }
+    });
+    assert.equal(observed, `Bearer ${token}`);
+    const { validateConfig } = await import('../src/config.mjs');
+    assert.equal(JSON.stringify(validateConfig(config)).includes(token), false);
+  } finally {
+    if (prior === undefined) delete process.env.NOFAX_NTFY_TOKEN;
+    else process.env.NOFAX_NTFY_TOKEN = prior;
+  }
+});
+
+test('ntfy bearer authentication fails closed before publishing or persisting pending approval', async () => {
+  for (const [token, server, errorCode] of [
+    ['', 'https://ntfy.sh', 'NOFAX_NTFY_AUTH_TOKEN_INVALID'],
+    ['invalid token with spaces', 'https://ntfy.sh', 'NOFAX_NTFY_AUTH_TOKEN_INVALID'],
+    ['tk_synthetic_123456', 'http://127.0.0.1:3456', 'NOFAX_NTFY_AUTH_REQUIRES_HTTPS']
+  ]) {
+    let persisted = 0;
+    let published = 0;
+    await assert.rejects(() => createRemoteRequest({
+      config: { ...config, server },
+      title: 'Approval',
+      message: 'Synthetic',
+      options: ['allow', 'deny'],
+      authToken: token,
+      beforePublish: async () => { persisted += 1; },
+      fetchImpl: async () => { published += 1; return jsonResponse({ id: 'synthetic' }); }
+    }), (error) => error.message === errorCode && !error.message.includes(token || 'invalid token'));
+    assert.equal(persisted, 0);
+    assert.equal(published, 0);
+  }
+});
+
+test('ntfy authenticated network errors never expose bearer credential', async () => {
+  const token = 'tk_synthetic_never_print_this_123456';
+  await assert.rejects(
+    () => sendNotification({
+      config,
+      title: 'Synthetic',
+      message: 'Synthetic',
+      authToken: token,
+      fetchImpl: async () => { throw new Error(`Request failed with Authorization: Bearer ${token}`); }
+    }),
+    (error) => error.deliveryState === 'ambiguous' &&
+      error.message.startsWith('NOFAX_NTFY_PUBLISH_NETWORK:') &&
+      !error.message.includes(token)
+  );
 });
 
 test('ntfy publishing and response polling never follow 307/308 redirects', async () => {
