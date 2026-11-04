@@ -39,6 +39,31 @@ describe("remote ntfy publisher", () => {
     });
   });
 
+  it("keeps multibyte messages inline within the ntfy 4096-byte limit", async () => {
+    const sent: string[] = [];
+    const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      sent.push(JSON.parse(String(init?.body)).message as string);
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+
+    const cjk = "界".repeat(2200);
+    const emoji = "🚀".repeat(1100);
+    const short = "Ready 🚀";
+    for (const message of [cjk, emoji, short]) {
+      await publishNotification({ env: env(), title: "Alert", message, fetchImpl });
+    }
+
+    const encoder = new TextEncoder();
+    expect(sent).toHaveLength(3);
+    for (const message of sent) {
+      expect(encoder.encode(message).byteLength).toBeLessThanOrEqual(4096);
+      expect(message).not.toContain("�");
+    }
+    expect(sent[0]).toMatch(/^界+…\[truncated\]$/);
+    expect(sent[1]).toMatch(/^🚀+…\[truncated\]$/u);
+    expect(sent[2]).toBe(short);
+  });
+
   it("fails closed when the remote topic is not configured", async () => {
     const broken = env({ NTFY_TOPIC: "" });
     await expect(publishNotification({
