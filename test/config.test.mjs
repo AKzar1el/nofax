@@ -31,6 +31,16 @@ test('normalizes server and rejects credentials/query fragments', () => {
   assert.throws(() => normalizeServer('https://ntfy.sh/?x=1'), /NOFAX_SERVER_PATH/);
 });
 
+test('requires HTTPS for non-loopback ntfy servers but preserves local development', () => {
+  for (const server of ['http://localhost:8080/', 'http://127.0.0.1:8080', 'http://127.2.3.4:8080', 'http://[::1]:8080']) {
+    assert.equal(normalizeServer(server), server.endsWith('/') ? server.slice(0, -1) : server);
+  }
+  for (const server of ['http://ntfy.sh', 'http://192.168.1.20:8080', 'http://10.0.0.1', 'http://0.0.0.0', 'http://[::ffff:127.0.0.1]', 'http://localhost.example.com']) {
+    assert.throws(() => normalizeServer(server), /NOFAX_SERVER_INSECURE_HTTP/, server);
+  }
+  assert.equal(normalizeServer('https://ntfy.example.com'), 'https://ntfy.example.com');
+});
+
 test('NOFAX_HOME overrides default home', () => {
   assert.equal(resolveNofaxHome({ env: { NOFAX_HOME: '/tmp/nofax-custom' } }), resolve('/tmp/nofax-custom'));
 });

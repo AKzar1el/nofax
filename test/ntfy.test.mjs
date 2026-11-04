@@ -30,6 +30,35 @@ test('sendNotification publishes bounded JSON to the configured phone topic', as
   assert.equal(calls[0].init.headers.authorization, undefined);
 });
 
+test('unsafe cleartext ntfy servers fail before publish, approval persistence, or polling', async () => {
+  const unsafe = { ...config, server: 'http://ntfy.example.invalid' };
+  let networkCalls = 0;
+  let persisted = 0;
+  const fetchImpl = async () => { networkCalls += 1; return jsonResponse({ id: 'unexpected' }); };
+  await assert.rejects(() => sendNotification({
+    config: unsafe, title: 'Private notification', message: 'Synthetic', authToken: undefined, fetchImpl
+  }), /NOFAX_SERVER_INSECURE_HTTP/);
+  await assert.rejects(() => createRemoteRequest({
+    config: unsafe,
+    title: 'Private approval',
+    message: 'Synthetic',
+    options: ['allow', 'deny'],
+    authToken: undefined,
+    fetchImpl,
+    beforePublish: async () => { persisted += 1; }
+  }), /NOFAX_SERVER_INSECURE_HTTP/);
+  await assert.rejects(() => pollRemoteResponse({
+    config: unsafe,
+    responseTopic: 'synthetic_response_capability',
+    requestId: 'synthetic-request-id',
+    allowed: ['allow', 'deny'],
+    kind: 'approval',
+    fetchImpl
+  }), /NOFAX_SERVER_INSECURE_HTTP/);
+  assert.equal(networkCalls, 0);
+  assert.equal(persisted, 0);
+});
+
 test('opt-in ntfy bearer token authenticates HTTPS publishing only, never approval callbacks or polling', async () => {
   const token = 'tk_synthetic_protected_topic_token_123456';
   const calls = [];

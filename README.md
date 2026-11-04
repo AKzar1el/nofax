@@ -407,6 +407,13 @@ Use another ntfy-compatible server with:
 nofax init --server https://ntfy.example.com --force
 ```
 
+Notification content and one-time response-topic callbacks can carry sensitive
+capabilities. Custom servers require HTTPS; HTTP is supported only for local
+development on `localhost`, IPv4 loopback (`127.0.0.0/8`) or `[::1]`.
+Previously configured non-loopback HTTP endpoints must be moved to HTTPS
+before notifications or approval polling will work. This is not an approval
+fallback: transport failures always remain pending, denied or timed out.
+
 ### Optional authenticated ntfy publishing
 
 If your ntfy server requires an access token to publish to the phone's topic,
