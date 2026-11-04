@@ -31,6 +31,7 @@ describe("remote ntfy publisher", () => {
     expect(url).toBe("https://ntfy.sh/");
     expect(init?.method).toBe("POST");
     expect(init?.redirect).toBe("error");
+    expect(new Headers(init?.headers).has("authorization")).toBe(false);
     expect(JSON.parse(String(init?.body))).toEqual({
       topic: "nofax_abcdefghijklmnopqrstuvwxyz123456",
       title: "Build finished",
@@ -38,6 +39,59 @@ describe("remote ntfy publisher", () => {
       priority: 4,
       tags: ["bell"]
     });
+  });
+
+  it("adds a configured Worker ntfy bearer token only to the HTTPS publishing request", async () => {
+    const secret = "tk_synthetic_worker_ntfy_token_123456";
+    let url = "";
+    let init: RequestInit | undefined;
+    const fetchImpl = (async (input: RequestInfo | URL, requestInit?: RequestInit) => {
+      url = String(input);
+      init = requestInit;
+      return new Response("ok");
+    }) as typeof fetch;
+
+    await publishNotification({
+      env: env({ NOFAX_NTFY_TOKEN: secret, NTFY_SERVER: "https://ntfy.example" }),
+      title: "Synthetic",
+      message: "One-way notification",
+      fetchImpl
+    });
+    expect(url).toBe("https://ntfy.example/");
+    expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${secret}`);
+    expect(init?.redirect).toBe("error");
+    expect(String(init?.body)).not.toContain(secret);
+  });
+
+  it("rejects invalid configured ntfy bearer tokens before any outbound request", async () => {
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls += 1;
+      return new Response("unexpected");
+    }) as typeof fetch;
+    for (const secret of ["", "short", "secret with spaces", "bad\nheader", "x".repeat(1025)]) {
+      await expect(publishNotification({
+        env: env({ NOFAX_NTFY_TOKEN: secret }),
+        title: "Synthetic",
+        message: "No send",
+        fetchImpl
+      })).rejects.toThrow("NOFAX_NTFY_AUTH_TOKEN_INVALID");
+    }
+    expect(calls).toBe(0);
+  });
+
+  it("does not echo a bearer secret from a transport error or provider response", async () => {
+    const secret = "tk_synthetic_worker_ntfy_token_123456";
+    const config = env({ NOFAX_NTFY_TOKEN: secret });
+    const attempt = (fetchImpl: typeof fetch) =>
+      publishNotification({ env: config, title: "Synthetic", message: "No approval", fetchImpl });
+    await expect(attempt((async () => {
+      throw new Error(`transport exposed ${secret}`);
+    }) as typeof fetch)).rejects.toThrow(/^NOFAX_NTFY_PUBLISH_NETWORK$/);
+    await expect(attempt((async () => new Response(JSON.stringify({
+      code: 40101,
+      error: `invalid token ${secret}`
+    }), { status: 401 })) as typeof fetch)).rejects.toThrow(/^NOFAX_NTFY_PUBLISH_401$/);
   });
 
   it("rejects a redirect rather than forwarding notification contents", async () => {

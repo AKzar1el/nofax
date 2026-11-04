@@ -58,6 +58,7 @@ Legacy internal mutation methods may remain for schema/backward compatibility, b
 - Wrangler authentication
 - high-entropy `NOFAX_REMOTE_KEY` Worker secret
 - `NTFY_TOPIC` Worker secret when using the included ntfy notification transport
+- optional `NOFAX_NTFY_TOKEN` Worker secret for publishing to an access-controlled ntfy topic
 
 Before upgrading an existing deployment, verify the key and topic: the Worker
 now rejects remote keys shorter than 32 or longer than 128 URL-safe ASCII
@@ -85,7 +86,16 @@ npm run check
 npm run deploy
 ```
 
-Keep `NOFAX_REMOTE_KEY` and `NTFY_TOPIC` out of source, `wrangler.jsonc`, `.env`, `.dev.vars`, CI output, screenshots, and issue text.
+If your trusted HTTPS ntfy server requires authenticated publishing, set the
+**optional** separate secret with `npx wrangler secret put NOFAX_NTFY_TOKEN`
+before deployment. It is sent only as an `Authorization: Bearer` header on
+the ntfy publication POST; it is never an MCP key or a phone-approval token.
+Unset it for public/unprotected topics. An invalid configured token blocks
+publishing, and redirects remain prohibited. This does not authorize remote
+approval or any callback.
+
+Keep `NOFAX_REMOTE_KEY`, `NTFY_TOPIC` and `NOFAX_NTFY_TOKEN` out of source,
+`wrangler.jsonc`, `.env`, `.dev.vars`, CI output, screenshots, and issue text.
 
 ## Connect an MCP client
 

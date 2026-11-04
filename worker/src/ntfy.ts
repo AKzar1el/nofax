@@ -43,6 +43,17 @@ function serverUrl(env: Env): string {
   return url.origin;
 }
 
+function publishAuthorization(env: Env): string | undefined {
+  const token = env.NOFAX_NTFY_TOKEN;
+  if (token === undefined) return undefined;
+  // The token is an optional Worker secret, never an MCP credential or URL component.
+  if (typeof token !== "string" || token.length < 8 || token.length > 1024 ||
+      !/^[A-Za-z0-9_./+~=-]+$/.test(token)) {
+    throw new Error("NOFAX_NTFY_AUTH_TOKEN_INVALID");
+  }
+  return `Bearer ${token}`;
+}
+
 async function readBoundedText(response: Response): Promise<string> {
   if (!response.body) return "";
 
@@ -82,13 +93,15 @@ function safeDiagnostic(value: unknown, maxLength: number): string | undefined {
   return text.slice(0, maxLength);
 }
 
-async function publishError(response: Response): Promise<Error> {
+async function publishError(response: Response, authenticated = false): Promise<Error> {
   const prefix = `NOFAX_NTFY_PUBLISH_${response.status}`;
   const parts: string[] = [];
 
   try {
     const body = await readBoundedText(response);
-    if (body) {
+    // An upstream body may echo an authenticated request's headers or token.
+    // Drain the bounded response but never expose its text in diagnostics.
+    if (body && !authenticated) {
       const parsed = JSON.parse(body) as { code?: unknown; error?: unknown };
       const code = safeDiagnostic(parsed.code, 24);
       const detail = safeDiagnostic(parsed.error, MAX_ERROR_DETAIL_LENGTH);
@@ -126,6 +139,7 @@ export async function publishNotification({
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new Error("NOFAX_NTFY_PUBLISH_TIMEOUT_INVALID");
   }
+  const authorization = publishAuthorization(env);
 
   const controller = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -145,7 +159,10 @@ export async function publishNotification({
         method: "POST",
         // Never forward the notification payload to a redirect target.
         redirect: "error",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          ...(authorization === undefined ? {} : { authorization })
+        },
         signal: controller.signal,
         body: JSON.stringify({
           topic,
@@ -157,10 +174,12 @@ export async function publishNotification({
       });
     } catch (error) {
       if (timedOut) throw new Error("NOFAX_NTFY_PUBLISH_TIMEOUT");
-      throw new Error("NOFAX_NTFY_PUBLISH_NETWORK: " + (error instanceof Error ? error.message : String(error)));
+      throw new Error(authorization === undefined
+        ? "NOFAX_NTFY_PUBLISH_NETWORK: " + (error instanceof Error ? error.message : String(error))
+        : "NOFAX_NTFY_PUBLISH_NETWORK");
     }
 
-    if (!response.ok) throw await publishError(response);
+    if (!response.ok) throw await publishError(response, authorization !== undefined);
   };
 
   try {
