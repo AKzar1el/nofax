@@ -92,6 +92,26 @@ function publishError(message, deliveryState) {
   return error;
 }
 
+// The optional ntfy publishing token is process-local, not stored in config.json.
+// Never attach it to approval action URLs or response-topic polling requests.
+function publishAuthorization(config, token) {
+  if (token === undefined) return null;
+  if (typeof token !== 'string' || token.length < 8 || token.length > 1024 ||
+      !/^[A-Za-z0-9_./+~=-]+$/.test(token)) {
+    throw new Error('NOFAX_NTFY_AUTH_TOKEN_INVALID');
+  }
+  let server;
+  try {
+    server = new URL(config.server);
+  } catch {
+    throw new Error('NOFAX_NTFY_AUTH_SERVER_INVALID');
+  }
+  if (server.protocol !== 'https:' || server.username || server.password) {
+    throw new Error('NOFAX_NTFY_AUTH_REQUIRES_HTTPS');
+  }
+  return `Bearer ${token}`;
+}
+
 function releasePublishResponse(response) {
   try {
     // Start disposal without allowing a slow cleanup to delay an approval result.
@@ -101,7 +121,8 @@ function releasePublishResponse(response) {
   }
 }
 
-export async function sendNotification({ config, title, message, actions, priority = 4, tags = ['bell'], signal, fetchImpl = fetch, timeoutMs = DEFAULT_PUBLISH_TIMEOUT_MS }) {
+export async function sendNotification({ config, title, message, actions, priority = 4, tags = ['bell'], signal, fetchImpl = fetch, timeoutMs = DEFAULT_PUBLISH_TIMEOUT_MS, authToken = process.env.NOFAX_NTFY_TOKEN }) {
+  const authorization = publishAuthorization(config, authToken);
   const payload = {
     topic: config.topic,
     title: boundText(title, MAX_TITLE, 'TITLE'),
@@ -130,7 +151,10 @@ export async function sendNotification({ config, title, message, actions, priori
   try {
     request = fetchImpl(`${config.server}/`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...(authorization === null ? {} : { authorization })
+      },
       body: JSON.stringify(payload),
       // Do not forward notification content or response-topic actions to a redirect target.
       redirect: 'error',
@@ -138,7 +162,9 @@ export async function sendNotification({ config, title, message, actions, priori
     });
     response = timeout === null ? await request : await Promise.race([request, timeout]);
   } catch (error) {
-    throw publishError(`NOFAX_NTFY_PUBLISH_NETWORK: ${error?.message ?? String(error)}`, 'ambiguous');
+    // Transport errors from custom clients may echo request headers. Never echo a token.
+    const detail = authorization === null ? (error?.message ?? String(error)) : 'authenticated transport failed';
+    throw publishError(`NOFAX_NTFY_PUBLISH_NETWORK: ${detail}`, 'ambiguous');
   } finally {
     if (timeoutId !== undefined) clearTimeout(timeoutId);
   }
@@ -183,7 +209,8 @@ export async function createRemoteRequest({
   shortcutName = config.refineShortcutName ?? DEFAULT_REFINE_SHORTCUT,
   beforePublish = async () => {},
   publishTimeoutMs = DEFAULT_PUBLISH_TIMEOUT_MS,
-  fetchImpl = fetch
+  fetchImpl = fetch,
+  authToken = process.env.NOFAX_NTFY_TOKEN
 }) {
   const normalized = normalizeOptions(options);
   if (includeRefine && normalized.some((option) => option.value === 'refine')) throw new Error('NOFAX_CHOICE_DUPLICATE');
@@ -220,6 +247,8 @@ export async function createRemoteRequest({
   boundText(title, MAX_TITLE, 'TITLE');
   boundMessageText(message);
   if (!Number.isFinite(publishTimeoutMs) || publishTimeoutMs <= 0) throw new Error('NOFAX_PUBLISH_TIMEOUT_INVALID');
+  // Reject invalid/cleartext credential use before persisting a pending approval.
+  publishAuthorization(config, authToken);
   await beforePublish(remote);
   const controller = new AbortController();
   let timeoutId;
@@ -231,7 +260,7 @@ export async function createRemoteRequest({
   });
   try {
     const delivered = await Promise.race([
-      sendNotification({ config, title, message, actions, signal: controller.signal, fetchImpl }),
+      sendNotification({ config, title, message, actions, signal: controller.signal, fetchImpl, authToken }),
       timeout
     ]);
     // A timed-out POST may have reached ntfy. Never discard persisted pending state.

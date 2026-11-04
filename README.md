@@ -379,6 +379,27 @@ Use another ntfy-compatible server with:
 nofax init --server https://ntfy.example.com --force
 ```
 
+### Optional authenticated ntfy publishing
+
+If your ntfy server requires an access token to publish to the phone's topic,
+set `NOFAX_NTFY_TOKEN` in the environment of the **local NoFax process**
+(CLI, MCP server, or agent hook). Use an ntfy access token with the minimum
+necessary publish permission. NoFax adds `Authorization: Bearer` only to
+notification publication requests. See [ntfy access tokens](https://docs.ntfy.sh/publish/#access-tokens).
+
+Authenticated publishing requires an HTTPS ntfy server; invalid credentials
+or HTTP transport fail before publishing or persisting a new pending approval.
+Do **not** put the token in `config.json`, Git, command arguments or logs.
+`nofax config` does not print the environment token.
+
+This does **not** authenticate the phone's HTTP action callbacks or the
+temporary response-topic polling endpoint. Keep response-topic callbacks
+reachable using the standard NoFax workflow; server-wide access rules that
+block these callbacks will cause approval to remain pending or time out,
+**never** auto-approve. Configure the ntfy phone app separately for access
+to the protected notification topic. The remote Cloudflare Worker is not
+configured by this local-only setting.
+
 ## Development
 
 Local package:
