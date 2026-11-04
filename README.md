@@ -318,6 +318,14 @@ It exposes exactly three tools:
 - `nofax_get_request` — read one safe request projection;
 - `nofax_list_pending` — read unresolved, unexpired request projections.
 
+**Fresh deployments have no requests to inspect.** These two inspection tools
+read only historical records already stored in that Worker's Durable Object,
+such as rows preserved from earlier experimental builds. `nofax_notify` does
+not create a request record, and local Nofax approvals are not synchronized
+with the remote Worker. On a new Worker, `nofax_list_pending` therefore
+returns an empty list and `nofax_get_request` reports not found until a
+historical row exists. Use the local CLI/stdio MCP for actual phone approvals.
+
 Deploy from `worker/`:
 
 ```bash

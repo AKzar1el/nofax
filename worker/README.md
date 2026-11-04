@@ -42,6 +42,12 @@ Former phone callback and webhook paths are intentionally absent.
 
 The Worker preserves the existing SQLite-backed `NofaxRequestStore` schema so an upgraded deployment can inspect durable request rows created by earlier experimental builds without a destructive migration.
 
+On a **new deployment**, the Durable Object starts empty. `nofax_list_pending`
+returns an empty list; `nofax_get_request` returns not found for unknown IDs.
+Neither `nofax_notify` nor either inspection tool creates approval records.
+This Worker does **not** synchronize request history from the local Nofax
+CLI/stdio server or provide new remote approval creation.
+
 The MCP-facing request-state path is observational:
 
 - `getRequest` reads one existing request by ID;

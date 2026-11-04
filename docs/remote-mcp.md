@@ -69,6 +69,9 @@ Input:
 ```
 
 It retrieves the safe public projection for one existing durable request.
+On a new remote deployment without earlier persisted experimental records,
+request IDs are not present and the tool reports not found. Local Nofax
+request IDs do not become available here automatically.
 
 The response may include:
 
@@ -94,6 +97,9 @@ Optional input:
 It lists a bounded set of unresolved, unexpired request projections. The limit is 1-100.
 
 The query is observational only. It filters expired rows but does not delete them or perform lazy cleanup as a side effect of the read.
+For a fresh remote Worker deployment, the expected result is an empty list;
+`nofax_notify` does not populate this list, and local CLI/stdio approvals are
+not synchronized into the Worker's Durable Object.
 
 ## Remote side-effect boundary
 
