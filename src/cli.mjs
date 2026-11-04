@@ -56,13 +56,32 @@ async function readStdin(stdinText, stdinStream = process.stdin) {
 
   const chunks = [];
   let totalBytes = 0;
-  for await (const chunk of stdinStream) {
-    totalBytes += Buffer.byteLength(chunk);
+  let pendingHighSurrogate = '';
+  const append = (bytes) => {
+    totalBytes += bytes.length;
     if (totalBytes > MAX_HOOK_STDIN_BYTES) {
       throw new Error('NOFAX_HOOK_INPUT_TOO_LARGE');
     }
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    chunks.push(bytes);
+  };
+  for await (const chunk of stdinStream) {
+    if (typeof chunk === 'string') {
+      // A custom text stream may split a UTF-16 surrogate pair between yields.
+      // Encode the pair together rather than replacing each half with U+FFFD.
+      const text = pendingHighSurrogate + chunk;
+      const last = text.charCodeAt(text.length - 1);
+      const hasHighSurrogate = last >= 0xD800 && last <= 0xDBFF;
+      pendingHighSurrogate = hasHighSurrogate ? text.slice(-1) : '';
+      append(Buffer.from(hasHighSurrogate ? text.slice(0, -1) : text));
+    } else {
+      if (pendingHighSurrogate) {
+        append(Buffer.from(pendingHighSurrogate));
+        pendingHighSurrogate = '';
+      }
+      append(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
   }
+  if (pendingHighSurrogate) append(Buffer.from(pendingHighSurrogate));
   return Buffer.concat(chunks, totalBytes).toString('utf8');
 }
 
