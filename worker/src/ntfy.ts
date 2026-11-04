@@ -5,6 +5,25 @@ type FetchLike = typeof fetch;
 
 const MAX_ERROR_BODY_BYTES = 2_048;
 const MAX_ERROR_DETAIL_LENGTH = 200;
+const MAX_NTFY_MESSAGE_BYTES = 4_096;
+
+function boundNtfyMessage(value: string): string {
+  const text = boundText(value, 2200, "MESSAGE");
+  const encoder = new TextEncoder();
+  if (encoder.encode(text).byteLength <= MAX_NTFY_MESSAGE_BYTES) return text;
+
+  const marker = "…[truncated]";
+  const maxContentBytes = MAX_NTFY_MESSAGE_BYTES - encoder.encode(marker).byteLength;
+  const characters: string[] = [];
+  let bytes = 0;
+  for (const character of text) {
+    const characterBytes = encoder.encode(character).byteLength;
+    if (bytes + characterBytes > maxContentBytes) break;
+    characters.push(character);
+    bytes += characterBytes;
+  }
+  return characters.join("") + marker;
+}
 
 function serverUrl(env: Env): string {
   const raw = (env.NTFY_SERVER ?? "https://ntfy.sh").trim();
@@ -116,7 +135,7 @@ export async function publishNotification({
         body: JSON.stringify({
           topic,
           title: boundText(title, 120, "TITLE"),
-          message: boundText(message, 2200, "MESSAGE"),
+          message: boundNtfyMessage(message),
           priority: 4,
           tags: ["bell"]
         })
