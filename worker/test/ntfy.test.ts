@@ -117,6 +117,46 @@ describe("remote ntfy publisher", () => {
     expect(fetchCalls).toBe(0);
   });
 
+  it("rejects insecure or non-origin ntfy server URLs before publishing", async () => {
+    let fetchCalls = 0;
+    const fetchImpl = (async () => {
+      fetchCalls += 1;
+      return new Response("unexpected");
+    }) as typeof fetch;
+    const servers = [
+      "http://ntfy.example",
+      "https://user:password@ntfy.example",
+      "https://ntfy.example/private/path",
+      "https://ntfy.example/?access=private",
+      "https://ntfy.example/#fragment",
+      "ftp://ntfy.example"
+    ];
+    for (const server of servers) {
+      await expect(publishNotification({
+        env: env({ NTFY_SERVER: server }),
+        title: "Alert",
+        message: "Synthetic only",
+        fetchImpl
+      })).rejects.toThrow("NOFAX_NTFY_SERVER_INVALID");
+    }
+    expect(fetchCalls).toBe(0);
+  });
+
+  it("normalizes the configured HTTPS ntfy origin", async () => {
+    let target = "";
+    const fetchImpl = (async (url: RequestInfo | URL) => {
+      target = String(url);
+      return new Response("ok");
+    }) as typeof fetch;
+    await publishNotification({
+      env: env({ NTFY_SERVER: "https://ntfy.example:443/" }),
+      title: "Alert",
+      message: "Synthetic only",
+      fetchImpl
+    });
+    expect(target).toBe("https://ntfy.example/");
+  });
+
   it("preserves bounded ntfy rate-limit diagnostics", async () => {
     const fetchImpl = async () => new Response(JSON.stringify({
       code: 42901,

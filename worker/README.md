@@ -68,6 +68,9 @@ secrets **before deploying** and update MCP clients and ntfy subscriptions.
 See [remote MCP deployment instructions](../docs/remote-mcp.md).
 
 The publisher defaults to `https://ntfy.sh` unless `NTFY_SERVER` is configured.
+Custom `NTFY_SERVER` values must be HTTPS origins only (no embedded credentials,
+path, query or fragment). Existing cleartext or non-origin configurations must
+be migrated to trusted HTTPS **before deploying** this Worker update.
 
 ## Deploy
 
