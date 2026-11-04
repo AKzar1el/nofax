@@ -83,6 +83,111 @@ test('hook timeout writes no stdout so native approval can continue', async () =
   assert.match(stderr.read(), /native approval/i);
 });
 
+test('oversized hook JSON is rejected before configuration or remote approval for every adapter', async () => {
+  const oversizedCommand = 'x'.repeat(1024 * 1024);
+  for (const adapter of ['claude', 'codex', 'gemini']) {
+    const stdout = capture();
+    const stderr = capture();
+    let sideEffects = 0;
+    const code = await runCli(['hook', adapter], {
+      stdinText: JSON.stringify({
+        hook_event_name: adapter === 'gemini' ? 'BeforeTool' : 'PermissionRequest',
+        tool_name: 'Bash',
+        tool_input: { command: oversizedCommand }
+      }),
+      stdout,
+      stderr,
+      loadConfigImpl: async () => { sideEffects += 1; return {}; },
+      requestApprovalImpl: async () => { sideEffects += 1; return { decision: 'allow' }; }
+    });
+    assert.equal(code, 0, `${adapter} should defer to native approval`);
+    assert.equal(sideEffects, 0, `${adapter} should not load config or contact a phone`);
+    assert.match(stderr.read(), /NOFAX_HOOK_INPUT_TOO_LARGE/);
+    assert.equal(stdout.read(), adapter === 'gemini' ? '{"decision":"ask"}\n' : '');
+  }
+});
+
+test('hook stdin accepts valid JSON at the exact 1 MiB byte boundary', async () => {
+  const base = { hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: '' } };
+  const baseBytes = Buffer.byteLength(JSON.stringify(base));
+  const input = JSON.stringify({
+    ...base,
+    tool_input: { command: 'x'.repeat(1024 * 1024 - baseBytes) }
+  });
+  assert.equal(Buffer.byteLength(input), 1024 * 1024);
+
+  const stdout = capture();
+  const stderr = capture();
+  let approvals = 0;
+  const code = await runCli(['hook', 'claude'], {
+    stdinText: input,
+    stdout,
+    stderr,
+    loadConfigImpl: async () => ({}),
+    requestApprovalImpl: async () => { approvals += 1; return { decision: 'deny' }; }
+  });
+  assert.equal(code, 0);
+  assert.equal(approvals, 1);
+  assert.equal(JSON.parse(stdout.read()).hookSpecificOutput.decision.behavior, 'deny');
+  assert.equal(stderr.read(), '');
+});
+
+test('streamed hook input stops at the byte limit before consuming later chunks', async () => {
+  let yielded = 0;
+  let sideEffects = 0;
+  async function* stdinStream() {
+    yielded += 1;
+    yield Buffer.from('{"hook_event_name":"PermissionRequest",');
+    yielded += 1;
+    yield Buffer.alloc(1024 * 1024, 32);
+    yielded += 1;
+    yield Buffer.from('"tool_name":"Bash"}');
+  }
+  const stdout = capture();
+  const stderr = capture();
+  const code = await runCli(['hook', 'codex'], {
+    stdinStream: stdinStream(),
+    stdout,
+    stderr,
+    loadConfigImpl: async () => { sideEffects += 1; return {}; },
+    requestApprovalImpl: async () => { sideEffects += 1; return { decision: 'allow' }; }
+  });
+  assert.equal(code, 0);
+  assert.equal(yielded, 2, 'reject the oversized chunk without reading subsequent input');
+  assert.equal(sideEffects, 0);
+  assert.equal(stdout.read(), '');
+  assert.match(stderr.read(), /NOFAX_HOOK_INPUT_TOO_LARGE/);
+});
+
+test('streamed hook input preserves a UTF-8 character split across byte chunks', async () => {
+  const input = Buffer.from(JSON.stringify({
+    hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'echo 🦄' }
+  }));
+  const emojiStart = input.indexOf(Buffer.from('🦄'));
+  assert.ok(emojiStart > 0);
+  async function* stdinStream() {
+    yield input.subarray(0, emojiStart + 1);
+    yield input.subarray(emojiStart + 1);
+  }
+  const stdout = capture();
+  const stderr = capture();
+  let approvedMessage;
+  const code = await runCli(['hook', 'claude'], {
+    stdinStream: stdinStream(),
+    stdout,
+    stderr,
+    loadConfigImpl: async () => ({}),
+    requestApprovalImpl: async ({ message }) => {
+      approvedMessage = message;
+      return { decision: 'deny' };
+    }
+  });
+  assert.equal(code, 0);
+  assert.match(approvedMessage, /🦄/);
+  assert.equal(JSON.parse(stdout.read()).hookSpecificOutput.decision.behavior, 'deny');
+  assert.equal(stderr.read(), '');
+});
+
 test('Claude and Codex hook setup failures cleanly fall back to native approval', async () => {
   const input = JSON.stringify({
     hook_event_name: 'PermissionRequest', cwd: '/repo', tool_name: 'Bash', tool_input: { command: 'npm test' }
