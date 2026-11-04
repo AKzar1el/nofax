@@ -8,6 +8,7 @@ import { handleGeminiHook } from './adapters/gemini.mjs';
 const HELP = `nofax - remote approvals and notifications for coding agents\n\nUsage:\n  nofax --version\n  nofax init [--server URL] [--topic TOPIC] [--timeout SECONDS] [--force]\n  nofax test\n  nofax notify [--title TITLE] MESSAGE...\n  nofax approve [--title TITLE] MESSAGE...\n  nofax refine [--title TITLE] MESSAGE...\n  nofax mcp\n  nofax config\n  nofax hook claude\n  nofax hook codex\n  nofax hook gemini\n\nEnvironment:\n  NOFAX_HOME   Override ~/.nofax\n`;
 
 const PACKAGE_JSON_URL = new URL('../package.json', import.meta.url);
+const MAX_HOOK_STDIN_BYTES = 1024 * 1024;
 
 async function readPackageVersion() {
   const metadata = JSON.parse(await readFile(PACKAGE_JSON_URL, 'utf8'));
@@ -45,11 +46,24 @@ function rejectUnexpectedArgs(positionals) {
   if (positionals.length > 0) throw new Error(`NOFAX_UNEXPECTED_ARGUMENT:${positionals[0]}`);
 }
 
-async function readStdin(stdinText) {
-  if (stdinText !== undefined) return stdinText;
-  let text = '';
-  for await (const chunk of process.stdin) text += chunk;
-  return text;
+async function readStdin(stdinText, stdinStream = process.stdin) {
+  if (stdinText !== undefined) {
+    if (Buffer.byteLength(stdinText, 'utf8') > MAX_HOOK_STDIN_BYTES) {
+      throw new Error('NOFAX_HOOK_INPUT_TOO_LARGE');
+    }
+    return stdinText;
+  }
+
+  const chunks = [];
+  let totalBytes = 0;
+  for await (const chunk of stdinStream) {
+    totalBytes += Buffer.byteLength(chunk);
+    if (totalBytes > MAX_HOOK_STDIN_BYTES) {
+      throw new Error('NOFAX_HOOK_INPUT_TOO_LARGE');
+    }
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks, totalBytes).toString('utf8');
 }
 
 function writeJson(stream, value) {
@@ -57,7 +71,7 @@ function writeJson(stream, value) {
 }
 
 async function runHook(adapter, deps) {
-  const inputText = await readStdin(deps.stdinText);
+  const inputText = await readStdin(deps.stdinText, deps.stdinStream);
   let input;
   try {
     input = JSON.parse(inputText);
@@ -104,6 +118,7 @@ export async function runCli(args, overrides = {}) {
   const deps = {
     env: overrides.env ?? process.env,
     stdinText: overrides.stdinText,
+    stdinStream: overrides.stdinStream ?? process.stdin,
     stdout: overrides.stdout ?? process.stdout,
     stderr: overrides.stderr ?? process.stderr,
     initConfigImpl: overrides.initConfigImpl ?? initConfig,
