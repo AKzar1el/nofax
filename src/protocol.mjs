@@ -206,6 +206,14 @@ function safeSliceEnd(text, end) {
   return previous >= 0xD800 && previous <= 0xDBFF ? end - 1 : end;
 }
 
+function escapeDisplayControls(text) {
+  // An approval summary is human-facing. Raw ANSI/CR and Unicode bidi controls
+  // can hide or reorder the actual command on terminals and phone displays.
+  // Preserve ordinary newlines/tabs; render dangerous controls as visible text.
+  return text.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/gu,
+    (character) => `\\u${character.codePointAt(0).toString(16).padStart(4, '0')}`);
+}
+
 function boundResponseText(value) {
   if (value.length <= MAX_RESPONSE_TEXT) return value;
   const end = safeSliceEnd(value, MAX_RESPONSE_TEXT - TRUNCATION_MARKER.length);
@@ -225,7 +233,7 @@ export function createPhoneTopic() {
 }
 
 function boundString(value) {
-  const redacted = redactSecretText(value);
+  const redacted = escapeDisplayControls(redactSecretText(value));
   const truncated = value.length > MAX_STRING || redacted.length > MAX_STRING;
   const bounded = redacted.length <= MAX_STRING
     ? redacted
