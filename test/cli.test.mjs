@@ -204,6 +204,65 @@ test('streamed hook input preserves a UTF-8 character split across byte chunks',
   assert.equal(stderr.read(), '');
 });
 
+test('streamed hook input preserves a surrogate pair split across string chunks', async () => {
+  const input = JSON.stringify({
+    hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'echo 🦄' }
+  });
+  const emojiStart = input.indexOf('🦄');
+  assert.ok(emojiStart > 0);
+  async function* stdinStream() {
+    yield input.slice(0, emojiStart + 1);
+    yield input.slice(emojiStart + 1);
+  }
+
+  const stdout = capture();
+  const stderr = capture();
+  let approvalMessage;
+  const code = await runCli(['hook', 'claude'], {
+    stdinStream: stdinStream(),
+    stdout,
+    stderr,
+    loadConfigImpl: async () => ({}),
+    requestApprovalImpl: async ({ message }) => {
+      approvalMessage = message;
+      return { decision: 'deny' };
+    }
+  });
+  assert.equal(code, 0);
+  assert.match(approvalMessage, /🦄/);
+  assert.equal(JSON.parse(stdout.read()).hookSpecificOutput.decision.behavior, 'deny');
+  assert.equal(stderr.read(), '');
+});
+
+test('string chunks with a split surrogate cannot bypass the 1 MiB input limit', async () => {
+  let yielded = 0;
+  async function* stdinStream() {
+    yielded += 1;
+    yield 'x'.repeat(1024 * 1024 - 1);
+    yielded += 1;
+    yield '\uD83E';
+    yielded += 1;
+    yield '\uDD84';
+    yielded += 1;
+    yield 'this must not be read';
+  }
+  const stdout = capture();
+  const stderr = capture();
+  let sideEffects = 0;
+  const code = await runCli(['hook', 'codex'], {
+    stdinStream: stdinStream(),
+    stdout,
+    stderr,
+    loadConfigImpl: async () => { sideEffects += 1; return {}; },
+    requestApprovalImpl: async () => { sideEffects += 1; return { decision: 'allow' }; }
+  });
+  assert.equal(code, 0);
+  assert.equal(yielded, 3);
+  assert.equal(sideEffects, 0);
+  assert.equal(stdout.read(), '');
+  assert.match(stderr.read(), /NOFAX_HOOK_INPUT_TOO_LARGE/);
+});
+
 test('Claude and Codex hook setup failures cleanly fall back to native approval', async () => {
   const input = JSON.stringify({
     hook_event_name: 'PermissionRequest', cwd: '/repo', tool_name: 'Bash', tool_input: { command: 'npm test' }
