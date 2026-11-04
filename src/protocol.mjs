@@ -62,8 +62,23 @@ function isSecretKey(key) {
   return lower === 'auth' || isSignedUrlSignature || isAuthHeader || isAuthHeaderValue || isPassphrase || SECRET_KEY.test(normalized);
 }
 
+function normalizeUnicodeEscapedSecretKeys(text) {
+  // Serialized agent commands can conceal credential field names with JSON
+  // Unicode escapes (including extra escaping when JSON is serialized again).
+  // Normalize only secret-key names, so the existing quoted-value redaction
+  // handles them without decoding or exposing unrelated command content.
+  return text.replace(
+    /(?<!\\)(\\*["'])((?:[A-Za-z0-9_-]|\\+u[0-9a-fA-F]{4}){1,64})\1(?=\s*[:=])/g,
+    (match, quote, key) => {
+      if (!key.includes('\\u')) return match;
+      const decoded = key.replace(/\\+u([0-9a-fA-F]{4})/g, (_escape, hex) => String.fromCharCode(Number.parseInt(hex, 16)));
+      return isSecretKey(decoded) ? `${quote}${decoded}${quote}` : match;
+    }
+  );
+}
+
 function redactSecretText(value) {
-  let redacted = value;
+  let redacted = normalizeUnicodeEscapedSecretKeys(value);
 
   redacted = redacted.replace(
     /-----BEGIN ([A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?)-----[\s\S]*?(?:-----END \1-----|$)/g,
@@ -127,7 +142,7 @@ function redactSecretText(value) {
   );
 
   redacted = redacted.replace(
-    /(["'])([A-Za-z][A-Za-z0-9_-]{0,63})\1(\s*[:=]\s*)(["'])(.*?)\4/g,
+    /(["'])([A-Za-z][A-Za-z0-9_-]{0,63})\1(\s*[:=]\s*)(["'])(?:\\.|(?!\4)[^\r\n])*\4/g,
     (match, keyQuote, key, separator, valueQuote) => isSecretKey(key)
       ? `${keyQuote}${key}${keyQuote}${separator}${valueQuote}[REDACTED]${valueQuote}`
       : match
