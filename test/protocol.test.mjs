@@ -2,6 +2,28 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildAgentSummary, createRequestId, createResponseTopic, redactAndBound } from '../src/protocol.mjs';
 
+test('redacts credentials from escaped and double-escaped JSON in agent summaries', () => {
+  const marker = 'NOFAX_SYNTHETIC_ESCAPED_JSON_SECRET_CANARY_12345';
+  const object = JSON.stringify({ api_key: marker, accessToken: marker, note: 'run tests' });
+  const escaped = JSON.stringify(object);
+  for (const text of [escaped, JSON.stringify(escaped), 'echo ' + escaped]) {
+    const summary = buildAgentSummary({ source: 'Codex', toolName: 'shell', toolInput: { command: text } });
+    const bounded = redactAndBound(text);
+    assert.equal(summary.includes(marker), false, 'approval summary must not expose escaped secret');
+    assert.equal(bounded.includes(marker), false, 'bounded string must not expose escaped secret');
+    assert.match(summary, /Source: Codex/, 'redaction must retain the approval source');
+    assert.match(summary, /run tests/, 'nonsecret JSON content must remain visible');
+    assert.match(bounded, /run tests/, 'nonsecret bounded content must remain visible');
+  }
+
+  const quotedSecret = JSON.stringify({ api_key: 'prefix"' + marker + '"suffix', note: 'safe detail' });
+  for (const text of [JSON.stringify(quotedSecret), JSON.stringify(JSON.stringify(quotedSecret))]) {
+    const summary = buildAgentSummary({ source: 'Codex', toolName: 'shell', toolInput: { command: text } });
+    assert.equal(summary.includes(marker), false, 'escaped quotes inside a credential must not end redaction early');
+    assert.match(summary, /safe detail/, 'later nonsecret fields must remain visible');
+  }
+});
+
 test('request identifiers and response topics are high-entropy URL-safe values', () => {
   const id = createRequestId();
   const topic = createResponseTopic();
