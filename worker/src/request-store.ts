@@ -7,6 +7,7 @@ const CALLBACK_HASH = /^[a-f0-9]{64}$/;
 const KINDS = new Set(["approval", "choice", "refinement"] as const);
 const STATUSES = new Set(["pending", "resolved"] as const);
 const RESOLVED_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const RETENTION_ALARM_MIN_DELAY_MS = 60 * 1000;
 
 export type RequestKind = "approval" | "choice" | "refinement";
 export type RequestStatus = "pending" | "resolved";
@@ -157,6 +158,35 @@ export class NofaxRequestStore extends DurableObject<Env> {
       CREATE INDEX IF NOT EXISTS idx_requests_resolved_at
         ON requests(resolved_at);
     `);
+    // Old deployments may already contain rows, but have no scheduled alarm.
+    // Register maintenance without deleting anything during read-only inspection.
+    this.ctx.blockConcurrencyWhile(() => this.ensureRetentionAlarm());
+  }
+
+  private async ensureRetentionAlarm(additionalDue?: number): Promise<void> {
+    const [row] = this.ctx.storage.sql.exec<{ due: number | null }>(
+      `SELECT MIN(CASE
+        WHEN status = 'pending' THEN expires_at + 1
+        WHEN status = 'resolved' AND resolved_at IS NOT NULL THEN resolved_at + ? + 1
+        ELSE NULL
+      END) AS due FROM requests`,
+      RESOLVED_RETENTION_MS
+    ).toArray();
+    const due = Math.min(row?.due ?? Infinity, additionalDue ?? Infinity);
+    if (!Number.isFinite(due)) return;
+
+    // A delayed/legacy row should not trigger an immediate alarm in the caller.
+    const scheduledAt = Math.max(Date.now() + RETENTION_ALARM_MIN_DELAY_MS, due);
+    const existing = await this.ctx.storage.getAlarm();
+    if (existing === null || existing > scheduledAt) {
+      await this.ctx.storage.setAlarm(scheduledAt);
+    }
+  }
+
+  async alarm(): Promise<void> {
+    this.cleanup(Date.now());
+    // Keep only one alarm: the next pending expiry or resolved retention deadline.
+    await this.ensureRetentionAlarm();
   }
 
   private selectByRequestId(requestId: string): StoredRequest | null {
@@ -175,9 +205,12 @@ export class NofaxRequestStore extends DurableObject<Env> {
     return rows.length === 0 ? null : rowToRequest(rows[0]);
   }
 
-  createRequest(input: PendingRequestInput): StoredRequest {
+  async createRequest(input: PendingRequestInput): Promise<StoredRequest> {
     const request = normalizePending(input);
     this.cleanup(request.createdAt);
+    // Establish the alarm before persistence, so a scheduling failure cannot
+    // leave a newly persisted request whose lifetime has no maintenance timer.
+    await this.ensureRetentionAlarm(request.expiresAt + 1);
     this.ctx.storage.sql.exec(
       `INSERT INTO requests (
         request_id, kind, status, title, message, allowed_json, callback_hash,

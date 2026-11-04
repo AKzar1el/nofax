@@ -171,4 +171,44 @@ describe("NofaxRequestStore", () => {
     expect(await stub.listPending(10, 3_000)).toEqual([]);
     expect(await stub.getRequest(expiredId)).not.toBeNull();
   });
+
+  it("schedules durable maintenance for new requests without requiring another request", async () => {
+    const raw = rawStore("retention-alarm-scheduled");
+    const now = Date.now();
+    await (raw as unknown as RequestStoreStub).createRequest(pending({
+      createdAt: now,
+      expiresAt: now + 300_000
+    }));
+
+    await runInDurableObject(raw, async (_instance, state) => {
+      const nextAlarm = await state.storage.getAlarm();
+      expect(nextAlarm).not.toBeNull();
+      expect(nextAlarm!).toBeGreaterThan(now);
+      expect(nextAlarm!).toBeLessThanOrEqual(now + 300_001);
+    });
+  });
+
+  it("alarm removes expired pending and old resolved rows but retains active requests", async () => {
+    const raw = rawStore("retention-alarm-cleanup");
+    const stub = raw as unknown as RequestStoreStub;
+    const day = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const live = pending({ requestId: "nfx_liveaaaaaaaaaaaaaaaaaaaa", callbackHash: "d".repeat(64), createdAt: now, expiresAt: now + day });
+    const expired = pending({ requestId: "nfx_expiredaaaaaaaaaaaaaaaaa", callbackHash: "e".repeat(64), createdAt: now - 15 * day, expiresAt: now - 14 * day });
+    const resolved = pending({ requestId: "nfx_resolvedaaaaaaaaaaaaaaaa", callbackHash: "f".repeat(64), createdAt: now - 15 * day, expiresAt: now + day });
+
+    await stub.createRequest(live);
+    await stub.createRequest(expired);
+    await stub.createRequest(resolved);
+    await stub.resolveByCallbackHash({ callbackHash: resolved.callbackHash, decision: "deny", nowMs: now - 8 * day });
+    expect(await stub.getRequest(expired.requestId)).not.toBeNull();
+    expect((await stub.getRequest(resolved.requestId))?.status).toBe("resolved");
+
+    await runInDurableObject(raw, async (instance) => {
+      await instance.alarm();
+    });
+    expect(await stub.getRequest(expired.requestId)).toBeNull();
+    expect(await stub.getRequest(resolved.requestId)).toBeNull();
+    expect(await stub.getRequest(live.requestId)).not.toBeNull();
+  });
 });
