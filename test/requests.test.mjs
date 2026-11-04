@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { discardPendingRequest, savePendingRequest, loadRequest, resolveRequest, resolveRequestWithClaim, listPendingRequests } from '../src/requests.mjs';
@@ -27,6 +27,75 @@ test('pending requests persist and reload without losing the response topic', as
   assert.deepEqual(await loadRequest({ home: root, requestId: pending.requestId }), pending);
   const stored = JSON.parse(await readFile(join(root, 'requests', `${pending.requestId}.json`), 'utf8'));
   assert.equal(stored.responseTopic, pending.responseTopic);
+});
+
+test('replayed request IDs cannot overwrite a legacy resolved denial', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  const historical = {
+    ...pending,
+    status: 'resolved',
+    resolvedAt: '2026-09-09T18:01:00.000Z',
+    decision: 'deny'
+  };
+  const path = join(root, 'requests', `${pending.requestId}.json`);
+  await writeFile(path, JSON.stringify(historical), 'utf8');
+
+  await assert.rejects(
+    savePendingRequest({ home: root, request: pending }),
+    /NOFAX_REQUEST_ALREADY_EXISTS/
+  );
+  assert.equal(JSON.parse(await readFile(path, 'utf8')).decision, 'deny');
+  assert.deepEqual(await loadRequest({ home: root, requestId: pending.requestId }), historical);
+});
+
+test('replayed request IDs cannot recreate a primary file when a terminal claim exists', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  await resolveRequest({ home: root, requestId: pending.requestId, response: { decision: 'deny' } });
+  const path = join(root, 'requests', `${pending.requestId}.json`);
+  await unlink(path);
+
+  await assert.rejects(
+    savePendingRequest({ home: root, request: pending }),
+    /NOFAX_REQUEST_ALREADY_EXISTS/
+  );
+  await assert.rejects(readFile(path, 'utf8'), { code: 'ENOENT' });
+  const stored = await loadRequest({ home: root, requestId: pending.requestId });
+  assert.equal(stored.status, 'resolved');
+  assert.equal(stored.decision, 'deny');
+});
+
+test('a corrupt terminal sidecar prevents a replay even without a primary file', async (t) => {
+  const root = await home(t);
+  const directory = join(root, 'requests');
+  await mkdir(directory);
+  await writeFile(join(directory, `${pending.requestId}.terminal.json`), '{corrupt', 'utf8');
+
+  await assert.rejects(
+    savePendingRequest({ home: root, request: pending }),
+    /NOFAX_REQUEST_TERMINAL_INVALID_JSON/
+  );
+  await assert.rejects(
+    readFile(join(directory, `${pending.requestId}.json`), 'utf8'),
+    { code: 'ENOENT' }
+  );
+});
+
+test('concurrent saves of the same request ID retain exactly one immutable record', async (t) => {
+  const root = await home(t);
+  const first = pending;
+  const second = { ...pending, createdAt: '2026-09-09T18:01:00.000Z' };
+  const outcomes = await Promise.allSettled([
+    savePendingRequest({ home: root, request: first }),
+    savePendingRequest({ home: root, request: second })
+  ]);
+  const successes = outcomes.filter((outcome) => outcome.status === 'fulfilled');
+  const failures = outcomes.filter((outcome) => outcome.status === 'rejected');
+  assert.equal(successes.length, 1);
+  assert.equal(failures.length, 1);
+  assert.match(failures[0].reason.message, /NOFAX_REQUEST_ALREADY_EXISTS/);
+  assert.deepEqual(await loadRequest({ home: root, requestId: pending.requestId }), successes[0].value);
 });
 
 test('request filename and stored requestId must match before returning a pending request', async (t) => {
