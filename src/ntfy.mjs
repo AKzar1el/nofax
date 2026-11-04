@@ -440,8 +440,18 @@ async function requestDecision({
   if (response === null) {
     return { decision: 'timeout', requestId: remote.requestId, responseTopic: remote.responseTopic };
   }
-  await sendResponseConfirmation({ config, response, kind, title, fetchImpl });
-  return { ...response, requestId: remote.requestId, responseTopic: remote.responseTopic };
+  let confirmationDelivered = false;
+  try {
+    confirmationDelivered = await sendResponseConfirmation({ config, response, kind, title, fetchImpl });
+  } catch {
+    // A best-effort receipt must never erase the actual human decision.
+  }
+  return {
+    ...response,
+    requestId: remote.requestId,
+    responseTopic: remote.responseTopic,
+    ...(confirmationDelivered ? {} : { confirmationStatus: 'failed' })
+  };
 }
 
 export async function requestApproval(options) {
