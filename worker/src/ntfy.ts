@@ -7,6 +7,14 @@ const MAX_ERROR_BODY_BYTES = 2_048;
 const MAX_ERROR_DETAIL_LENGTH = 200;
 const MAX_NTFY_MESSAGE_BYTES = 4_096;
 
+function visibleNotificationText(value: string): string {
+  // MCP callers can supply terminal controls or Unicode direction overrides.
+  // Keep ordinary line breaks, but render other display controls literally so
+  // a phone notification cannot visually disguise its title or message.
+  return value.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/gu,
+    (character) => `\\u${character.codePointAt(0)!.toString(16).padStart(4, "0")}`);
+}
+
 function boundNtfyMessage(value: string): string {
   const text = boundText(value, 2200, "MESSAGE");
   const encoder = new TextEncoder();
@@ -171,8 +179,8 @@ export async function publishNotification({
         signal: controller.signal,
         body: JSON.stringify({
           topic,
-          title: boundText(title, 120, "TITLE"),
-          message: boundNtfyMessage(message),
+          title: boundText(visibleNotificationText(title), 120, "TITLE"),
+          message: boundNtfyMessage(visibleNotificationText(message)),
           priority: 4,
           tags: ["bell"]
         })
