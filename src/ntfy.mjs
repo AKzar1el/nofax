@@ -13,6 +13,15 @@ const MAX_TIMER_TIMEOUT_MS = 2_147_483_647;
 // limits before accepting the message. These must not leave orphan approvals.
 const NOT_APPLIED_PUBLISH_STATUSES = new Set([400, 401, 403, 429]);
 
+function visibleNotificationText(value) {
+  // Never let untrusted notification text visually alter its own display.
+  // Keep ordinary line breaks but quote terminal and direction controls.
+  return typeof value === 'string'
+    ? value.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/gu,
+      (character) => `\\u${character.codePointAt(0).toString(16).padStart(4, '0')}`)
+    : value;
+}
+
 function safeSliceEnd(text, end) {
   const previous = text.charCodeAt(end - 1);
   return previous >= 0xD800 && previous <= 0xDBFF ? end - 1 : end;
@@ -137,8 +146,8 @@ export async function sendNotification({ config, title, message, actions, priori
   const authorization = publishAuthorization(config, authToken);
   const payload = {
     topic: config.topic,
-    title: boundText(title, MAX_TITLE, 'TITLE'),
-    message: boundMessageText(message),
+    title: boundText(visibleNotificationText(title), MAX_TITLE, 'TITLE'),
+    message: boundMessageText(visibleNotificationText(message)),
     priority,
     tags
   };
@@ -321,9 +330,12 @@ export async function pollRemoteResponse({ config, responseTopic, requestId, all
         ...(controller === null ? {} : { signal: controller.signal })
       });
       response = timeout === null ? await request : await Promise.race([request, timeout]);
-    } catch (error) {
+    } catch {
       if (controller?.signal.aborted) return null;
-      throw new Error(`NOFAX_NTFY_POLL_NETWORK: ${error?.message ?? String(error)}`);
+      // Transport errors can include the request URL, including the private
+      // response topic that grants access to a human decision. Do not expose it
+      // through MCP error text, CLI diagnostics, or logs.
+      throw new Error('NOFAX_NTFY_POLL_NETWORK');
     }
     if (response === POLL_TIMEOUT) return null;
     await ensureOk(response, 'NOFAX_NTFY_POLL');
@@ -332,9 +344,10 @@ export async function pollRemoteResponse({ config, responseTopic, requestId, all
     try {
       const body = response.text();
       text = timeout === null ? await body : await Promise.race([body, timeout]);
-    } catch (error) {
+    } catch {
       if (controller?.signal.aborted) return null;
-      throw error;
+      // A stream-reader failure may also include the private polling URL.
+      throw new Error('NOFAX_NTFY_POLL_NETWORK');
     }
     if (text === POLL_TIMEOUT) return null;
     return parseNtfyPoll(text, requestId, allowed, kind);

@@ -135,10 +135,14 @@ function redactSecretText(value) {
   );
 
   redacted = redacted.replace(
-    /([?&#])([A-Za-z][A-Za-z0-9._-]{0,63})=([^&\s"'`,;]+)/g,
-    (match, prefix, key) => (isSecretKey(key) || key.toLowerCase() === 'signature')
-      ? `${prefix}${key}=[REDACTED]`
-      : match
+    /([?&#])((?:[A-Za-z]|%[0-9a-fA-F]{2})(?:[A-Za-z0-9._-]|%[0-9a-fA-F]{2}){0,63})=([^&\s"'`,;]+)/g,
+    (match, prefix, key) => {
+      let decodedKey;
+      try { decodedKey = decodeURIComponent(key); } catch { return match; }
+      return isSecretKey(decodedKey) || decodedKey.toLowerCase() === 'signature'
+        ? `${prefix}${key}=[REDACTED]`
+        : match;
+    }
   );
 
   redacted = redacted.replace(
