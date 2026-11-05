@@ -258,7 +258,12 @@ export async function runCli(args, overrides = {}) {
         decision: result.decision,
         ...(result.text === undefined ? {} : { text: result.text })
       });
-      return result.decision === 'timeout' ? 3 : 0;
+      // A zero exit code must mean an actual, nonempty human refinement.
+      if (result.decision === 'refine') {
+        return typeof result.text === 'string' && result.text.trim() ? 0 : 1;
+      }
+      if (result.decision === 'deny') return 2;
+      return result.decision === 'timeout' ? 3 : 1;
     }
 
     if (command === 'mcp') {

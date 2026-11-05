@@ -44,6 +44,28 @@ test('refine timeout preserves timeout exit code', async () => {
   assert.equal(stdout.read(), '{"decision":"timeout"}\n');
 });
 
+test('refine exits unsuccessfully for denied, unexpected or empty responses', async () => {
+  for (const [response, expectedCode] of [
+    [{ decision: 'deny' }, 2],
+    [{ decision: 'unexpected' }, 1],
+    [{ decision: 'refine' }, 1],
+    [{ decision: 'refine', text: '' }, 1],
+    [{ decision: 'refine', text: '  \t  ' }, 1]
+  ]) {
+    const stdout = capture();
+    const stderr = capture();
+    const code = await runCli(['refine', 'Revise this draft'], {
+      stdout,
+      stderr,
+      loadConfigImpl: async () => config,
+      requestRefinementImpl: async () => response
+    });
+    assert.equal(code, expectedCode, `${JSON.stringify(response)} must not be treated as successful refinement`);
+    assert.equal(stdout.read(), `${JSON.stringify(response)}\n`);
+    assert.equal(stderr.read(), '');
+  }
+});
+
 test('mcp starts the stdio server without ordinary stdout text', async () => {
   const stdout = capture();
   const stderr = capture();
