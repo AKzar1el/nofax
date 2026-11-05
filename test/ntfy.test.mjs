@@ -100,6 +100,23 @@ test('unsafe cleartext ntfy servers fail before publish, approval persistence, o
   assert.equal(persisted, 0);
 });
 
+test('guessable phone topics fail before publishing or saving an approval', async () => {
+  const weak = { ...config, topic: 'a'.repeat(32) };
+  let published = 0;
+  let persisted = 0;
+  const fetchImpl = async () => { published += 1; return jsonResponse({ id: 'unexpected' }); };
+  await assert.rejects(() => sendNotification({
+    config: weak, title: 'Private notification', message: 'Synthetic', fetchImpl
+  }), /NOFAX_TOPIC_INVALID/);
+  await assert.rejects(() => createRemoteRequest({
+    config: weak, title: 'Private approval', message: 'Synthetic',
+    options: ['allow', 'deny'], fetchImpl,
+    beforePublish: async () => { persisted += 1; }
+  }), /NOFAX_TOPIC_INVALID/);
+  assert.equal(published, 0);
+  assert.equal(persisted, 0);
+});
+
 test('opt-in ntfy bearer token authenticates HTTPS publishing only, never approval callbacks or polling', async () => {
   const token = 'tk_synthetic_protected_topic_token_123456';
   const calls = [];

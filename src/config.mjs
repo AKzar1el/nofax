@@ -37,8 +37,11 @@ export function normalizeServer(input) {
   return `${url.protocol}//${url.host}`;
 }
 
-function validateTopic(topic) {
-  if (typeof topic !== 'string' || topic.length < 24 || topic.length > 64 || !/^[A-Za-z0-9_-]+$/.test(topic)) {
+export function validateTopic(topic) {
+  // The phone topic grants access to notification content and embedded response
+  // actions. Reject obviously guessable values, as the remote Worker does.
+  if (typeof topic !== 'string' || topic.length < 24 || topic.length > 64 ||
+      !/^[A-Za-z0-9_-]+$/.test(topic) || new Set(topic).size < 8) {
     throw new Error('NOFAX_TOPIC_INVALID');
   }
   return topic;
