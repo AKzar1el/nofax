@@ -30,6 +30,47 @@ test('sendNotification publishes bounded JSON to the configured phone topic', as
   assert.equal(calls[0].init.headers.authorization, undefined);
 });
 
+test('local ntfy notifications visibly escape terminal and bidi controls', async () => {
+  let payload;
+  const fetchImpl = async (_url, init) => {
+    payload = JSON.parse(init.body);
+    return jsonResponse({ id: 'synthetic' });
+  };
+  await sendNotification({
+    config,
+    title: 'Build\u001b[2J\u202E failed',
+    message: 'Status: pending\rApproved\u0000\u2066\nNext step',
+    fetchImpl
+  });
+  assert.match(payload.title, /\\u001b/);
+  assert.match(payload.title, /\\u202e/);
+  assert.match(payload.message, /\\u000d/);
+  assert.match(payload.message, /\\u0000/);
+  assert.match(payload.message, /\\u2066/);
+  assert.ok(payload.message.includes('\nNext step'));
+  assert.doesNotMatch(payload.title, /[\x00-\x1f\u202a-\u202e\u2066-\u2069]/u);
+  assert.doesNotMatch(payload.message, /[\x00-\x08\x0b-\x1f\u202a-\u202e\u2066-\u2069]/u);
+});
+
+test('local ntfy display escaping still enforces title and UTF-8 message bounds', async () => {
+  let payload;
+  const fetchImpl = async (_url, init) => {
+    payload = JSON.parse(init.body);
+    return jsonResponse({ id: 'synthetic' });
+  };
+  await sendNotification({
+    config,
+    title: '\u001b'.repeat(120),
+    message: '\u202e'.repeat(2200),
+    fetchImpl
+  });
+  assert.ok(payload.title.length <= 120);
+  assert.ok(payload.message.length <= 2200);
+  assert.ok(Buffer.byteLength(payload.message, 'utf8') <= 4096);
+  assert.match(payload.message, /\\u202e/);
+  assert.doesNotMatch(payload.message, /\u202e/);
+});
+
 test('unsafe cleartext ntfy servers fail before publish, approval persistence, or polling', async () => {
   const unsafe = { ...config, server: 'http://ntfy.example.invalid' };
   let networkCalls = 0;
