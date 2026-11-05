@@ -10,6 +10,15 @@ const HELP = `nofax - remote approvals and notifications for coding agents\n\nUs
 const PACKAGE_JSON_URL = new URL('../package.json', import.meta.url);
 const MAX_HOOK_STDIN_BYTES = 1024 * 1024;
 
+function safeDiagnostic(error) {
+  // Error messages may contain untrusted transport text. Keep diagnostics on
+  // one visible line so terminal controls cannot forge a CLI or hook result.
+  return String(error?.message ?? error).replace(
+    /[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/gu,
+    (character) => '\\u' + character.codePointAt(0).toString(16).padStart(4, '0')
+  );
+}
+
 async function readPackageVersion() {
   const metadata = JSON.parse(await readFile(PACKAGE_JSON_URL, 'utf8'));
   if (typeof metadata.version !== 'string' || metadata.version.length === 0) {
@@ -105,7 +114,7 @@ async function runHook(adapter, deps) {
   } catch {
     throw new Error('NOFAX_HOOK_INVALID_JSON');
   }
-  const onError = (error) => deps.stderr.write(`nofax: ${error.message}\n`);
+  const onError = (error) => deps.stderr.write(`nofax: ${safeDiagnostic(error)}\n`);
   let config;
   try {
     config = await deps.loadConfigImpl({ env: deps.env });
@@ -266,12 +275,12 @@ export async function runCli(args, overrides = {}) {
         return await runHook(adapter, deps);
       } catch (error) {
         if (adapter === 'gemini') {
-          deps.stderr.write(`nofax: ${error.message}\n`);
+          deps.stderr.write(`nofax: ${safeDiagnostic(error)}\n`);
           writeJson(deps.stdout, { decision: 'ask' });
           return 0;
         }
         if (adapter === 'claude' || adapter === 'codex') {
-          deps.stderr.write(`nofax: ${error.message}\n`);
+          deps.stderr.write(`nofax: ${safeDiagnostic(error)}\n`);
           deps.stderr.write('nofax: no remote decision; continuing with native approval.\n');
           return 0;
         }
@@ -281,7 +290,7 @@ export async function runCli(args, overrides = {}) {
 
     throw new Error(`NOFAX_UNKNOWN_COMMAND:${command}`);
   } catch (error) {
-    deps.stderr.write(`nofax: ${error.message}\n`);
+    deps.stderr.write(`nofax: ${safeDiagnostic(error)}\n`);
     return 1;
   }
 }

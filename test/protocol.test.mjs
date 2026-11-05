@@ -58,6 +58,21 @@ test('redacts credentials whose JSON property names use Unicode escapes', () => 
   assert.match(redactAndBound(benign), /safe detail/, 'unrelated Unicode escapes remain visible');
 });
 
+test('redacts credentials hidden by percent-encoded query parameter names', () => {
+  const marker = 'NOFAX_SYNTHETIC_ENCODED_QUERY_SECRET_12345';
+  for (const key of ['api_key', 'api%5Fkey', 'tok%65n', '%74oken']) {
+    const command = `curl https://example.invalid/path?${key}=${marker}&mode=safe`;
+    const summary = buildAgentSummary({ source: 'Codex', toolName: 'shell', toolInput: { command } });
+    const bounded = redactAndBound(command);
+    for (const text of [summary, bounded]) {
+      assert.equal(text.includes(marker), false, `query credential ${key} must not leak`);
+      assert.match(text, /\[REDACTED\]/);
+      assert.match(text, /mode=safe/, 'nonsecret query remains visible');
+    }
+  }
+  assert.match(redactAndBound('https://example.invalid/?m%6fde=safe'), /m%6fde=safe/);
+});
+
 test('request identifiers and response topics are high-entropy URL-safe values', () => {
   const id = createRequestId();
   const topic = createResponseTopic();
