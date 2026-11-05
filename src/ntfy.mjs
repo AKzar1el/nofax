@@ -180,10 +180,10 @@ export async function sendNotification({ config, title, message, actions, priori
       signal: controller === null ? signal : controller.signal
     });
     response = timeout === null ? await request : await Promise.race([request, timeout]);
-  } catch (error) {
-    // Transport errors from custom clients may echo request headers. Never echo a token.
-    const detail = authorization === null ? (error?.message ?? String(error)) : 'authenticated transport failed';
-    throw publishError(`NOFAX_NTFY_PUBLISH_NETWORK: ${detail}`, 'ambiguous');
+  } catch {
+    // Even anonymous transport errors may echo the topic, message or callback
+    // URL. These are approval capabilities, so never forward provider prose.
+    throw publishError('NOFAX_NTFY_PUBLISH_NETWORK', 'ambiguous');
   } finally {
     if (timeoutId !== undefined) clearTimeout(timeoutId);
   }

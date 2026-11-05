@@ -201,8 +201,27 @@ test('ntfy authenticated network errors never expose bearer credential', async (
       fetchImpl: async () => { throw new Error(`Request failed with Authorization: Bearer ${token}`); }
     }),
     (error) => error.deliveryState === 'ambiguous' &&
-      error.message.startsWith('NOFAX_NTFY_PUBLISH_NETWORK:') &&
+      error.message === 'NOFAX_NTFY_PUBLISH_NETWORK' &&
       !error.message.includes(token)
+  );
+});
+
+test('anonymous ntfy network errors cannot disclose topic or approval capabilities', async () => {
+  const title = 'Synthetic private approval';
+  const message = 'Synthetic confidential operation details';
+  const callback = 'https://ntfy.sh/private_response_capability_0123456789';
+  await assert.rejects(
+    () => sendNotification({
+      config,
+      title,
+      message,
+      actions: [{ action: 'http', label: 'Allow', url: callback }],
+      authToken: undefined,
+      fetchImpl: async () => {
+        throw new Error(`POST topic=${config.topic} title=${title} message=${message} action=${callback}`);
+      }
+    }),
+    (error) => error?.message === 'NOFAX_NTFY_PUBLISH_NETWORK' && error.deliveryState === 'ambiguous'
   );
 });
 
@@ -231,7 +250,7 @@ test('ntfy publishing and response polling never follow 307/308 redirects', asyn
           message: 'Synthetic sensitive request',
           actions: [{ action: 'http', url: 'https://example.invalid/synthetic-response-capability' }]
         }),
-        (error) => error?.message.startsWith('NOFAX_NTFY_PUBLISH_NETWORK:') &&
+        (error) => error?.message === 'NOFAX_NTFY_PUBLISH_NETWORK' &&
           error.deliveryState === 'ambiguous'
       );
       await assert.rejects(
@@ -738,7 +757,7 @@ test('network publish failure remains delivery-ambiguous', async () => {
         throw new Error('connection lost');
       }
     }),
-    (error) => error?.message === 'NOFAX_NTFY_PUBLISH_NETWORK: connection lost' && error.deliveryState === 'ambiguous'
+    (error) => error?.message === 'NOFAX_NTFY_PUBLISH_NETWORK' && error.deliveryState === 'ambiguous'
   );
 });
 
