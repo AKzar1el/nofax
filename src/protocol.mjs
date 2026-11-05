@@ -68,7 +68,7 @@ function normalizeUnicodeEscapedSecretKeys(text) {
   // Normalize only secret-key names, so the existing quoted-value redaction
   // handles them without decoding or exposing unrelated command content.
   return text.replace(
-    /(?<!\\)(\\*["'])((?:[A-Za-z0-9_-]|\\+u[0-9a-fA-F]{4}){1,64})\1(?=\s*[:=])/g,
+    /(?<!\\)(\\*["'])((?:[A-Za-z0-9_./ \\-]|\\+u[0-9a-fA-F]{4}){1,64})\1(?=\s*[:=])/g,
     (match, quote, key) => {
       if (!key.includes('\\u')) return match;
       const decoded = key.replace(/\\+u([0-9a-fA-F]{4})/g, (_escape, hex) => String.fromCharCode(Number.parseInt(hex, 16)));
@@ -93,7 +93,7 @@ function redactSecretText(value) {
   // Commands may embed a JSON string containing another serialized JSON object,
   // such as \"api_key\":\"value\". Redact escaped credential fields too.
   redacted = redacted.replace(
-    /(?<!\\)(\\+")([A-Za-z][A-Za-z0-9_-]{0,63})\1(\s*[:=]\s*)\1[\s\S]*?(?<!\\)\1/g,
+    /(?<!\\)(\\+")([A-Za-z][A-Za-z0-9_./ \\-]{0,63})\1(\s*[:=]\s*)\1[\s\S]*?(?<!\\)\1/g,
     (match, quote, key, separator) => isSecretKey(key)
       ? quote + key + quote + separator + quote + '[REDACTED]' + quote
       : match
@@ -146,21 +146,29 @@ function redactSecretText(value) {
   );
 
   redacted = redacted.replace(
-    /(["'])([A-Za-z][A-Za-z0-9_-]{0,63})\1(\s*[:=]\s*)(["'])(?:\\.|(?!\4)[^\r\n])*\4/g,
+    /(["'])([A-Za-z][A-Za-z0-9_./ \\-]{0,63})\1(\s*[:=]\s*)(["'])(?:\\.|(?!\4)[^\r\n])*\4/g,
     (match, keyQuote, key, separator, valueQuote) => isSecretKey(key)
       ? `${keyQuote}${key}${keyQuote}${separator}${valueQuote}[REDACTED]${valueQuote}`
       : match
   );
 
   redacted = redacted.replace(
-    /([A-Za-z][A-Za-z0-9_-]{0,63})(\s*[:=]\s*)(["'])(.*?)\3/g,
+    /([A-Za-z][A-Za-z0-9_./-]{0,63}(?:[ \t]+[A-Za-z][A-Za-z0-9_./-]{0,63})?)(\s*[:=]\s*)(["'])(.*?)\3/g,
     (match, key, separator, valueQuote) => isSecretKey(key)
       ? `${key}${separator}${valueQuote}[REDACTED]${valueQuote}`
       : match
   );
 
+  // Preserve the displayed auth scheme, but never leave its credential behind.
   redacted = redacted.replace(
-    /([A-Za-z][A-Za-z0-9_-]{0,63})(\s*[:=]\s*)([^\s"'`,;&]+)/g,
+    /([A-Za-z][A-Za-z0-9_./-]{0,63}(?:[ \t]+[A-Za-z][A-Za-z0-9_./-]{0,63})?)([ \t]*[:=][ \t]*)(bearer|basic)([ \t]+)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s"'`,;&]+)/gi,
+    (match, key, separator, scheme, gap) => isSecretKey(key)
+      ? `${key}${separator}${scheme}${gap}[REDACTED]`
+      : match
+  );
+
+  redacted = redacted.replace(
+    /([A-Za-z][A-Za-z0-9_./-]{0,63}(?:[ \t]+[A-Za-z][A-Za-z0-9_./-]{0,63})?)(\s*[:=]\s*)([^\s"'`,;&]+)/g,
     (match, key, separator, rawValue) => {
       if (!isSecretKey(key)) return match;
       if (/^\[REDACTED\][}\])]*$/.test(rawValue)) return match;
@@ -184,7 +192,7 @@ function redactSecretText(value) {
   );
 
   redacted = redacted.replace(
-    /--([A-Za-z][A-Za-z0-9_-]{0,63})(\s+)(["'](?:.*?)["']|[^\s"'`,;&]+)/g,
+    /--([A-Za-z][A-Za-z0-9_./-]{0,63})(\s+)(["'](?:.*?)["']|[^\s"'`,;&]+)/g,
     (match, key, separator) => isSecretKey(key)
       ? `--${key}${separator}[REDACTED]`
       : match

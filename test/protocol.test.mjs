@@ -73,6 +73,91 @@ test('redacts credentials hidden by percent-encoded query parameter names', () =
   assert.match(redactAndBound('https://example.invalid/?m%6fde=safe'), /m%6fde=safe/);
 });
 
+test('redacts separator-rich credential names inside nested JSON strings', () => {
+  const marker = 'NOFAX_SEPARATOR_KEY_SECRET_CANARY_98765';
+  const payload = JSON.stringify({
+    'api.key': marker,
+    'auth.header': marker,
+    'private key': marker,
+    'api/key': marker,
+    'safe.text': 'safe detail'
+  });
+
+  for (const input of [payload, JSON.stringify(payload), JSON.stringify(JSON.stringify(payload))]) {
+    const bounded = redactAndBound(input);
+    const summary = buildAgentSummary({ toolInput: { command: input } });
+    assert.equal(bounded.includes(marker), false, 'nested string must not leak separated secret keys');
+    assert.equal(summary.includes(marker), false, 'approval summary must not leak separated secret keys');
+    assert.match(bounded, /safe detail/, 'nonsecret dotted key must remain visible');
+  }
+
+  for (const input of [
+    `api.key=${marker}`,
+    `auth.header="${marker}"`,
+    `api/key='${marker}'`
+  ]) {
+    assert.equal(redactAndBound(input).includes(marker), false, 'flat separated credential must be redacted');
+  }
+
+  const unicode = '{"api\\u002ekey":"' + marker + '","auth\\u002fheader":"' + marker
+    + '","private\\u0020key":"' + marker + '","note":"safe detail"}';
+  for (const input of [unicode, JSON.stringify(unicode), JSON.stringify(JSON.stringify(unicode))]) {
+    assert.equal(redactAndBound(input).includes(marker), false, 'escaped separator keys must be redacted');
+    assert.match(redactAndBound(input), /safe detail/);
+  }
+});
+
+test('redacts JSON-escaped solidus in credential keys without hiding safe fields', () => {
+  const marker = 'NOFAX_ESCAPED_SOLIDUS_SECRET_CANARY_98765';
+  const input = '{"api\\/key":"' + marker + '","auth\\/header":"' + marker
+    + '","safe\\/text":"visible detail"}';
+  assert.equal(JSON.parse(input)['api/key'], marker, 'test fixture is valid escaped-solidus JSON');
+
+  for (const text of [input, JSON.stringify(input), JSON.stringify(JSON.stringify(input))]) {
+    const bounded = redactAndBound(text);
+    const summary = buildAgentSummary({ toolInput: { command: text } });
+    assert.equal(bounded.includes(marker), false, 'escaped JSON key must not expose credentials');
+    assert.equal(summary.includes(marker), false, 'approval summary must not expose credentials');
+    assert.match(bounded, /visible detail/, 'safe JSON detail remains visible');
+  }
+});
+
+test('redacts space-separated credential labels in command text', () => {
+  const marker = 'NOFAX_SPACED_LABEL_SECRET_CANARY_98765';
+  for (const input of [
+    'private key=' + marker,
+    'api key="' + marker + '"',
+    "auth header='" + marker + "'",
+    'private key: ' + marker
+  ]) {
+    assert.equal(redactAndBound(input).includes(marker), false, 'redact spaced credential labels in commands');
+    assert.equal(buildAgentSummary({ toolInput: { command: input } }).includes(marker), false);
+  }
+  assert.match(redactAndBound('safe label="visible detail"'), /visible detail/);
+});
+
+test('redacts dotted and slash-separated secret names in command flags', () => {
+  const marker = 'NOFAX_FLAG_SECRET_CANARY_98765';
+  for (const name of ['api.key', 'auth.header', 'private.key', 'api/key']) {
+    const input = `command --${name} ${marker}`;
+    assert.equal(redactAndBound(input).includes(marker), false, `redact --${name} flag value`);
+    assert.equal(buildAgentSummary({ toolInput: { command: input } }).includes(marker), false);
+  }
+  assert.match(redactAndBound(`command --safe.field ${marker}`), /NOFAX_FLAG_SECRET_CANARY_98765/);
+});
+
+test('redacts authorization schemes with separated secret header names', () => {
+  const marker = 'NOFAX_AUTH_SCHEME_SECRET_CANARY_98765';
+  for (const name of ['auth.header', 'auth header', 'auth_header', 'auth/header']) {
+    for (const value of [`Bearer ${marker}`, `Basic ${marker}`, `Bearer "${marker}"`]) {
+      const input = `${name}: ${value}`;
+      assert.equal(redactAndBound(input).includes(marker), false, `redact ${name} scheme credential`);
+      assert.equal(buildAgentSummary({ toolInput: { command: input } }).includes(marker), false);
+    }
+  }
+  assert.match(redactAndBound(`safe.label: Bearer ${marker}`), /NOFAX_AUTH_SCHEME_SECRET_CANARY_98765/);
+});
+
 test('request identifiers and response topics are high-entropy URL-safe values', () => {
   const id = createRequestId();
   const topic = createResponseTopic();
@@ -867,4 +952,25 @@ test('redacts Azure Blob Storage SAS signatures in agent approval summaries', ()
   assert.match(summary, /sig=\[REDACTED\]/);
   assert.match(summary, /sv=2024-11-04/);
   assert.match(summary, /sp=r/);
+});
+
+test('redacts URL credential parameters with percent-encoded key names', () => {
+  const marker = 'NOFAX_ENCODED_QUERY_KEY_CANARY';
+  const cases = [
+    ['api%5Fkey', '?', '&mode=read'],
+    ['%61ccess%5Ftoken', '?', '&mode=read'],
+    ['X-Amz-%53ignature', '?', '&mode=read'],
+    ['id%5ftoken', '#', '&section=docs']
+  ];
+  for (const [name, delimiter, suffix] of cases) {
+    const url = `https://example.invalid/object${delimiter}${name}=${marker}${suffix}`;
+    const actual = redactAndBound(url);
+    const summary = buildAgentSummary({ source: 'Codex', toolName: 'browser', toolInput: { url } });
+    assert.doesNotMatch(actual, new RegExp(marker));
+    assert.doesNotMatch(summary, new RegExp(marker));
+    assert.ok(actual.includes(`${name}=[REDACTED]`));
+    assert.ok(actual.endsWith(suffix));
+  }
+  const benign = 'https://example.invalid/object?m%6fde=read&section=docs';
+  assert.equal(redactAndBound(benign), benign);
 });
