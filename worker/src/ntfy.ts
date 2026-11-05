@@ -4,7 +4,6 @@ import { boundText } from "./protocol";
 type FetchLike = typeof fetch;
 
 const MAX_ERROR_BODY_BYTES = 2_048;
-const MAX_ERROR_DETAIL_LENGTH = 200;
 const MAX_NTFY_MESSAGE_BYTES = 4_096;
 
 function visibleNotificationText(value: string): string {
@@ -94,37 +93,31 @@ async function readBoundedText(response: Response): Promise<string> {
   return new TextDecoder().decode(bytes);
 }
 
-function safeDiagnostic(value: unknown, maxLength: number): string | undefined {
-  if (typeof value !== "string" && typeof value !== "number") return undefined;
-  // Provider errors are untrusted text. Escape terminal and bidi controls so
-  // diagnostic output cannot visually erase or reorder the actual error.
-  const text = String(value).replace(/\s+/g, " ").trim().replace(
-    /[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/gu,
-    (character) => `\\u${character.codePointAt(0)!.toString(16).padStart(4, "0")}`
-  );
-  if (!text) return undefined;
-  return text.slice(0, maxLength);
-}
-
 async function publishError(response: Response, authenticated = false): Promise<Error> {
   const prefix = `NOFAX_NTFY_PUBLISH_${response.status}`;
   const parts: string[] = [];
 
-  try {
-    const body = await readBoundedText(response);
-    // An upstream body may echo an authenticated request's headers or token.
-    // Drain the bounded response but never expose its text in diagnostics.
-    if (body && !authenticated) {
-      const parsed = JSON.parse(body) as { code?: unknown; error?: unknown };
-      const code = safeDiagnostic(parsed.code, 24);
-      const detail = safeDiagnostic(parsed.error, MAX_ERROR_DETAIL_LENGTH);
-      if (code) parts.push(`code=${code}`);
-      const retryAfter = safeDiagnostic(response.headers.get("retry-after"), 64);
-      if (retryAfter) parts.push(`retry_after=${retryAfter}`);
-      if (detail) parts.push(`detail=${detail}`);
+  // An ntfy topic is itself an access capability. Even without a bearer token,
+  // upstream errors, headers and transport exceptions can echo it or the payload.
+  // Expose only strictly validated numeric diagnostics, never provider prose.
+  if (!authenticated) {
+    try {
+      const body = await readBoundedText(response);
+      if (body) {
+        const parsed = JSON.parse(body) as { code?: unknown };
+        const code = parsed?.code;
+        if (typeof code === "number" && Number.isSafeInteger(code) && code >= 100 && code <= 999_999) {
+          parts.push(`code=${code}`);
+        }
+      }
+    } catch {
+      // Keep malformed or oversized provider bodies opaque.
     }
-  } catch {
-    // Keep provider errors opaque if they are not small, structured ntfy JSON.
+    const retryAfter = response.headers.get("retry-after");
+    if (retryAfter && /^\d{1,5}$/.test(retryAfter)) {
+      const seconds = Number(retryAfter);
+      if (seconds <= 86_400) parts.push(`retry_after=${seconds}`);
+    }
   }
 
   return new Error(parts.length ? `${prefix}: ${parts.join(" ")}` : prefix);
@@ -153,6 +146,7 @@ export async function publishNotification({
     throw new Error("NOFAX_NTFY_PUBLISH_TIMEOUT_INVALID");
   }
   const authorization = publishAuthorization(env);
+  const targetUrl = serverUrl(env) + "/";
 
   const controller = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -168,7 +162,7 @@ export async function publishNotification({
   const publish = async () => {
     let response: Response;
     try {
-      response = await fetchImpl(serverUrl(env) + "/", {
+      response = await fetchImpl(targetUrl, {
         method: "POST",
         // Never forward the notification payload to a redirect target.
         redirect: "error",
@@ -185,11 +179,9 @@ export async function publishNotification({
           tags: ["bell"]
         })
       });
-    } catch (error) {
+    } catch {
       if (timedOut) throw new Error("NOFAX_NTFY_PUBLISH_TIMEOUT");
-      throw new Error(authorization === undefined
-        ? "NOFAX_NTFY_PUBLISH_NETWORK: " + (error instanceof Error ? error.message : String(error))
-        : "NOFAX_NTFY_PUBLISH_NETWORK");
+      throw new Error("NOFAX_NTFY_PUBLISH_NETWORK");
     }
 
     if (!response.ok) throw await publishError(response, authorization !== undefined);

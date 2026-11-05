@@ -139,6 +139,45 @@ describe("remote ntfy publisher", () => {
     }), { status: 401 })) as typeof fetch)).rejects.toThrow(/^NOFAX_NTFY_PUBLISH_401$/);
   });
 
+  it("does not echo the topic capability or notification content in untrusted diagnostics", async () => {
+    const topic = "nofax_abcdefghijklmnopqrstuvwxyz123456";
+    const title = "Sensitive action requested";
+    const message = "Synthetic private approval context";
+    const attempt = async (fetchImpl: typeof fetch) => {
+      try {
+        await publishNotification({ env: env({ NTFY_TOPIC: topic }), title, message, fetchImpl });
+        throw new Error("expected a failed publication");
+      } catch (error) {
+        const diagnostic = (error as Error).message;
+        expect(diagnostic).toMatch(/^NOFAX_NTFY_PUBLISH_/);
+        for (const secret of [topic, title, message]) expect(diagnostic).not.toContain(secret);
+        return diagnostic;
+      }
+    };
+
+    const providerError = async () => new Response(JSON.stringify({
+      code: 42901,
+      error: `provider echoed ${topic} and ${title}`
+    }), { status: 429, headers: { "retry-after": "12" } });
+    expect(await attempt(providerError as typeof fetch))
+      .toBe("NOFAX_NTFY_PUBLISH_429: code=42901 retry_after=12");
+
+    const topicAsCode = async () => new Response(JSON.stringify({
+      code: topic,
+      error: message
+    }), { status: 503 });
+    expect(await attempt(topicAsCode as typeof fetch)).toBe("NOFAX_NTFY_PUBLISH_503");
+
+    const topicAsRetryAfter = async () => new Response("opaque", {
+      status: 429,
+      headers: { "retry-after": `12; token=${topic}` }
+    });
+    expect(await attempt(topicAsRetryAfter as typeof fetch)).toBe("NOFAX_NTFY_PUBLISH_429");
+
+    const transportError = async () => { throw new Error(`transport echoed ${topic} and ${message}`); };
+    expect(await attempt(transportError as typeof fetch)).toBe("NOFAX_NTFY_PUBLISH_NETWORK");
+  });
+
   it("rejects a redirect rather than forwarding notification contents", async () => {
     let forwarded = false;
     const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
@@ -256,7 +295,7 @@ describe("remote ntfy publisher", () => {
     expect(target).toBe("https://ntfy.example/");
   });
 
-  it("preserves bounded ntfy rate-limit diagnostics", async () => {
+  it("preserves numeric ntfy rate-limit diagnostics without provider prose", async () => {
     const fetchImpl = async () => new Response(JSON.stringify({
       code: 42901,
       http: 429,
@@ -272,11 +311,11 @@ describe("remote ntfy publisher", () => {
       message: "Action required",
       fetchImpl: fetchImpl as typeof fetch
     })).rejects.toThrow(
-      "NOFAX_NTFY_PUBLISH_429: code=42901 retry_after=12 detail=limit reached: too many requests, please be nice"
+      "NOFAX_NTFY_PUBLISH_429: code=42901 retry_after=12"
     );
   });
 
-  it("quotes upstream display controls in diagnostic errors", async () => {
+  it("omits untrusted provider display controls from diagnostics", async () => {
     const fetchImpl = (async () => new Response(JSON.stringify({
       code: "429\u001b[0m",
       error: "limit reached\u001b[2K\u202edeny\u0000"
@@ -288,8 +327,7 @@ describe("remote ntfy publisher", () => {
       message = (error as Error).message;
     }
     expect(message).toContain("NOFAX_NTFY_PUBLISH_429");
-    expect(message).toContain("code=429\\u001b[0m");
-    expect(message).toContain("detail=limit reached\\u001b[2K\\u202edeny\\u0000");
+    expect(message).toBe("NOFAX_NTFY_PUBLISH_429: retry_after=12");
     expect(message).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/u);
   });
 });
