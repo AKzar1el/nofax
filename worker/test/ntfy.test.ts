@@ -333,6 +333,25 @@ describe("remote ntfy publisher", () => {
 });
 
 describe("bounded remote ntfy publication", () => {
+  it("rejects timers that overflow the runtime timeout range before any publication", async () => {
+    let fetchCalls = 0;
+    const fetchImpl = (async () => {
+      fetchCalls += 1;
+      return new Response("ok");
+    }) as typeof fetch;
+
+    for (const timeoutMs of [2_147_483_648, Number.MAX_SAFE_INTEGER]) {
+      await expect(publishNotification({
+        env: env(),
+        title: "Alert",
+        message: "No dispatch",
+        timeoutMs,
+        fetchImpl
+      })).rejects.toThrow("NOFAX_NTFY_PUBLISH_TIMEOUT_INVALID");
+    }
+    expect(fetchCalls).toBe(0);
+  });
+
   it("times out when fetch ignores abort without claiming delivery", async () => {
     const observed: { signal?: AbortSignal } = {};
     const fetchImpl = ((_input: RequestInfo | URL, init?: RequestInit) => {
