@@ -333,14 +333,14 @@ describe("remote ntfy publisher", () => {
 });
 
 describe("bounded remote ntfy publication", () => {
-  it("rejects timers that overflow the runtime timeout range before any publication", async () => {
+  it("rejects fractional and overflowing timers before any publication", async () => {
     let fetchCalls = 0;
     const fetchImpl = (async () => {
       fetchCalls += 1;
       return new Response("ok");
     }) as typeof fetch;
 
-    for (const timeoutMs of [2_147_483_648, Number.MAX_SAFE_INTEGER]) {
+    for (const timeoutMs of [0.5, 12.5, 2_147_483_648, Number.MAX_SAFE_INTEGER]) {
       await expect(publishNotification({
         env: env(),
         title: "Alert",
