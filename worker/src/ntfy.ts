@@ -144,7 +144,7 @@ export async function publishNotification({
     throw new Error("NOFAX_NTFY_TOPIC_INVALID");
   }
   // Larger timer delays can overflow to an immediate timeout in Node runtimes.
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMEOUT_MS) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMEOUT_MS) {
     throw new Error("NOFAX_NTFY_PUBLISH_TIMEOUT_INVALID");
   }
   const authorization = publishAuthorization(env);
