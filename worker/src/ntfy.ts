@@ -5,6 +5,7 @@ type FetchLike = typeof fetch;
 
 const MAX_ERROR_BODY_BYTES = 2_048;
 const MAX_NTFY_MESSAGE_BYTES = 4_096;
+const MAX_TIMEOUT_MS = 2_147_483_647;
 
 function visibleNotificationText(value: string): string {
   // MCP callers can supply terminal controls or Unicode direction overrides.
@@ -142,7 +143,8 @@ export async function publishNotification({
   if (topic.length < 24 || topic.length > 64 || !/^[A-Za-z0-9_-]+$/.test(topic) || new Set(topic).size < 8) {
     throw new Error("NOFAX_NTFY_TOPIC_INVALID");
   }
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+  // Larger timer delays can overflow to an immediate timeout in Node runtimes.
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMEOUT_MS) {
     throw new Error("NOFAX_NTFY_PUBLISH_TIMEOUT_INVALID");
   }
   const authorization = publishAuthorization(env);
