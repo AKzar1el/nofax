@@ -134,6 +134,20 @@ describe("NofaxRequestStore", () => {
     expect(result?.request.text?.length).toBe(2_000);
   });
 
+  it("does not split a Unicode surrogate pair at the refinement text limit", async () => {
+    const stub = store("refine-unicode-bound");
+    const input = pending({ kind: "refinement", allowed: ["refine"] });
+    await stub.createRequest(input);
+
+    const result = await stub.resolveByCallbackHash({
+      callbackHash: input.callbackHash,
+      decision: "refine",
+      text: `${"x".repeat(1_999)}\u{1F642} remainder`,
+      nowMs: 2_000
+    });
+    expect(result?.request.text).toBe("x".repeat(1_999));
+  });
+
   it("treats expired or unknown callbacks as unavailable", async () => {
     const stub = store("expired");
     const input = pending({ expiresAt: 2_000 });
