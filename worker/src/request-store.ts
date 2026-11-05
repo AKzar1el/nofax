@@ -252,7 +252,11 @@ export class NofaxRequestStore extends DurableObject<Env> {
     let text: string | null = null;
     if (input.decision === "refine") {
       if (typeof input.text !== "string" || !input.text.trim()) throw new Error("NOFAX_REQUEST_TEXT_INVALID");
-      text = input.text.trim().slice(0, 2000);
+      const trimmed = input.text.trim();
+      const last = trimmed.charCodeAt(1_999);
+      // Do not split a supplementary Unicode character across the UTF-16 limit.
+      const end = trimmed.length > 2_000 && last >= 0xd800 && last <= 0xdbff ? 1_999 : 2_000;
+      text = trimmed.slice(0, end);
     }
 
     const writtenRows = this.ctx.storage.sql.exec<RequestRow>(
