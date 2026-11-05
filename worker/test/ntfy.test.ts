@@ -41,6 +41,51 @@ describe("remote ntfy publisher", () => {
     });
   });
 
+  it("renders untrusted terminal and bidi controls visibly in phone notifications", async () => {
+    let payload: { title: string; message: string } | undefined;
+    const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      payload = JSON.parse(String(init?.body));
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+
+    await publishNotification({
+      env: env(),
+      title: "Build\u001b[2J\u202E failed",
+      message: "Status: pending\rApproved\u0000\u2066\nNext step",
+      fetchImpl
+    });
+
+    expect(payload?.title).toContain("\\u001b");
+    expect(payload?.title).toContain("\\u202e");
+    expect(payload?.message).toContain("\\u000d");
+    expect(payload?.message).toContain("\\u0000");
+    expect(payload?.message).toContain("\\u2066");
+    expect(payload?.message).toContain("\nNext step");
+    expect(payload?.title).not.toMatch(/[\x00-\x1f\u202a-\u202e\u2066-\u2069]/u);
+    expect(payload?.message).not.toMatch(/[\x00-\x08\x0b-\x1f\u202a-\u202e\u2066-\u2069]/u);
+  });
+
+  it("bounds notification payloads after expanding unsafe display controls", async () => {
+    let payload: { title: string; message: string } | undefined;
+    const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      payload = JSON.parse(String(init?.body));
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+
+    await publishNotification({
+      env: env(),
+      title: "\u001b".repeat(120),
+      message: "\u202e".repeat(2200),
+      fetchImpl
+    });
+
+    expect(payload?.title.length).toBeLessThanOrEqual(120);
+    expect(payload?.message.length).toBeLessThanOrEqual(2200);
+    expect(new TextEncoder().encode(payload?.message).byteLength).toBeLessThanOrEqual(4096);
+    expect(payload?.message).toContain("\\u202e");
+    expect(payload?.message).not.toContain("\u202e");
+  });
+
   it("adds a configured Worker ntfy bearer token only to the HTTPS publishing request", async () => {
     const secret = "tk_synthetic_worker_ntfy_token_123456";
     let url = "";
