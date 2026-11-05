@@ -48,7 +48,15 @@ test('NOFAX_HOME overrides default home', () => {
 
 test('ntfy topic maximum is 64 characters', async () => {
   const { validateConfig } = await import('../src/config.mjs');
-  const config = { version: 1, server: 'https://ntfy.sh', topic: 'a'.repeat(64), timeoutSeconds: 300 };
+  const config = { version: 1, server: 'https://ntfy.sh', topic: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-', timeoutSeconds: 300 };
   assert.equal(validateConfig(config).topic.length, 64);
   assert.throws(() => validateConfig({ ...config, topic: 'a'.repeat(65) }), /NOFAX_TOPIC_INVALID/);
+});
+
+test('rejects predictable phone topics that disclose notification capabilities', async () => {
+  const { validateConfig } = await import('../src/config.mjs');
+  const config = { version: 1, server: 'https://ntfy.sh', timeoutSeconds: 300 };
+  for (const topic of ['a'.repeat(32), 'ab'.repeat(20), 'team'.repeat(8)]) {
+    assert.throws(() => validateConfig({ ...config, topic }), /NOFAX_TOPIC_INVALID/, topic);
+  }
 });

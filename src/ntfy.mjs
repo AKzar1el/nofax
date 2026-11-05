@@ -1,5 +1,5 @@
 import { createRequestId, createResponseTopic, parseResponseMessage } from './protocol.mjs';
-import { normalizeServer } from './config.mjs';
+import { normalizeServer, validateTopic } from './config.mjs';
 
 const MAX_TITLE = 120;
 const MAX_MESSAGE = 2200;
@@ -143,9 +143,10 @@ function releasePublishResponse(response) {
 
 export async function sendNotification({ config, title, message, actions, priority = 4, tags = ['bell'], signal, fetchImpl = fetch, timeoutMs = DEFAULT_PUBLISH_TIMEOUT_MS, authToken = process.env.NOFAX_NTFY_TOKEN }) {
   const server = normalizeServer(config.server);
+  const topic = validateTopic(config.topic);
   const authorization = publishAuthorization(config, authToken);
   const payload = {
-    topic: config.topic,
+    topic,
     title: boundText(visibleNotificationText(title), MAX_TITLE, 'TITLE'),
     message: boundMessageText(visibleNotificationText(message)),
     priority,
@@ -232,6 +233,7 @@ export async function createRemoteRequest({
   authToken = process.env.NOFAX_NTFY_TOKEN
 }) {
   const server = normalizeServer(config.server);
+  validateTopic(config.topic);
   const normalized = normalizeOptions(options);
   if (includeRefine && normalized.some((option) => option.value === 'refine')) throw new Error('NOFAX_CHOICE_DUPLICATE');
   if (includeRefine && normalized.some((option) => option.label === 'Refine')) throw new Error('NOFAX_CHOICE_DUPLICATE');
