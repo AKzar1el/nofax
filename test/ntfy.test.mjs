@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { createRemoteRequest, pollRemoteResponse, requestApproval, requestChoice, sendNotification } from '../src/ntfy.mjs';
+import { createRemoteRequest, pollRemoteResponse, requestApproval, requestChoice, sendNotification, waitRemoteResponse } from '../src/ntfy.mjs';
 
 const config = { version: 1, server: 'https://ntfy.sh', topic: 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF', timeoutSeconds: 300 };
 
@@ -474,6 +474,40 @@ test('sendNotification preserves Unicode at truncation boundaries', async () => 
   assert.match(payload.title, /…\[truncated\]$/);
   assert.match(payload.message, /…\[truncated\]$/);
 });
+test('requestApproval rejects invalid polling intervals before notification publication', async () => {
+  for (const pollIntervalMs of [0, -1, 0.5, Number.POSITIVE_INFINITY, 2_147_483_648]) {
+    let fetchCalls = 0;
+    await assert.rejects(
+      () => requestApproval({
+        config,
+        title: 'Permission',
+        message: 'Needs a human answer',
+        timeoutMs: 30,
+        pollIntervalMs,
+        fetchImpl: async () => { fetchCalls += 1; return jsonResponse({ id: 'unexpected' }); }
+      }),
+      /NOFAX_POLL_INTERVAL_INVALID/
+    );
+    assert.equal(fetchCalls, 0, 'invalid poll cadence must never publish');
+  }
+});
+
+test('waitRemoteResponse validates direct polling cadence and deadline before fetch', async () => {
+  let fetchCalls = 0;
+  const base = {
+    config,
+    responseTopic: 'nofax_r_synthetic',
+    requestId: 'nfx_synthetic',
+    allowed: ['allow', 'deny'],
+    kind: 'approval',
+    timeoutMs: 20,
+    fetchImpl: async () => { fetchCalls += 1; return jsonResponse(''); }
+  };
+  await assert.rejects(() => waitRemoteResponse({ ...base, pollIntervalMs: 0 }), /NOFAX_POLL_INTERVAL_INVALID/);
+  await assert.rejects(() => waitRemoteResponse({ ...base, timeoutMs: -1 }), /NOFAX_DECISION_TIMEOUT_INVALID/);
+  assert.equal(fetchCalls, 0);
+});
+
 test('requestApproval publishes Allow/Deny HTTP actions and returns matching remote decision', async () => {
   const calls = [];
   let responseTopic;

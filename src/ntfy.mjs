@@ -406,6 +406,8 @@ export async function waitRemoteResponse({
   nowImpl = Date.now,
   sleepImpl = sleep
 }) {
+  validateTimeoutMs(timeoutMs, 'NOFAX_DECISION_TIMEOUT_INVALID');
+  validateTimeoutMs(pollIntervalMs, 'NOFAX_POLL_INTERVAL_INVALID');
   const deadline = nowImpl() + timeoutMs;
   while (true) {
     const remainingBeforePoll = deadline - nowImpl();
@@ -443,6 +445,8 @@ async function requestDecision({
 }) {
   // Validate the decision window before createRemoteRequest persists or sends.
   validateTimeoutMs(timeoutMs, 'NOFAX_DECISION_TIMEOUT_INVALID');
+  // A zero/negative or overflowing interval can turn polling into a request storm.
+  validateTimeoutMs(pollIntervalMs, 'NOFAX_POLL_INTERVAL_INVALID');
   const remote = await createRemoteRequest({ config, title, message, options, includeRefine, publishTimeoutMs, fetchImpl });
   const response = await waitRemoteResponse({
     config,
