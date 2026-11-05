@@ -58,6 +58,40 @@ test('generic approve exit codes distinguish explicit allow, deny, timeout and i
   }
 });
 
+test('CLI error diagnostics quote terminal controls and forged log lines', async () => {
+  const injected = 'upstream failed \x1b[2J\nnofax: approved \u202eDENY';
+  const stdout = capture();
+  const stderr = capture();
+  const code = await runCli(['notify', 'Safe test'], {
+    stdout,
+    stderr,
+    loadConfigImpl: async () => ({}),
+    sendNotificationImpl: async () => { throw new Error(injected); }
+  });
+  assert.equal(code, 1);
+  assert.equal(stdout.read(), '');
+  assert.equal(stderr.read(), 'nofax: upstream failed \\u001b[2J\\u000anofax: approved \\u202eDENY\n');
+});
+
+test('hook approval errors cannot inject terminal controls into fallback diagnostics', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  const code = await runCli(['hook', 'claude'], {
+    stdinText: JSON.stringify({
+      hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'npm test' }
+    }),
+    stdout,
+    stderr,
+    loadConfigImpl: async () => ({}),
+    requestApprovalImpl: async () => { throw new Error('transport \x1b[1m\u2067injected'); }
+  });
+  assert.equal(code, 0, 'remote failure must defer to native approval');
+  assert.equal(stdout.read(), '');
+  assert.match(stderr.read(), /transport \\u001b\[1m\\u2067injected/);
+  assert.doesNotMatch(stderr.read(), /[\x1b\u2067]/u);
+  assert.match(stderr.read(), /native approval/i);
+});
+
 test('Claude hook stdout contains only native hook JSON', async () => {
   const stdout = capture();
   const stderr = capture();
