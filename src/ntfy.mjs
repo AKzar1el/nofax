@@ -330,9 +330,12 @@ export async function pollRemoteResponse({ config, responseTopic, requestId, all
         ...(controller === null ? {} : { signal: controller.signal })
       });
       response = timeout === null ? await request : await Promise.race([request, timeout]);
-    } catch (error) {
+    } catch {
       if (controller?.signal.aborted) return null;
-      throw new Error(`NOFAX_NTFY_POLL_NETWORK: ${error?.message ?? String(error)}`);
+      // Transport errors can include the request URL, including the private
+      // response topic that grants access to a human decision. Do not expose it
+      // through MCP error text, CLI diagnostics, or logs.
+      throw new Error('NOFAX_NTFY_POLL_NETWORK');
     }
     if (response === POLL_TIMEOUT) return null;
     await ensureOk(response, 'NOFAX_NTFY_POLL');
@@ -341,9 +344,10 @@ export async function pollRemoteResponse({ config, responseTopic, requestId, all
     try {
       const body = response.text();
       text = timeout === null ? await body : await Promise.race([body, timeout]);
-    } catch (error) {
+    } catch {
       if (controller?.signal.aborted) return null;
-      throw error;
+      // A stream-reader failure may also include the private polling URL.
+      throw new Error('NOFAX_NTFY_POLL_NETWORK');
     }
     if (text === POLL_TIMEOUT) return null;
     return parseNtfyPoll(text, requestId, allowed, kind);

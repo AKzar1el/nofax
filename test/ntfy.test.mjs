@@ -255,6 +255,26 @@ test('ntfy publishing and response polling never follow 307/308 redirects', asyn
   }
 });
 
+test('ntfy polling never includes a response-topic capability in network errors', async () => {
+  const responseTopic = 'nofax_r_synthetic_private_response_capability';
+  const sensitiveError = `GET https://ntfy.sh/${responseTopic}/json?poll=1&since=all failed`;
+  const failingFetches = [
+    async () => { throw new Error(sensitiveError); },
+    async () => ({ ok: true, text: async () => { throw new Error(sensitiveError); } })
+  ];
+  for (const fetchImpl of failingFetches) {
+    await assert.rejects(() => pollRemoteResponse({
+      config,
+      responseTopic,
+      requestId: 'synthetic-request-id',
+      allowed: ['allow', 'deny'],
+      kind: 'approval',
+      fetchImpl
+    }), (error) => error?.message === 'NOFAX_NTFY_POLL_NETWORK' &&
+      !error.message.includes(responseTopic) && !error.message.includes('https://'));
+  }
+});
+
 test('sendNotification releases an unread successful publish response body', async () => {
   let cancelled = 0;
   const response = new Response(new ReadableStream({
