@@ -28,7 +28,15 @@ function safeSliceEnd(text, end) {
 }
 
 function boundChoiceLabel(value) {
-  return value.slice(0, safeSliceEnd(value, 32));
+  let label = '';
+  for (const character of value) {
+    // Action labels are single-line and must not hide/reorder the human's choices.
+    // Keep each visible escape or Unicode code point intact at the 32-unit limit.
+    const visible = character === '\n' ? '\\u000a' : visibleNotificationText(character);
+    if (label.length + visible.length > 32) break;
+    label += visible;
+  }
+  return label;
 }
 
 function boundText(value, max, name) {

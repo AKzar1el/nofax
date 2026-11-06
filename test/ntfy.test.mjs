@@ -624,6 +624,24 @@ test('choice labels preserve Unicode at the ntfy visible-label boundary', async 
   assert.equal(Buffer.from(payload.actions[0].label, 'utf8').toString('utf8'), payload.actions[0].label);
 });
 
+test('ntfy choice action labels visibly escape control and bidi characters without changing decisions', async () => {
+  let payload;
+  await createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Choose',
+    options: [{ value: 'ship', label: 'Ship\u202e\nNow\u001b[2J' }],
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'published' });
+    }
+  });
+  assert.equal(payload.actions[0].label, 'Ship\\u202e\\u000aNow\\u001b[2J');
+  assert.equal(JSON.parse(payload.actions[0].body).decision, 'ship');
+  assert.ok(payload.actions[0].label.length <= 32);
+  assert.doesNotMatch(payload.actions[0].label, /[\x00-\x1f\u202a-\u202e\u2066-\u2069]/u);
+});
+
 test('choice transport rejects options that collapse to the same visible label', async () => {
   let fetchCalls = 0;
   await assert.rejects(() => createRemoteRequest({
