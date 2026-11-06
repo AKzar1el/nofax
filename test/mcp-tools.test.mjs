@@ -635,6 +635,29 @@ test('refinement returns user text and requires a new approval when needed', asy
   assert.match(result.instruction, /new approval/i);
 });
 
+test('normalized durable refinements still get one phone confirmation', async (t) => {
+  for (const incoming of ['  Make it shorter.  ', 'x'.repeat(2100)]) {
+    const home = await makeHome(t);
+    const confirmations = [];
+    const handlers = makeHandlers({
+      home,
+      pollResult: { decision: 'refine', text: incoming },
+      onConfirm: ({ response }) => { confirmations.push(response); }
+    });
+    const pending = await handlers.requestRefinement({ title: 'Refine draft', message: 'Draft ready' });
+    const result = await handlers.waitForResponse({ requestId: pending.requestId, waitSeconds: 2 });
+    const stored = await loadRequest({ home, requestId: pending.requestId });
+    assert.equal(result.status, 'resolved');
+    assert.equal(result.text, stored.text);
+    assert.equal(confirmations.length, 1);
+    assert.equal(confirmations[0].decision, 'refine');
+    assert.equal(confirmations[0].text, stored.text);
+    const again = await handlers.waitForResponse({ requestId: pending.requestId, waitSeconds: 2 });
+    assert.equal(again.text, stored.text);
+    assert.equal(confirmations.length, 1);
+  }
+});
+
 test('notify is one-way and does not create a wait contract', async (t) => {
   const home = await makeHome(t);
   let sent = 0;
