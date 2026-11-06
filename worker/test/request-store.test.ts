@@ -113,6 +113,31 @@ describe("NofaxRequestStore", () => {
     });
   });
 
+  it("rejects corrupt legacy notification text without hiding other pending approvals", async () => {
+    const raw = rawStore("corrupt-row-text");
+    const stub = raw as unknown as RequestStoreStub;
+    const valid = pending({ requestId: "nfx_validtextaaaaaaaaaaaaaaaa", callbackHash: "b".repeat(64) });
+    const corrupt = pending({
+      requestId: "nfx_corrupttextaaaaaaaaaaaaaa", callbackHash: "c".repeat(64), createdAt: 2_000
+    });
+    await stub.createRequest(valid);
+    await stub.createRequest(corrupt);
+
+    await runInDurableObject(raw, async (instance, state) => {
+      const sql = state.storage.sql;
+      sql.exec("UPDATE requests SET title = '' WHERE request_id = ?", corrupt.requestId);
+      expect(() => instance.getRequest(corrupt.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+
+      sql.exec("UPDATE requests SET title = 'Deploy?', message = ? WHERE request_id = ?", "x".repeat(2_201), corrupt.requestId);
+      expect(() => instance.getRequest(corrupt.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+
+      sql.exec("UPDATE requests SET message = 'Safe', status = 'resolved', decision = 'allow', resolved_at = 3000, text = ? WHERE request_id = ?", "x".repeat(2_001), corrupt.requestId);
+      expect(() => instance.getRequest(corrupt.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+    });
+    expect((await stub.listPending(1, 3_000)).map((request) => request.requestId))
+      .toEqual([valid.requestId]);
+  });
+
   it("enforces first terminal response wins", async () => {
     const stub = store("first-wins");
     const input = pending();
