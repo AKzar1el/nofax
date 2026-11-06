@@ -155,6 +155,15 @@ export async function publishNotification({
   }
   const authorization = publishAuthorization(env);
   const targetUrl = serverUrl(env) + "/";
+  // Reject invalid caller input before entering the transport-error catch.
+  // Otherwise a local validation error is mislabeled as a network failure.
+  const body = JSON.stringify({
+    topic,
+    title: boundText(visibleNotificationText(title), 120, "TITLE"),
+    message: boundNtfyMessage(visibleNotificationText(message)),
+    priority: 4,
+    tags: ["bell"]
+  });
 
   const controller = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -179,13 +188,7 @@ export async function publishNotification({
           ...(authorization === undefined ? {} : { authorization })
         },
         signal: controller.signal,
-        body: JSON.stringify({
-          topic,
-          title: boundText(visibleNotificationText(title), 120, "TITLE"),
-          message: boundNtfyMessage(visibleNotificationText(message)),
-          priority: 4,
-          tags: ["bell"]
-        })
+        body
       });
     } catch {
       if (timedOut) throw new Error("NOFAX_NTFY_PUBLISH_TIMEOUT");
