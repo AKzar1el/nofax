@@ -181,10 +181,16 @@ export class NofaxRequestStore extends DurableObject<Env> {
     const [row] = this.ctx.storage.sql.exec<{ due: number | null }>(
       `SELECT MIN(CASE
         WHEN status = 'pending' THEN expires_at + 1
-        WHEN status = 'resolved' AND resolved_at IS NOT NULL THEN resolved_at + ? + 1
+        WHEN status = 'resolved' AND resolved_at BETWEEN 0 AND ? THEN resolved_at + ? + 1
         ELSE NULL
-      END) AS due FROM requests`,
-      RESOLVED_RETENTION_MS
+      END) AS due FROM requests
+      WHERE created_at BETWEEN 0 AND ?
+        AND expires_at BETWEEN 0 AND ?
+        AND expires_at > created_at`,
+      MAX_REQUEST_TIMESTAMP_MS,
+      RESOLVED_RETENTION_MS,
+      MAX_REQUEST_TIMESTAMP_MS,
+      MAX_REQUEST_TIMESTAMP_MS
     ).toArray();
     const due = Math.min(row?.due ?? Infinity, additionalDue ?? Infinity);
     if (!Number.isFinite(due)) return;

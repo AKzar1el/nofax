@@ -284,6 +284,35 @@ describe("NofaxRequestStore", () => {
     });
   });
 
+  it("does not schedule unsupported alarms from corrupt legacy dates", async () => {
+    const raw = rawStore("legacy-out-of-range-alarm");
+    const input = pending();
+    await (raw as unknown as RequestStoreStub).createRequest(input);
+
+    await runInDurableObject(raw, async (instance, state) => {
+      // Legacy storage may predate insertion-time timestamp validation.
+      state.storage.sql.exec(
+        "UPDATE requests SET expires_at = ? WHERE request_id = ?",
+        Date.UTC(2200, 0, 1),
+        input.requestId
+      );
+      await state.storage.deleteAlarm();
+      expect(() => instance.getRequest(input.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+      await expect(instance.alarm()).resolves.toBeUndefined();
+      expect(await state.storage.getAlarm()).toBeNull();
+
+      const now = Date.now();
+      const valid = pending({
+        requestId: "nfx_validaftercorruptaaaaaaaa",
+        callbackHash: "b".repeat(64),
+        createdAt: now,
+        expiresAt: now + 300_000
+      });
+      await instance.createRequest(valid);
+      expect(await state.storage.getAlarm()).toBeLessThanOrEqual(now + 300_001);
+    });
+  });
+
   it("alarm removes expired pending and old resolved rows but retains active requests", async () => {
     const raw = rawStore("retention-alarm-cleanup");
     const stub = raw as unknown as RequestStoreStub;
