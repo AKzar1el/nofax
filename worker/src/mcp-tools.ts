@@ -58,7 +58,11 @@ export function createRemoteToolHandlers(env: Env, _origin: string, overrides: O
 
     async getRequest({ requestId }: { requestId: string }) {
       const current = await deps.store.getRequest(requestId);
-      if (current === null) throw new Error("NOFAX_REQUEST_NOT_FOUND");
+      // Expired pending rows can remain until the retention alarm runs. Never
+      // present them as actionable approvals to a remote MCP client.
+      if (current === null || (current.status === "pending" && current.expiresAt < deps.now())) {
+        throw new Error("NOFAX_REQUEST_NOT_FOUND");
+      }
       return { status: "ok" as const, request: publicRequest(current) };
     },
 

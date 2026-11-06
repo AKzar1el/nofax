@@ -103,6 +103,37 @@ describe("remote MCP tool handlers", () => {
     expect(JSON.stringify(result)).not.toMatch(/callbackHash|allowed|message|title/);
   });
 
+  it("does not report an expired unresolved request as pending", async () => {
+    const request = pending({ expiresAt: 2_000 });
+    const handlers = createRemoteToolHandlers(env(), "https://nofax.example", {
+      storeImpl: {
+        async getRequest() { return request; },
+        async listPending() { return []; }
+      } as never,
+      nowImpl: () => 2_001
+    });
+
+    await expect(handlers.getRequest({ requestId: request.requestId }))
+      .rejects.toThrow("NOFAX_REQUEST_NOT_FOUND");
+  });
+
+  it("retains boundary-time pending and resolved historical inspection", async () => {
+    const active = pending({ expiresAt: 2_000 });
+    const resolved = pending({ status: "resolved", decision: "deny", resolvedAt: 1_500, expiresAt: 1_800 });
+    let current = active;
+    const handlers = createRemoteToolHandlers(env(), "https://nofax.example", {
+      storeImpl: {
+        async getRequest() { return current; },
+        async listPending() { return []; }
+      } as never,
+      nowImpl: () => 2_000
+    });
+
+    expect((await handlers.getRequest({ requestId: active.requestId })).request.status).toBe("pending");
+    current = resolved;
+    expect((await handlers.getRequest({ requestId: resolved.requestId })).request.status).toBe("resolved");
+  });
+
   it("lists bounded safe pending projections through read-only store methods", async () => {
     const request = pending();
     let seenLimit: number | undefined;
