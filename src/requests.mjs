@@ -1,4 +1,4 @@
-import { chmod, link, mkdir, opendir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { chmod, link, mkdir, open, opendir, readFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { normalizeServer, resolveNofaxHome } from './config.mjs';
 
@@ -104,16 +104,25 @@ async function loadTerminalClaim(path, requestId) {
 
 async function createExclusiveRecord(path, value) {
   const temp = `${path}.tmp-${process.pid}-${Math.random().toString(16).slice(2)}`;
-  await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-  try { await chmod(temp, 0o600); } catch {}
-
+  // Exclusive creation prevents a pre-existing hardlink/symlink from redirecting
+  // the write; only an owned temporary file may be removed during cleanup.
+  const handle = await open(temp, 'wx', 0o600);
   try {
-    await link(temp, path);
-    try { await chmod(path, 0o600); } catch {}
-    return true;
-  } catch (error) {
-    if (error?.code === 'EEXIST') return false;
-    throw error;
+    try {
+      await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    try { await chmod(temp, 0o600); } catch {}
+    try {
+      await link(temp, path);
+      try { await chmod(path, 0o600); } catch {}
+      return true;
+    } catch (error) {
+      if (error?.code === 'EEXIST') return false;
+      throw error;
+    }
   } finally {
     try { await unlink(temp); } catch {}
   }
