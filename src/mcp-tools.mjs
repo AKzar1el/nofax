@@ -283,15 +283,15 @@ export function createMcpToolHandlers(overrides = {}) {
             resolvedAt: new Date(deps.nowImpl()).toISOString()
           });
           request = resolution.request;
-          const acceptedResponse = resolution.claimed
-            && request.decision === response.decision
-            && (request.text ?? undefined) === (response.text ?? undefined);
+          // A new terminal claim is authoritative even when durable storage
+          // trims or bounds the human's raw refinement text.
+          const acceptedResponse = resolution.claimed && request.decision === response.decision;
           let confirmationStatus;
           if (acceptedResponse) {
             try {
               const confirmationDelivered = await deps.sendResponseConfirmationImpl({
                 config: current,
-                response,
+                response: { ...response, text: request.text },
                 kind: request.kind,
                 title: request.kind === 'approval' ? 'Approval' : request.kind === 'refinement' ? 'Refinement' : 'Choice'
               });
