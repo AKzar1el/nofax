@@ -29,6 +29,45 @@ test('pending requests persist and reload without losing the response topic', as
   assert.equal(stored.responseTopic, pending.responseTopic);
 });
 
+test('local request JSON reads accept exactly 1 MiB but reject larger projections', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  const path = join(root, 'requests', `${pending.requestId}.json`);
+  const base = JSON.stringify({ ...pending, padding: '' });
+  const atLimit = JSON.stringify({ ...pending, padding: 'x'.repeat(1024 * 1024 - base.length) });
+  assert.equal(Buffer.byteLength(atLimit), 1024 * 1024);
+  await writeFile(path, atLimit, 'utf8');
+  assert.deepEqual(await loadRequest({ home: root, requestId: pending.requestId }), pending);
+
+  await writeFile(path, `${atLimit} `, 'utf8');
+  await assert.rejects(loadRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_FILE_TOO_LARGE/);
+  await assert.rejects(discardPendingRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_FILE_TOO_LARGE/);
+  await assert.rejects(listPendingRequests({ home: root }), /NOFAX_REQUEST_FILE_TOO_LARGE/);
+});
+
+test('oversized terminal claims fail closed without reading the pending projection', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  const terminal = join(root, 'requests', `${pending.requestId}.terminal.json`);
+  const oversized = JSON.stringify({
+    ...pending,
+    status: 'resolved',
+    decision: 'allow',
+    resolvedAt: '2026-09-09T18:01:00.000Z',
+    padding: 'x'.repeat(1024 * 1024)
+  });
+  await writeFile(terminal, oversized, 'utf8');
+
+  await assert.rejects(loadRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_TERMINAL_TOO_LARGE/);
+  await assert.rejects(
+    resolveRequestWithClaim({ home: root, requestId: pending.requestId, response: { decision: 'deny' } }),
+    /NOFAX_REQUEST_TERMINAL_TOO_LARGE/
+  );
+  await assert.rejects(savePendingRequest({ home: root, request: pending }), /NOFAX_REQUEST_TERMINAL_TOO_LARGE/);
+  await assert.rejects(discardPendingRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_TERMINAL_TOO_LARGE/);
+  assert.deepEqual(JSON.parse(await readFile(join(root, 'requests', `${pending.requestId}.json`), 'utf8')), pending);
+});
+
 test('replayed request IDs cannot overwrite a legacy resolved denial', async (t) => {
   const root = await home(t);
   await savePendingRequest({ home: root, request: pending });
