@@ -21,4 +21,19 @@ describe("remote MCP server", () => {
     };
     expect(buildRemoteMcpServer({ handlers: handlers as never })).toBeInstanceOf(McpServer);
   });
+
+  it("advertises output contracts for every remote tool", () => {
+    const handlers = {
+      notify: async () => ({ status: "sent" }),
+      getRequest: async () => ({ status: "ok", request: {} }),
+      listPending: async () => ({ status: "ok", requests: [] })
+    };
+    const server = buildRemoteMcpServer({ handlers: handlers as never });
+    const tools = (server as unknown as {
+      _registeredTools: Record<string, { outputSchema?: unknown }>;
+    })._registeredTools;
+    for (const name of REMOTE_MCP_TOOL_NAMES) {
+      expect(tools[name]?.outputSchema, `${name} must expose a structured output schema`).toBeDefined();
+    }
+  });
 });

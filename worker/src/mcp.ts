@@ -24,6 +24,26 @@ function result(value: Record<string, unknown>) {
   };
 }
 
+const REQUEST_OUTPUT_SCHEMA = z.object({
+  requestId: z.string().min(24).max(84),
+  kind: z.enum(["approval", "choice", "refinement"]),
+  status: z.enum(["pending", "resolved"]),
+  createdAt: z.string().min(1),
+  resolvedAt: z.string().min(1).optional(),
+  decision: z.string().min(1).max(80).optional(),
+  text: z.string().min(1).max(2000).optional()
+});
+
+const NOTIFY_OUTPUT_SCHEMA = z.object({ status: z.literal("sent") });
+const GET_REQUEST_OUTPUT_SCHEMA = z.object({
+  status: z.literal("ok"),
+  request: REQUEST_OUTPUT_SCHEMA
+});
+const LIST_PENDING_OUTPUT_SCHEMA = z.object({
+  status: z.literal("ok"),
+  requests: z.array(REQUEST_OUTPUT_SCHEMA)
+});
+
 export function buildRemoteMcpServer({ handlers }: { handlers: RemoteToolHandlers }): McpServer {
   const server = new McpServer(
     { name: "nofax", version: "0.3.0" },
@@ -39,6 +59,7 @@ export function buildRemoteMcpServer({ handlers }: { handlers: RemoteToolHandler
         title: z.string().min(1).max(120).optional(),
         message: z.string().min(1).max(2200)
       }),
+      outputSchema: NOTIFY_OUTPUT_SCHEMA,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
     },
     async (args) => result(await handlers.notify(args))
@@ -50,6 +71,7 @@ export function buildRemoteMcpServer({ handlers }: { handlers: RemoteToolHandler
       title: "Get Nofax request",
       description: "Read safe metadata and terminal state for an existing durable Nofax request. Callback capabilities are never returned.",
       inputSchema: z.object({ requestId: z.string().min(24).max(84) }),
+      outputSchema: GET_REQUEST_OUTPUT_SCHEMA,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     async (args) => result(await handlers.getRequest(args))
@@ -61,6 +83,7 @@ export function buildRemoteMcpServer({ handlers }: { handlers: RemoteToolHandler
       title: "List pending Nofax requests",
       description: "Read a bounded list of unresolved, unexpired Nofax request handles. Callback capabilities are never returned.",
       inputSchema: z.object({ limit: z.number().int().min(1).max(100).optional() }),
+      outputSchema: LIST_PENDING_OUTPUT_SCHEMA,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
     async (args) => result(await handlers.listPending(args))
