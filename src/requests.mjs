@@ -1,4 +1,4 @@
-import { chmod, link, mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
+import { chmod, link, mkdir, opendir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { normalizeServer, resolveNofaxHome } from './config.mjs';
 
@@ -192,27 +192,31 @@ export async function listPendingRequests({ home, env, limit = 20 } = {}) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('NOFAX_REQUEST_LIMIT_INVALID');
   const root = resolveNofaxHome({ home, env });
   const requestsRoot = join(root, 'requests');
-  let names;
+  let directory;
   try {
-    names = await readdir(requestsRoot);
+    directory = await opendir(requestsRoot);
   } catch (error) {
     if (error?.code === 'ENOENT') return [];
     throw error;
   }
   const results = [];
-  for (const name of names) {
+  const newestFirst = (left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt) || right.requestId.localeCompare(left.requestId);
+  for await (const { name } of directory) {
     if (!name.endsWith('.json')) continue;
     const requestId = name.slice(0, -5);
     if (!REQUEST_ID.test(requestId)) continue;
     try {
       const request = await loadRequest({ home: root, requestId });
-      if (request.status === 'pending') results.push(request);
+      if (request.status !== 'pending') continue;
+      // Scan every file to retain fail-closed validation, but keep only the newest limit records in memory.
+      if (results.length === limit && newestFirst(request, results[results.length - 1]) >= 0) continue;
+      results.push(request);
+      results.sort(newestFirst);
+      if (results.length > limit) results.pop();
     } catch (error) {
       if (error?.message === 'NOFAX_REQUEST_NOT_FOUND') continue;
       throw error;
     }
   }
-  return results
-    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt) || right.requestId.localeCompare(left.requestId))
-    .slice(0, limit);
+  return results;
 }

@@ -385,6 +385,28 @@ test('pending list keeps the newest requests when the bounded limit is reached',
   assert.equal(list.some((request) => request.requestId === olderIds[0]), false);
 });
 
+test('pending list streams a large directory, preserves tie ordering and checks older corrupt files', async (t) => {
+  const root = await home(t);
+  const base = Date.parse('2026-09-09T18:00:00.000Z');
+  const requestIdFor = (index) => `nfx_${String(index).padStart(3, '0')}${'x'.repeat(21)}`;
+  for (let index = 0; index < 140; index += 1) {
+    await savePendingRequest({
+      home: root,
+      request: {
+        ...pending,
+        requestId: requestIdFor(index),
+        createdAt: new Date(base + Math.floor(index / 2) * 60000).toISOString()
+      }
+    });
+  }
+  await resolveRequest({ home: root, requestId: requestIdFor(139), response: { decision: 'deny' } });
+  const latest = await listPendingRequests({ home: root, limit: 3 });
+  assert.deepEqual(latest.map((request) => request.requestId), [138, 137, 136].map(requestIdFor));
+
+  await writeFile(join(root, 'requests', `${requestIdFor(0)}.json`), '{invalid-json', 'utf8');
+  await assert.rejects(listPendingRequests({ home: root, limit: 1 }), /NOFAX_REQUEST_INVALID_JSON/);
+});
+
 test('pending list fails closed when a valid request file is corrupted', async (t) => {
   const root = await home(t);
   await savePendingRequest({ home: root, request: pending });
