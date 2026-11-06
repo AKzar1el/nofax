@@ -367,6 +367,8 @@ export async function pollRemoteResponse({ config, responseTopic, requestId, all
 }
 
 export async function sendResponseConfirmation({ config, response, kind, title = 'Nofax', timeoutMs = 5000, fetchImpl = fetch }) {
+  // Reject timer overflow and zero/fractional delays before any phone side effect.
+  validateTimeoutMs(timeoutMs, 'NOFAX_CONFIRMATION_TIMEOUT_INVALID');
   let confirmationTitle = 'Response received';
   let tag = 'white_check_mark';
   if (kind === 'choice') confirmationTitle = 'Choice received';
