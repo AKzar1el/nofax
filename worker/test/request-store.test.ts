@@ -172,6 +172,25 @@ describe("NofaxRequestStore", () => {
     expect(await stub.getRequest("nfx_aaaaaaaaaaaaaaaaaaaaaaaa")).toBeNull();
   });
 
+  it("does not purge a still-live approval when a new request has a future timestamp", async () => {
+    const stub = store("future-clock-retention");
+    const now = Date.now();
+    const active = pending({
+      requestId: "nfx_activeaaaaaaaaaaaaaaaaaa",
+      callbackHash: "c".repeat(64),
+      createdAt: now,
+      expiresAt: now + 60 * 60 * 1000
+    });
+    await stub.createRequest(active);
+    await stub.createRequest(pending({
+      requestId: "nfx_futureaaaaaaaaaaaaaaaaaa",
+      callbackHash: "d".repeat(64),
+      createdAt: now + 2 * 60 * 60 * 1000,
+      expiresAt: now + 3 * 60 * 60 * 1000
+    }));
+    expect(await stub.getRequest(active.requestId)).not.toBeNull();
+  });
+
   it("does not mutate durable state while listing pending requests", async () => {
     const stub = store("read-only-list");
     const expiredId = "nfx_expiredaaaaaaaaaaaaaaaaa";

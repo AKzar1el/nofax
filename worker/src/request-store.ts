@@ -207,7 +207,9 @@ export class NofaxRequestStore extends DurableObject<Env> {
 
   async createRequest(input: PendingRequestInput): Promise<StoredRequest> {
     const request = normalizePending(input);
-    this.cleanup(request.createdAt);
+    // A client clock ahead of the Worker must not erase still-live approvals.
+    // Retention may use an older request time, but never a future one.
+    this.cleanup(Math.min(request.createdAt, Date.now()));
     // Establish the alarm before persistence, so a scheduling failure cannot
     // leave a newly persisted request whose lifetime has no maintenance timer.
     await this.ensureRetentionAlarm(request.expiresAt + 1);
