@@ -8,6 +8,9 @@ const KINDS = new Set(["approval", "choice", "refinement"] as const);
 const STATUSES = new Set(["pending", "resolved"] as const);
 const RESOLVED_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const RETENTION_ALARM_MIN_DELAY_MS = 60 * 1000;
+// Durable Object alarms have a narrower supported date range than JS Date.
+// Human approval records do not need expiry timestamps decades into the future.
+const MAX_REQUEST_TIMESTAMP_MS = Date.UTC(2100, 0, 1);
 
 export type RequestKind = "approval" | "choice" | "refinement";
 export type RequestStatus = "pending" | "resolved";
@@ -68,7 +71,9 @@ function validateCallbackHash(value: unknown): string {
 }
 
 function validateTimestamp(value: unknown, name: string): number {
-  if (!Number.isSafeInteger(value) || Number(value) < 0) throw new Error(`NOFAX_${name}_INVALID`);
+  if (!Number.isSafeInteger(value) || Number(value) < 0 || Number(value) > MAX_REQUEST_TIMESTAMP_MS) {
+    throw new Error(`NOFAX_${name}_INVALID`);
+  }
   return Number(value);
 }
 

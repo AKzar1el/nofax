@@ -72,6 +72,28 @@ describe("NofaxRequestStore", () => {
     expect(await stub.getByCallbackHash(created.callbackHash, 2_000)).toEqual(created);
   });
 
+  it("rejects unsupported alarm and ISO timestamp ranges before storing requests", async () => {
+    const raw = rawStore("invalid-date-range");
+    const outsideDateRange = 8_640_000_000_000_001;
+    const unsupportedAlarmDate = Date.UTC(2200, 0, 1);
+
+    await runInDurableObject(raw, async (instance: NofaxRequestStore) => {
+      await expect(instance.createRequest(pending({
+        createdAt: outsideDateRange,
+        expiresAt: outsideDateRange + 1_000
+      }))).rejects.toThrow("NOFAX_REQUEST_CREATED_AT_INVALID");
+      await expect(instance.createRequest(pending({
+        expiresAt: outsideDateRange
+      }))).rejects.toThrow("NOFAX_REQUEST_EXPIRES_AT_INVALID");
+      await expect(instance.createRequest(pending({
+        expiresAt: unsupportedAlarmDate
+      }))).rejects.toThrow("NOFAX_REQUEST_EXPIRES_AT_INVALID");
+      expect(() => instance.getByCallbackHash("a".repeat(64), outsideDateRange))
+        .toThrow("NOFAX_NOW_INVALID");
+    });
+    expect(await store("invalid-date-range").getRequest("nfx_abcdefghijklmnopqrstuvwx")).toBeNull();
+  });
+
   it("enforces first terminal response wins", async () => {
     const stub = store("first-wins");
     const input = pending();
