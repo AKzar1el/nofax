@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { createRemoteRequest, pollRemoteResponse, requestApproval, requestChoice, sendNotification } from '../src/ntfy.mjs';
+import { createRemoteRequest, pollRemoteResponse, requestApproval, requestChoice, sendNotification, waitRemoteResponse } from '../src/ntfy.mjs';
 
 const config = { version: 1, server: 'https://ntfy.sh', topic: 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF', timeoutSeconds: 300 };
 
@@ -534,6 +534,25 @@ test('requestApproval ignores malformed or wrong-request replies and times out w
     sleepImpl: async (ms) => { now += ms; }
   });
   assert.equal(result.decision, 'timeout');
+});
+
+test('direct response waits reject invalid deadlines and polling intervals before fetching', async () => {
+  let fetches = 0;
+  const options = {
+    config,
+    responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz',
+    requestId: 'nfx_abcdefghijklmnopqrstuvwxyz',
+    allowed: ['allow', 'deny'],
+    kind: 'approval',
+    fetchImpl: async () => { fetches += 1; return jsonResponse(''); }
+  };
+  for (const timeoutMs of [0, -1, NaN, Infinity, 2 ** 31]) {
+    await assert.rejects(waitRemoteResponse({ ...options, timeoutMs }), /NOFAX_DECISION_TIMEOUT_INVALID/);
+  }
+  for (const pollIntervalMs of [0, -1, NaN, Infinity, 2 ** 31]) {
+    await assert.rejects(waitRemoteResponse({ ...options, timeoutMs: 2000, pollIntervalMs }), /NOFAX_POLL_INTERVAL_INVALID/);
+  }
+  assert.equal(fetches, 0);
 });
 
 test('requestChoice enforces ntfy three-action limit and returns a selected option', async () => {
