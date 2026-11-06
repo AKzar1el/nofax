@@ -266,10 +266,12 @@ export function redactAndBound(value, options = {}) {
   if (typeof value !== 'object') return boundString(String(value));
 
   if (seen.has(value)) return '[CIRCULAR]';
+  // Track only the active recursion path; shared sibling references are not cycles.
   seen.add(value);
 
   if (Array.isArray(value)) {
     if (value.length === 2 && typeof value[0] === 'string' && isSecretKey(value[0])) {
+      seen.delete(value);
       return [boundString(value[0]), '[REDACTED]'];
     }
     const bounded = value.slice(0, MAX_ARRAY);
@@ -283,6 +285,7 @@ export function redactAndBound(value, options = {}) {
         : redactAndBound(item, { seen, depth: depth + 1 })
     ));
     if (value.length > MAX_ARRAY) out.push(TRUNCATION_MARKER);
+    seen.delete(value);
     return out;
   }
 
@@ -305,6 +308,7 @@ export function redactAndBound(value, options = {}) {
     while (Object.hasOwn(out, markerKey)) markerKey += '*';
     out[markerKey] = true;
   }
+  seen.delete(value);
   return out;
 }
 

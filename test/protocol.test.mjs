@@ -176,6 +176,19 @@ test('redacts secret-like keys and bounds nested values', () => {
   assert.equal(result.self, '[CIRCULAR]');
 });
 
+test('repeated noncyclic references remain visible in human approval summaries', () => {
+  const shared = { command: 'run verified tests', apiKey: 'synthetic-private-value' };
+  const input = { first: shared, second: shared, steps: [shared, shared] };
+  const result = redactAndBound(input);
+  for (const copy of [result.first, result.second, ...result.steps]) {
+    assert.equal(copy.command, 'run verified tests');
+    assert.equal(copy.apiKey, '[REDACTED]');
+  }
+  const summary = buildAgentSummary({ toolInput: input });
+  assert.equal(summary.includes('[CIRCULAR]'), false, 'shared references are not cycles');
+  assert.equal(summary.includes('synthetic-private-value'), false, 'copies stay redacted');
+});
+
 test('bounded arrays and objects visibly mark omitted approval context', () => {
   const array = Array.from({ length: 21 }, (_, index) => `item-${index}`);
   const object = Object.fromEntries(Array.from({ length: 31 }, (_, index) => [`key${index}`, `value-${index}`]));
