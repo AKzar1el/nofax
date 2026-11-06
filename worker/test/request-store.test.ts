@@ -94,6 +94,25 @@ describe("NofaxRequestStore", () => {
     expect(await store("invalid-date-range").getRequest("nfx_abcdefghijklmnopqrstuvwx")).toBeNull();
   });
 
+  it("rejects legacy rows with corrupt timestamps before exposing request state", async () => {
+    const raw = rawStore("corrupt-row-timestamps");
+    const stub = raw as unknown as RequestStoreStub;
+    const input = pending();
+    await stub.createRequest(input);
+
+    await runInDurableObject(raw, async (instance, state) => {
+      const sql = state.storage.sql;
+      sql.exec("UPDATE requests SET created_at = -1 WHERE request_id = ?", input.requestId);
+      expect(() => instance.getRequest(input.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+
+      sql.exec("UPDATE requests SET created_at = 1000, expires_at = 999 WHERE request_id = ?", input.requestId);
+      expect(() => instance.getRequest(input.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+
+      sql.exec("UPDATE requests SET expires_at = 2000, status = 'resolved', decision = 'deny', resolved_at = -1 WHERE request_id = ?", input.requestId);
+      expect(() => instance.getRequest(input.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+    });
+  });
+
   it("enforces first terminal response wins", async () => {
     const stub = store("first-wins");
     const input = pending();

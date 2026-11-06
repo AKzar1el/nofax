@@ -118,6 +118,14 @@ function rowToRequest(row: RequestRow): StoredRequest {
   const status = row.status as RequestStatus;
   const kind = row.kind as RequestKind;
   if (!STATUSES.has(status) || !KINDS.has(kind)) throw new Error("NOFAX_REQUEST_ROW_INVALID");
+  // Legacy/corrupt rows bypass insertion-time checks; never expose invalid
+  // dates through remote inspection or treat them as actionable approvals.
+  const validStoredTimestamp = (value: unknown): value is number =>
+    Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= MAX_REQUEST_TIMESTAMP_MS;
+  if (!validStoredTimestamp(row.created_at) || !validStoredTimestamp(row.expires_at) ||
+      row.expires_at <= row.created_at) {
+    throw new Error("NOFAX_REQUEST_ROW_INVALID");
+  }
   const result: StoredRequest = {
     requestId: validateRequestId(row.request_id),
     kind,
@@ -130,7 +138,8 @@ function rowToRequest(row: RequestRow): StoredRequest {
     expiresAt: row.expires_at
   };
   if (status === "resolved") {
-    if (typeof row.decision !== "string" || !result.allowed.includes(row.decision) || row.resolved_at === null) {
+    if (typeof row.decision !== "string" || !result.allowed.includes(row.decision) ||
+        !validStoredTimestamp(row.resolved_at)) {
       throw new Error("NOFAX_REQUEST_ROW_INVALID");
     }
     result.decision = row.decision;
