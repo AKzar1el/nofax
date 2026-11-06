@@ -295,7 +295,7 @@ export class NofaxRequestStore extends DurableObject<Env> {
     return this.ctx.storage.sql.exec<RequestRow>(
       `SELECT * FROM requests
        WHERE status = 'pending' AND expires_at >= ?
-       ORDER BY created_at ASC, request_id ASC
+       ORDER BY created_at DESC, request_id DESC
        LIMIT ?`,
       now,
       limit
