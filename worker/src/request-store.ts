@@ -11,6 +11,12 @@ const RETENTION_ALARM_MIN_DELAY_MS = 60 * 1000;
 // Durable Object alarms have a narrower supported date range than JS Date.
 // Human approval records do not need expiry timestamps decades into the future.
 const MAX_REQUEST_TIMESTAMP_MS = Date.UTC(2100, 0, 1);
+const INVALID_STORED_ROW_ERRORS = new Set([
+  "NOFAX_REQUEST_ROW_INVALID",
+  "NOFAX_REQUEST_ID_INVALID",
+  "NOFAX_REQUEST_ALLOWED_INVALID",
+  "NOFAX_CALLBACK_HASH_INVALID"
+]);
 
 export type RequestKind = "approval" | "choice" | "refinement";
 export type RequestStatus = "pending" | "resolved";
@@ -312,14 +318,32 @@ export class NofaxRequestStore extends DurableObject<Env> {
   listPending(limit = 20, nowMs = Date.now()): StoredRequest[] {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("NOFAX_REQUEST_LIMIT_INVALID");
     const now = validateTimestamp(nowMs, "NOW");
-    return this.ctx.storage.sql.exec<RequestRow>(
+    // Look past a bounded number of corrupt legacy rows so one cannot hide
+    // otherwise valid approvals from read-only recovery inspection.
+    const scanLimit = limit * 5; // At most 500 rows, even for a corrupt legacy store.
+    const rows = this.ctx.storage.sql.exec<RequestRow>(
       `SELECT * FROM requests
        WHERE status = 'pending' AND expires_at >= ?
        ORDER BY created_at DESC, request_id DESC
        LIMIT ?`,
       now,
-      limit
-    ).toArray().map(rowToRequest);
+      scanLimit
+    ).toArray();
+    const requests: StoredRequest[] = [];
+    for (const row of rows) {
+      try {
+        requests.push(rowToRequest(row));
+      } catch (error) {
+        if (!(error instanceof Error) || !INVALID_STORED_ROW_ERRORS.has(error.message)) throw error;
+      }
+      if (requests.length === limit) break;
+    }
+    // Never report a seemingly complete recovery list if corruption exhausted
+    // the scan window and older valid requests might still be hidden.
+    if (requests.length < limit && rows.length === scanLimit) {
+      throw new Error("NOFAX_REQUEST_INSPECTION_LIMIT");
+    }
+    return requests;
   }
 
   cleanup(nowMs = Date.now()): number {

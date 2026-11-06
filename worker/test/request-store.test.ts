@@ -235,6 +235,67 @@ describe("NofaxRequestStore", () => {
       ]);
   });
 
+  it("keeps valid pending requests inspectable when a newer legacy row is corrupt", async () => {
+    const raw = rawStore("list-corrupt-legacy");
+    const stub = raw as unknown as RequestStoreStub;
+    const oldest = pending({
+      requestId: "nfx_oldvalidaaaaaaaaaaaaaaaa", callbackHash: "a".repeat(64), createdAt: 1_000
+    });
+    const newest = pending({
+      requestId: "nfx_newvalidaaaaaaaaaaaaaaaa", callbackHash: "b".repeat(64), createdAt: 2_000
+    });
+    const corrupt = pending({
+      requestId: "nfx_corruptaaaaaaaaaaaaaaaa", callbackHash: "c".repeat(64), createdAt: 3_000
+    });
+    const corruptAllowed = pending({
+      requestId: "nfx_corruptallowedaaaaaaaaaaa", callbackHash: "d".repeat(64), createdAt: 4_000
+    });
+    await stub.createRequest(oldest);
+    await stub.createRequest(newest);
+    await stub.createRequest(corrupt);
+    await stub.createRequest(corruptAllowed);
+
+    await runInDurableObject(raw, async (instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE requests SET expires_at = ? WHERE request_id = ?",
+        Date.UTC(2200, 0, 1),
+        corrupt.requestId
+      );
+      state.storage.sql.exec(
+        "UPDATE requests SET allowed_json = ? WHERE request_id = ?",
+        "not-json",
+        corruptAllowed.requestId
+      );
+      expect(() => instance.getRequest(corrupt.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+      expect(() => instance.getRequest(corruptAllowed.requestId)).toThrow("NOFAX_REQUEST_ALLOWED_INVALID");
+    });
+    expect((await stub.listPending(1, 4_000)).map((request) => request.requestId))
+      .toEqual([newest.requestId]);
+    expect((await stub.listPending(2, 4_000)).map((request) => request.requestId))
+      .toEqual([newest.requestId, oldest.requestId]);
+  });
+
+  it("fails closed rather than claim an empty list after exhausting corrupt-row scan bounds", async () => {
+    const raw = rawStore("list-corrupt-scan-limit");
+    const stub = raw as unknown as RequestStoreStub;
+    const valid = pending({ requestId: "nfx_validbeyondcorruptaaaaaaa", callbackHash: "a".repeat(64) });
+    await stub.createRequest(valid);
+    for (let index = 0; index < 5; index += 1) {
+      await stub.createRequest(pending({
+        requestId: `nfx_corruptscan${index}${"a".repeat(20)}`,
+        callbackHash: String(index + 1).repeat(64),
+        createdAt: 2_000 + index
+      }));
+    }
+    await runInDurableObject(raw, async (_instance, state) => {
+      state.storage.sql.exec("UPDATE requests SET allowed_json = 'not-json' WHERE request_id != ?", valid.requestId);
+    });
+    await runInDurableObject(raw, async (instance) => {
+      expect(() => instance.listPending(1, 4_000)).toThrow("NOFAX_REQUEST_INSPECTION_LIMIT");
+    });
+    expect(await stub.getRequest(valid.requestId)).not.toBeNull();
+  });
+
   it("does not purge a still-live approval when a new request has a future timestamp", async () => {
     const stub = store("future-clock-retention");
     const now = Date.now();
