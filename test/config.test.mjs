@@ -18,6 +18,17 @@ test('initConfig creates and reuses a random phone topic', async (t) => {
   assert.deepEqual(disk, first);
 });
 
+test('simultaneous first-time initializations return the same durable phone topic', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-race-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const attempts = await Promise.allSettled(Array.from({ length: 16 }, () => initConfig({ home })));
+  assert.equal(attempts.filter((result) => result.status === 'rejected').length, 0);
+  const configs = attempts.map((result) => result.value);
+  const saved = await loadConfig({ home });
+  for (const config of configs) assert.deepEqual(config, saved);
+  assert.deepEqual(await readdir(home), ['config.json']);
+});
+
 test('force reinitialization replaces config without modifying another hard link', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'nofax-config-force-'));
   t.after(() => rm(home, { recursive: true, force: true }));

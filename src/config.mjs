@@ -1,4 +1,4 @@
-import { chmod, mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
+import { chmod, link, mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -112,8 +112,19 @@ export async function initConfig({ home, env, server = DEFAULT_SERVER, topic, ti
     } catch {
       // Windows may not honor POSIX mode bits; the file still lives in the user's profile.
     }
-    await rename(temporaryPath, path);
-    replaced = true;
+    if (force) {
+      await rename(temporaryPath, path);
+      replaced = true;
+    } else {
+      // The first initializer owns the topic. An atomic hardlink claim avoids
+      // changing it underneath another process that just read its new config.
+      try {
+        await link(temporaryPath, path);
+      } catch (error) {
+        if (error?.code !== 'EEXIST') throw error;
+        return await loadConfig({ home: root });
+      }
+    }
   } finally {
     if (temporaryCreated && !replaced) {
       try {
