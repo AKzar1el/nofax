@@ -158,6 +158,9 @@ export function createMcpToolHandlers(overrides = {}) {
     resolveRequestWithClaimImpl: overrides.resolveRequestWithClaimImpl ?? resolveRequestWithClaim,
     listPendingRequestsImpl: overrides.listPendingRequestsImpl ?? listPendingRequests,
     nowImpl: overrides.nowImpl ?? Date.now,
+    // Wall-clock adjustments must not extend a human-approval polling window.
+    // Existing callers that inject nowImpl for tests keep their virtual clock.
+    elapsedNowImpl: overrides.elapsedNowImpl ?? (overrides.nowImpl ?? (() => performance.now())),
     sleepImpl: overrides.sleepImpl ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
   };
 
@@ -259,9 +262,9 @@ export function createMcpToolHandlers(overrides = {}) {
       const current = request.server && request.topic
         ? { server: request.server, topic: request.topic }
         : await config();
-      const deadline = deps.nowImpl() + seconds * 1000;
+      const deadline = deps.elapsedNowImpl() + seconds * 1000;
       while (true) {
-        const remainingBeforePoll = deadline - deps.nowImpl();
+        const remainingBeforePoll = deadline - deps.elapsedNowImpl();
         if (remainingBeforePoll <= 0) break;
         const response = await deps.pollRemoteResponseImpl({
           config: current,
@@ -300,7 +303,7 @@ export function createMcpToolHandlers(overrides = {}) {
           const result = terminalResult(request);
           return confirmationStatus ? { ...result, confirmationStatus } : result;
         }
-        const remaining = deadline - deps.nowImpl();
+        const remaining = deadline - deps.elapsedNowImpl();
         if (remaining <= 0) break;
         await deps.sleepImpl(Math.min(1000, remaining));
       }
