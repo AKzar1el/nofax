@@ -834,6 +834,21 @@ test('redacts secrets before applying the per-string truncation boundary', () =>
   assert.ok(redacted.length <= 520);
 });
 
+test('omits oversized untrusted approval text before running secret-redaction patterns', () => {
+  // An arbitrary-length command must not drive expensive regex scans or reveal
+  // a partial credential if the input is truncated inside its value.
+  const input = `${'x'.repeat(16_385)} clientSecret="NOFAX_OVERSIZE_CANARY"`;
+  const expected = '[OVERSIZED_INPUT_REDACTED]';
+  assert.equal(redactAndBound(input), expected);
+
+  const nested = redactAndBound({ command: input });
+  assert.equal(nested.command, expected);
+  const summary = buildAgentSummary({ source: 'Codex', toolName: 'shell', toolInput: { command: input } });
+  assert.ok(summary.includes(expected));
+  assert.ok(!summary.includes('NOFAX_OVERSIZE_CANARY'));
+  assert.ok(!summary.includes('xxx'));
+});
+
 test('marks truncation when redaction expansion crosses the per-string boundary', () => {
   const input = Array.from({ length: 45 }, (_, index) => `token=t${index}`).join(' ');
   assert.ok(input.length <= 500);

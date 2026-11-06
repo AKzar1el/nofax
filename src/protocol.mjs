@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 
 const SECRET_KEY = /(?:^|[_-])(token|password|passwd|secret|api[_-]?key|authorization|cookie|credential|private[_-]?key)(?:$|[_-])/i;
 const MAX_STRING = 500;
+const MAX_REDACTION_INPUT = 16 * 1024;
 const MAX_DEPTH = 5;
 const MAX_ARRAY = 20;
 const MAX_OBJECT_KEYS = 30;
@@ -247,6 +248,9 @@ export function createPhoneTopic() {
 }
 
 function boundString(value) {
+  // Do not run complex credential-redaction patterns on arbitrarily large
+  // untrusted commands. Showing a prefix could disclose a partial secret.
+  if (value.length > MAX_REDACTION_INPUT) return '[OVERSIZED_INPUT_REDACTED]';
   const redacted = escapeDisplayControls(redactSecretText(value));
   const truncated = value.length > MAX_STRING || redacted.length > MAX_STRING;
   const bounded = redacted.length <= MAX_STRING
