@@ -19,7 +19,15 @@ async function readConfigJson(path) {
       length += bytesRead;
     }
     if (length > MAX_CONFIG_BYTES) throw new Error('NOFAX_CONFIG_TOO_LARGE');
-    return JSON.parse(buffer.toString('utf8', 0, length));
+    let json;
+    try {
+      // TextDecoder strips a leading UTF-8 BOM but rejects malformed byte
+      // sequences instead of silently replacing them in a security config.
+      json = new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, length));
+    } catch {
+      throw new Error('NOFAX_CONFIG_INVALID_UTF8');
+    }
+    return JSON.parse(json);
   } finally {
     await file.close();
   }
