@@ -323,6 +323,21 @@ test('sendResponseConfirmation bounds a stalled best-effort confirmation', async
   assert.equal(outcome, false);
 });
 
+test('sendResponseConfirmation rejects unsafe timer delays before sending a receipt', async () => {
+  let publishes = 0;
+  const fetchImpl = async () => {
+    publishes += 1;
+    return { ok: true, status: 200 };
+  };
+  for (const timeoutMs of [0, -1, 0.5, Number.NaN, 2_147_483_648]) {
+    await assert.rejects(
+      sendResponseConfirmation({ config, response: { decision: 'allow' }, kind: 'approval', timeoutMs, fetchImpl }),
+      /NOFAX_CONFIRMATION_TIMEOUT_INVALID/
+    );
+  }
+  assert.equal(publishes, 0);
+});
+
 test('sendResponseConfirmation aborts the stalled confirmation transport at its bound', async () => {
   let aborted = false;
   const outcome = await sendResponseConfirmation({
