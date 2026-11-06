@@ -1,4 +1,5 @@
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { createPhoneTopic } from './protocol.mjs';
@@ -92,11 +93,20 @@ export async function initConfig({ home, env, server = DEFAULT_SERVER, topic, ti
   });
   await mkdir(root, { recursive: true, mode: 0o700 });
   const path = join(root, 'config.json');
-  await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  const temporary = join(root, `.config.json.tmp-${process.pid}-${randomBytes(8).toString('hex')}`);
+  const file = await open(temporary, 'wx', 0o600);
   try {
-    await chmod(path, 0o600);
-  } catch {
-    // Windows may not honor POSIX mode bits; the file still lives in the user's profile.
+    try {
+      await file.writeFile(`${JSON.stringify(config, null, 2)}\n`, 'utf8');
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    // Replace the config only after completing the write. Direct writes can
+    // corrupt a hard-linked file or expose a partially written config to readers.
+    await rename(temporary, path);
+  } finally {
+    try { await unlink(temporary); } catch {}
   }
   return config;
 }

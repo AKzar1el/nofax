@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { link, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { initConfig, loadConfig, normalizeServer, resolveNofaxHome } from '../src/config.mjs';
@@ -16,6 +16,21 @@ test('initConfig creates and reuses a random phone topic', async (t) => {
   assert.equal(first.timeoutSeconds, 300);
   const disk = JSON.parse(await readFile(join(home, 'config.json'), 'utf8'));
   assert.deepEqual(disk, first);
+});
+
+test('force initialization replaces config without modifying a hard-linked file', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-link-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const original = join(home, 'original.json');
+  const configPath = join(home, 'config.json');
+  const sentinel = '{"doNotOverwrite":true}\n';
+  await writeFile(original, sentinel);
+  await link(original, configPath);
+
+  const config = await initConfig({ home, force: true });
+  assert.equal(await readFile(original, 'utf8'), sentinel);
+  assert.deepEqual(await loadConfig({ home }), config);
+  assert.deepEqual((await readdir(home)).sort(), ['config.json', 'original.json']);
 });
 
 test('loadConfig rejects missing or malformed config', async (t) => {
