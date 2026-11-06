@@ -299,9 +299,11 @@ export function redactAndBound(value, options = {}) {
   const out = {};
   for (const [key, child] of entries.slice(0, MAX_OBJECT_KEYS)) {
     const normalizedKey = key.toLowerCase();
-    out[key] = isSecretKey(key) || (redactEntryValue && (normalizedKey === 'value' || normalizedKey === 'values'))
+    const bounded = isSecretKey(key) || (redactEntryValue && (normalizedKey === 'value' || normalizedKey === 'values'))
       ? '[REDACTED]'
       : redactAndBound(child, { seen, depth: depth + 1 });
+    // Assignment to '__proto__' changes the prototype instead of retaining approval context.
+    Object.defineProperty(out, key, { value: bounded, enumerable: true, writable: true, configurable: true });
   }
   if (entries.length > MAX_OBJECT_KEYS) {
     let markerKey = TRUNCATION_MARKER;
