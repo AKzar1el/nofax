@@ -233,6 +233,29 @@ test('redacts camelCase and PascalCase variants of known secret keys', () => {
   assert.equal(result.secretaryName, 'also-keep-me');
 });
 
+test('redacts hosted Git personal access tokens without hiding adjacent metadata', () => {
+  const marker = 'NOFAX_SYNTHETIC_PAT_CREDENTIAL';
+  const input = {
+    GITHUB_PAT: marker,
+    ghPat: marker,
+    CI_GITLAB_PAT: marker,
+    githubPatEnabled: true,
+    pattern: 'keep-visible'
+  };
+  const result = redactAndBound(input);
+  const textResult = redactAndBound(`GITHUB_PAT=${marker} --gh-pat "${marker}" pattern=keep-visible`);
+  const summary = buildAgentSummary({ source: 'Codex', toolName: 'shell', toolInput: input });
+
+  assert.equal(result.GITHUB_PAT, '[REDACTED]');
+  assert.equal(result.ghPat, '[REDACTED]');
+  assert.equal(result.CI_GITLAB_PAT, '[REDACTED]');
+  assert.equal(result.githubPatEnabled, true);
+  assert.equal(result.pattern, 'keep-visible');
+  assert.doesNotMatch(textResult, new RegExp(marker));
+  assert.match(textResult, /pattern=keep-visible/);
+  assert.doesNotMatch(summary, new RegExp(marker));
+});
+
 test('redacts standalone auth credential fields without hiding auth-related metadata', () => {
   const marker = 'NOFAX_AUTH_FIELD_SECRET_CANARY_XYZ';
   const input = {

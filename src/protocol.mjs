@@ -59,7 +59,9 @@ function isSecretKey(key) {
     || lower.endsWith('_passphrase')
     || lower.endsWith('_pass_phrase');
   const isSignedUrlSignature = lower === 'sig' || lower === 'x_amz_signature' || lower === 'x_goog_signature';
-  return lower === 'auth' || isSignedUrlSignature || isAuthHeader || isAuthHeaderValue || isPassphrase || SECRET_KEY.test(normalized);
+  // Hosted Git PAT fields are credentials even when the key omits "token".
+  const isHostedPat = /(?:^|_)(?:github|gitlab|gh)_pat$/.test(lower);
+  return lower === 'auth' || isSignedUrlSignature || isAuthHeader || isAuthHeaderValue || isPassphrase || isHostedPat || SECRET_KEY.test(normalized);
 }
 
 function normalizeUnicodeEscapedSecretKeys(text) {
