@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { createRemoteRequest, pollRemoteResponse, requestApproval, requestChoice, sendNotification } from '../src/ntfy.mjs';
+import { createRemoteRequest, pollRemoteResponse, requestApproval, requestChoice, sendNotification, sendResponseConfirmation } from '../src/ntfy.mjs';
 
 const config = { version: 1, server: 'https://ntfy.sh', topic: 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF', timeoutSeconds: 300 };
 
@@ -424,6 +424,23 @@ test('direct ntfy publishing rejects timer overflow before contacting the server
         fetchImpl: async () => { published += 1; return jsonResponse({ id: 'unexpected' }); }
       }),
       /NOFAX_PUBLISH_TIMEOUT_INVALID/
+    );
+    assert.equal(published, 0);
+  }
+});
+
+test('response confirmations reject invalid timers before publishing a receipt', async () => {
+  for (const timeoutMs of [0, -1, 0.5, Number.NaN, Infinity, 2_147_483_648]) {
+    let published = 0;
+    await assert.rejects(
+      () => sendResponseConfirmation({
+        config,
+        response: { decision: 'allow' },
+        kind: 'approval',
+        timeoutMs,
+        fetchImpl: async () => { published += 1; return jsonResponse({ id: 'unexpected' }); }
+      }),
+      /NOFAX_CONFIRMATION_TIMEOUT_INVALID/
     );
     assert.equal(published, 0);
   }
