@@ -1,4 +1,4 @@
-import { chmod, link, mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
+import { chmod, link, mkdir, open, rename, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -6,6 +6,24 @@ import { createPhoneTopic } from './protocol.mjs';
 
 export const DEFAULT_SERVER = 'https://ntfy.sh';
 export const DEFAULT_TIMEOUT_SECONDS = 300;
+const MAX_CONFIG_BYTES = 64 * 1024;
+
+async function readConfigJson(path) {
+  const file = await open(path, 'r');
+  try {
+    const buffer = Buffer.allocUnsafe(MAX_CONFIG_BYTES + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
+      if (bytesRead === 0) break;
+      length += bytesRead;
+    }
+    if (length > MAX_CONFIG_BYTES) throw new Error('NOFAX_CONFIG_TOO_LARGE');
+    return JSON.parse(buffer.toString('utf8', 0, length));
+  } finally {
+    await file.close();
+  }
+}
 
 export function resolveNofaxHome({ home, env = process.env } = {}) {
   const configured = home ?? env.NOFAX_HOME;
@@ -66,7 +84,7 @@ export function validateConfig(input) {
 export async function loadConfig({ home, env } = {}) {
   const root = resolveNofaxHome({ home, env });
   try {
-    const parsed = JSON.parse(await readFile(join(root, 'config.json'), 'utf8'));
+    const parsed = await readConfigJson(join(root, 'config.json'));
     return validateConfig(parsed);
   } catch (error) {
     if (error?.code === 'ENOENT') throw new Error('NOFAX_NOT_INITIALIZED');

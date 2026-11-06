@@ -58,6 +58,24 @@ test('loadConfig rejects missing or malformed config', async (t) => {
   await assert.rejects(() => loadConfig({ home }), /NOFAX_NOT_INITIALIZED/);
 });
 
+test('config reads enforce a 64 KiB byte limit without blocking explicit recovery', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-size-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const original = await initConfig({ home });
+  const path = join(home, 'config.json');
+  const base = JSON.stringify({ ...original, extra: '' });
+  const atLimit = JSON.stringify({ ...original, extra: 'x'.repeat(64 * 1024 - base.length) });
+  assert.equal(Buffer.byteLength(atLimit), 64 * 1024);
+  await writeFile(path, atLimit, 'utf8');
+  assert.deepEqual(await loadConfig({ home }), original);
+
+  await writeFile(path, `${atLimit} `, 'utf8');
+  await assert.rejects(loadConfig({ home }), /NOFAX_CONFIG_TOO_LARGE/);
+  await assert.rejects(initConfig({ home }), /NOFAX_CONFIG_TOO_LARGE/);
+  const replaced = await initConfig({ home, force: true });
+  assert.deepEqual(await loadConfig({ home }), replaced);
+});
+
 test('normalizes server and rejects credentials/query fragments', () => {
   assert.equal(normalizeServer('https://ntfy.sh/'), 'https://ntfy.sh');
   assert.throws(() => normalizeServer('ftp://ntfy.sh'), /NOFAX_SERVER_PROTOCOL/);
