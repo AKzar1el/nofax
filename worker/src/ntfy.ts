@@ -124,6 +124,12 @@ async function publishError(response: Response, authenticated = false): Promise<
   return new Error(parts.length ? `${prefix}: ${parts.join(" ")}` : prefix);
 }
 
+function releaseResponseBody(response: Response): void {
+  // ntfy receipts are never needed after status inspection. Release unread
+  // streams without allowing a provider cancellation error to mask the result.
+  void response.body?.cancel().catch(() => {});
+}
+
 export async function publishNotification({
   env,
   title,
@@ -186,7 +192,14 @@ export async function publishNotification({
       throw new Error("NOFAX_NTFY_PUBLISH_NETWORK");
     }
 
-    if (!response.ok) throw await publishError(response, authorization !== undefined);
+    if (!response.ok) {
+      try {
+        throw await publishError(response, authorization !== undefined);
+      } finally {
+        releaseResponseBody(response);
+      }
+    }
+    releaseResponseBody(response);
   };
 
   try {

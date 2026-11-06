@@ -41,6 +41,44 @@ describe("remote ntfy publisher", () => {
     });
   });
 
+  it("releases a successful ntfy response body without consuming provider content", async () => {
+    let canceled = false;
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("private provider receipt"));
+      },
+      cancel() {
+        canceled = true;
+      }
+    }), { status: 200 });
+    await publishNotification({
+      env: env(),
+      title: "Synthetic",
+      message: "One-way notification",
+      fetchImpl: (async () => response) as typeof fetch
+    });
+    expect(canceled).toBe(true);
+  });
+
+  it("releases authenticated rejection bodies without leaking provider details", async () => {
+    let canceled = false;
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("secret provider diagnostics"));
+      },
+      cancel() {
+        canceled = true;
+      }
+    }), { status: 401 });
+    await expect(publishNotification({
+      env: env({ NOFAX_NTFY_TOKEN: "tk_synthetic_worker_ntfy_token_123456" }),
+      title: "Synthetic",
+      message: "One-way notification",
+      fetchImpl: (async () => response) as typeof fetch
+    })).rejects.toThrow("NOFAX_NTFY_PUBLISH_401");
+    expect(canceled).toBe(true);
+  });
+
   it("renders untrusted terminal and bidi controls visibly in phone notifications", async () => {
     let payload: { title: string; message: string } | undefined;
     const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
