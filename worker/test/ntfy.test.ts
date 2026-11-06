@@ -41,6 +41,22 @@ describe("remote ntfy publisher", () => {
     });
   });
 
+  it("reports invalid local notification text without misclassifying it as a network failure", async () => {
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls += 1;
+      return new Response("unexpected");
+    }) as typeof fetch;
+
+    await expect(publishNotification({
+      env: env(), title: "  ", message: "valid message", fetchImpl
+    })).rejects.toThrow(/^NOFAX_TITLE_REQUIRED$/);
+    await expect(publishNotification({
+      env: env(), title: "valid title", message: "  ", fetchImpl
+    })).rejects.toThrow(/^NOFAX_MESSAGE_REQUIRED$/);
+    expect(calls).toBe(0);
+  });
+
   it("releases a successful ntfy response body without consuming provider content", async () => {
     let canceled = false;
     const response = new Response(new ReadableStream<Uint8Array>({
