@@ -295,6 +295,38 @@ test('wait bounds response polling by waitSeconds and remains pending', async (t
   assert.equal(result.instruction, WAIT_REQUIRED(pending.requestId));
 });
 
+test('wait uses elapsed time even when the system clock moves backward', async () => {
+  const request = {
+    requestId: 'nfx_abcdefghijklmnopqrstuv93',
+    responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz1293',
+    allowed: ['allow', 'deny'],
+    kind: 'approval',
+    server: config.server,
+    topic: config.topic,
+    status: 'pending'
+  };
+  let wallTime = 1_000_000;
+  let elapsedTime = 0;
+  let polls = 0;
+  const handlers = createMcpToolHandlers({
+    loadRequestImpl: async () => request,
+    pollRemoteResponseImpl: async ({ timeoutMs }) => {
+      polls += 1;
+      assert.ok(timeoutMs > 0 && timeoutMs <= 1000);
+      if (polls > 8) throw new Error('CLOCK_ROLLBACK_UNBOUNDED_WAIT');
+      wallTime -= 100_000;
+      return null;
+    },
+    nowImpl: () => wallTime,
+    elapsedNowImpl: () => (elapsedTime += 250),
+    sleepImpl: async () => {}
+  });
+
+  const result = await handlers.waitForResponse({ requestId: request.requestId, waitSeconds: 1 });
+  assert.equal(result.status, 'pending');
+  assert.ok(polls > 0 && polls <= 4);
+});
+
 test('wait converges on a durable terminal response resolved by another waiter', async (t) => {
   const home = await makeHome(t);
   const requestId = 'nfx_abcdefghijklmnopqrstuv95';
