@@ -1,4 +1,5 @@
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { createPhoneTopic } from './protocol.mjs';
@@ -92,11 +93,35 @@ export async function initConfig({ home, env, server = DEFAULT_SERVER, topic, ti
   });
   await mkdir(root, { recursive: true, mode: 0o700 });
   const path = join(root, 'config.json');
-  await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  const temporaryPath = join(root, `.config.json.${randomUUID()}.tmp`);
+  let temporaryCreated = false;
+  let replaced = false;
   try {
-    await chmod(path, 0o600);
-  } catch {
-    // Windows may not honor POSIX mode bits; the file still lives in the user's profile.
+    // Replacing a complete same-directory temp file keeps readers from seeing a
+    // truncated config and avoids writing through an existing symlink/hardlink.
+    const file = await open(temporaryPath, 'wx', 0o600);
+    temporaryCreated = true;
+    try {
+      await file.writeFile(`${JSON.stringify(config, null, 2)}\n`, 'utf8');
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    try {
+      await chmod(temporaryPath, 0o600);
+    } catch {
+      // Windows may not honor POSIX mode bits; the file still lives in the user's profile.
+    }
+    await rename(temporaryPath, path);
+    replaced = true;
+  } finally {
+    if (temporaryCreated && !replaced) {
+      try {
+        await unlink(temporaryPath);
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
+    }
   }
   return config;
 }
