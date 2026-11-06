@@ -172,6 +172,28 @@ describe("NofaxRequestStore", () => {
     expect(await stub.getRequest("nfx_aaaaaaaaaaaaaaaaaaaaaaaa")).toBeNull();
   });
 
+  it("returns the newest live request first when the recovery list is limited", async () => {
+    const stub = store("list-newest-first");
+    await stub.createRequest(pending({
+      requestId: "nfx_oldestaaaaaaaaaaaaaaaaaa", callbackHash: "a".repeat(64), createdAt: 1_000
+    }));
+    await stub.createRequest(pending({
+      requestId: "nfx_newestaaaaaaaaaaaaaaaaaa", callbackHash: "b".repeat(64), createdAt: 1_200
+    }));
+    await stub.createRequest(pending({
+      requestId: "nfx_middleaaaaaaaaaaaaaaaaaa", callbackHash: "c".repeat(64), createdAt: 1_100
+    }));
+
+    expect((await stub.listPending(1, 2_000)).map((request) => request.requestId))
+      .toEqual(["nfx_newestaaaaaaaaaaaaaaaaaa"]);
+    expect((await stub.listPending(3, 2_000)).map((request) => request.requestId))
+      .toEqual([
+        "nfx_newestaaaaaaaaaaaaaaaaaa",
+        "nfx_middleaaaaaaaaaaaaaaaaaa",
+        "nfx_oldestaaaaaaaaaaaaaaaaaa"
+      ]);
+  });
+
   it("does not purge a still-live approval when a new request has a future timestamp", async () => {
     const stub = store("future-clock-retention");
     const now = Date.now();
