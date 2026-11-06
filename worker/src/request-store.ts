@@ -120,6 +120,10 @@ function parseAllowed(value: string): string[] {
   }
 }
 
+function validStoredText(value: unknown, maxLength: number): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= maxLength;
+}
+
 function rowToRequest(row: RequestRow): StoredRequest {
   const status = row.status as RequestStatus;
   const kind = row.kind as RequestKind;
@@ -130,6 +134,11 @@ function rowToRequest(row: RequestRow): StoredRequest {
     Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= MAX_REQUEST_TIMESTAMP_MS;
   if (!validStoredTimestamp(row.created_at) || !validStoredTimestamp(row.expires_at) ||
       row.expires_at <= row.created_at) {
+    throw new Error("NOFAX_REQUEST_ROW_INVALID");
+  }
+  // Legacy SQL rows bypass insertion-time text limits. Never return corrupt or
+  // oversized human-facing content through inspection or decision lookups.
+  if (!validStoredText(row.title, 120) || !validStoredText(row.message, 2200)) {
     throw new Error("NOFAX_REQUEST_ROW_INVALID");
   }
   const result: StoredRequest = {
@@ -145,7 +154,8 @@ function rowToRequest(row: RequestRow): StoredRequest {
   };
   if (status === "resolved") {
     if (typeof row.decision !== "string" || !result.allowed.includes(row.decision) ||
-        !validStoredTimestamp(row.resolved_at)) {
+        !validStoredTimestamp(row.resolved_at) ||
+        (row.text !== null && !validStoredText(row.text, 2000))) {
       throw new Error("NOFAX_REQUEST_ROW_INVALID");
     }
     result.decision = row.decision;
