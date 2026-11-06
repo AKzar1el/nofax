@@ -918,6 +918,23 @@ test('buildAgentSummary is stable, bounded, and does not expose known secret key
   assert.ok(summary.length <= 2200);
 });
 
+test('keeps own __proto__ fields in approval context without altering prototypes or leaking secrets', () => {
+  const marker = 'NOFAX_SYNTHETIC_PROTOTYPE_KEY_SECRET_12345';
+  const input = JSON.parse(`{"__proto__":{"command":"npm test","api_key":"${marker}"},"safe":"visible"}`);
+  const bounded = redactAndBound(input);
+
+  assert.equal(Object.getPrototypeOf(bounded), Object.prototype);
+  assert.equal(Object.hasOwn(bounded, '__proto__'), true);
+  assert.deepEqual(bounded.__proto__, { command: 'npm test', api_key: '[REDACTED]' });
+  assert.equal(bounded.safe, 'visible');
+
+  const summary = buildAgentSummary({ source: 'Codex', toolInput: { payload: input } });
+  assert.match(summary, /"__proto__":/);
+  assert.match(summary, /"command": "npm test"/);
+  assert.match(summary, /"safe": "visible"/);
+  assert.doesNotMatch(summary, new RegExp(marker));
+});
+
 
 test('redacts dotted API-key and signed URL credentials from agent summaries', () => {
   const marker = 'NOFAX_SYNTHETIC_URL_SECRET_20261030';
