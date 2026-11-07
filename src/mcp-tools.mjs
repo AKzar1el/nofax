@@ -274,7 +274,9 @@ export function createMcpToolHandlers(overrides = {}) {
           kind: request.kind,
           timeoutMs: remainingBeforePoll
         });
-        if (response !== null) {
+        // A poll transport can return after its deadline despite a timeout
+        // hint. Do not turn that late result into an accepted human decision.
+        if (response !== null && deps.elapsedNowImpl() <= deadline) {
           const resolution = await deps.resolveRequestWithClaimImpl({
             home: deps.home,
             env: deps.env,

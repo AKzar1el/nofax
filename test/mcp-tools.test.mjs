@@ -295,6 +295,40 @@ test('wait bounds response polling by waitSeconds and remains pending', async (t
   assert.equal(result.instruction, WAIT_REQUIRED(pending.requestId));
 });
 
+test('MCP wait does not accept a poll decision returned after its elapsed deadline', async (t) => {
+  const home = await makeHome(t);
+  const requestId = 'nfx_abcdefghijklmnopqrstuv91';
+  let elapsed = 0;
+  let confirmations = 0;
+  const handlers = createMcpToolHandlers({
+    home,
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: async (input) => {
+      const remote = {
+        requestId,
+        responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz1291',
+        allowed: ['allow', 'deny']
+      };
+      await input.beforePublish(remote);
+      return remote;
+    },
+    pollRemoteResponseImpl: async () => {
+      elapsed = 1500;
+      return { decision: 'allow' };
+    },
+    sendResponseConfirmationImpl: async () => { confirmations += 1; },
+    elapsedNowImpl: () => elapsed,
+    sleepImpl: async () => {}
+  });
+
+  await handlers.requestApproval({ message: 'Synthetic approval' });
+  const result = await handlers.waitForResponse({ requestId, waitSeconds: 1 });
+  assert.equal(result.status, 'pending');
+  assert.equal(result.mustWait, true);
+  assert.equal(confirmations, 0);
+  assert.equal((await loadRequest({ home, requestId })).status, 'pending');
+});
+
 test('wait uses elapsed time even when the system clock moves backward', async () => {
   const request = {
     requestId: 'nfx_abcdefghijklmnopqrstuv93',
