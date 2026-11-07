@@ -148,6 +148,26 @@ describe("NofaxRequestStore", () => {
       .toEqual([valid.requestId]);
   });
 
+  it("rejects a legacy resolved refinement without actual human text", async () => {
+    const raw = rawStore("legacy-refinement-missing-text");
+    const stub = raw as unknown as RequestStoreStub;
+    const input = pending({ kind: "refinement", allowed: ["refine"] });
+    await stub.createRequest(input);
+
+    await runInDurableObject(raw, async (instance, state) => {
+      const sql = state.storage.sql;
+      sql.exec("UPDATE requests SET status = 'resolved', decision = 'refine', resolved_at = 2000, text = NULL WHERE request_id = ?", input.requestId);
+      expect(() => instance.getRequest(input.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+      expect(() => instance.getByCallbackHash(input.callbackHash, 2000)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+
+      sql.exec("UPDATE requests SET text = '   ' WHERE request_id = ?", input.requestId);
+      expect(() => instance.getRequest(input.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+
+      sql.exec("UPDATE requests SET text = 'change it' WHERE request_id = ?", input.requestId);
+      expect(instance.getRequest(input.requestId)?.text).toBe("change it");
+    });
+  });
+
   it("enforces first terminal response wins", async () => {
     const stub = store("first-wins");
     const input = pending();
