@@ -245,6 +245,22 @@ describe("NofaxRequestStore", () => {
     });
   });
 
+  it("accepts refine as an ordinary choice value without requiring refinement text", async () => {
+    const stub = store("choice-option-named-refine");
+    const input = pending({ kind: "choice", allowed: ["refine", "skip"] });
+    await stub.createRequest(input);
+
+    const result = await stub.resolveByCallbackHash({
+      callbackHash: input.callbackHash,
+      decision: "refine",
+      nowMs: 2_000
+    });
+    expect(result?.newlyResolved).toBe(true);
+    expect(result?.request.decision).toBe("refine");
+    expect(result?.request.text).toBeUndefined();
+    expect((await stub.getRequest(input.requestId))?.decision).toBe("refine");
+  });
+
   it("requires non-empty text for refinement and stores bounded text", async () => {
     const raw = rawStore("refine");
     const stub = raw as unknown as RequestStoreStub;
