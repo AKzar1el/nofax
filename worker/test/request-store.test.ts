@@ -184,6 +184,29 @@ describe("NofaxRequestStore", () => {
     });
   });
 
+  it("rejects pending legacy rows with partial terminal decision state", async () => {
+    const raw = rawStore("legacy-pending-terminal-columns");
+    const stub = raw as unknown as RequestStoreStub;
+    const input = pending();
+    await stub.createRequest(input);
+
+    await runInDurableObject(raw, async (instance, state) => {
+      const sql = state.storage.sql;
+      sql.exec("UPDATE requests SET decision = 'allow' WHERE request_id = ?", input.requestId);
+      expect(() => instance.getRequest(input.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+      expect(() => instance.getByCallbackHash(input.callbackHash, 2000)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+
+      sql.exec("UPDATE requests SET decision = NULL, text = 'private' WHERE request_id = ?", input.requestId);
+      expect(() => instance.getRequest(input.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+
+      sql.exec("UPDATE requests SET text = NULL, resolved_at = 2000 WHERE request_id = ?", input.requestId);
+      expect(() => instance.getRequest(input.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+
+      sql.exec("UPDATE requests SET resolved_at = NULL WHERE request_id = ?", input.requestId);
+      expect(instance.getRequest(input.requestId)?.status).toBe("pending");
+    });
+  });
+
   it("enforces first terminal response wins", async () => {
     const stub = store("first-wins");
     const input = pending();

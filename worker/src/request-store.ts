@@ -152,6 +152,10 @@ function rowToRequest(row: RequestRow): StoredRequest {
     createdAt: row.created_at,
     expiresAt: row.expires_at
   };
+  // An imported pending row must not carry a partial or stale human decision.
+  if (status === "pending" && (row.decision !== null || row.text !== null || row.resolved_at !== null)) {
+    throw new Error("NOFAX_REQUEST_ROW_INVALID");
+  }
   if (status === "resolved") {
     if (typeof row.decision !== "string" || !result.allowed.includes(row.decision) ||
         !validStoredTimestamp(row.resolved_at) ||
