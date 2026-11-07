@@ -157,6 +157,7 @@ function rowToRequest(row: RequestRow): StoredRequest {
         !validStoredTimestamp(row.resolved_at) ||
         row.resolved_at < row.created_at ||
         row.resolved_at > row.expires_at ||
+        (row.decision === "refine" && !validStoredText(row.text, 2000)) ||
         (row.text !== null && !validStoredText(row.text, 2000))) {
       throw new Error("NOFAX_REQUEST_ROW_INVALID");
     }
