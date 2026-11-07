@@ -219,6 +219,40 @@ test('a terminal sidecar for another requestId cannot authorize the requested ID
   );
 });
 
+test('a terminal claim dated before request creation cannot authorize an action', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  const path = join(root, 'requests', `${pending.requestId}.terminal.json`);
+  const invalid = {
+    ...pending,
+    status: 'resolved',
+    resolvedAt: '2026-09-09T17:59:59.000Z',
+    decision: 'allow'
+  };
+  await writeFile(path, JSON.stringify(invalid), 'utf8');
+
+  await assert.rejects(loadRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_RESOLVED_AT_INVALID/);
+  await assert.rejects(savePendingRequest({ home: root, request: pending }), /NOFAX_REQUEST_RESOLVED_AT_INVALID/);
+  await assert.rejects(
+    resolveRequestWithClaim({ home: root, requestId: pending.requestId, response: { decision: 'deny' } }),
+    /NOFAX_REQUEST_RESOLVED_AT_INVALID/
+  );
+  assert.equal(JSON.parse(await readFile(path, 'utf8')).decision, 'allow');
+});
+
+test('legacy resolved projection dated before creation is rejected', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  await writeFile(join(root, 'requests', `${pending.requestId}.json`), JSON.stringify({
+    ...pending,
+    status: 'resolved',
+    resolvedAt: '2026-09-09T17:59:59.000Z',
+    decision: 'allow'
+  }), 'utf8');
+
+  await assert.rejects(loadRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_RESOLVED_AT_INVALID/);
+});
+
 test('discardPendingRequest removes only unresolved pending state', async (t) => {
   const root = await home(t);
   await savePendingRequest({ home: root, request: pending });

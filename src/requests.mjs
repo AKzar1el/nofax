@@ -41,7 +41,8 @@ function validateRequest(input) {
     throw new Error('NOFAX_REQUEST_ALLOWED_INVALID');
   }
   if (!STATUSES.has(input.status)) throw new Error('NOFAX_REQUEST_STATUS_INVALID');
-  if (typeof input.createdAt !== 'string' || Number.isNaN(Date.parse(input.createdAt))) throw new Error('NOFAX_REQUEST_CREATED_AT_INVALID');
+  const createdAtMs = typeof input.createdAt === 'string' ? Date.parse(input.createdAt) : NaN;
+  if (!Number.isFinite(createdAtMs)) throw new Error('NOFAX_REQUEST_CREATED_AT_INVALID');
   const hasServer = input.server !== undefined;
   const hasTopic = input.topic !== undefined;
   if (hasServer !== hasTopic) throw new Error('NOFAX_REQUEST_TRANSPORT_INVALID');
@@ -62,7 +63,9 @@ function validateRequest(input) {
     base.topic = input.topic;
   }
   if (input.status === 'resolved') {
-    if (typeof input.resolvedAt !== 'string' || Number.isNaN(Date.parse(input.resolvedAt))) throw new Error('NOFAX_REQUEST_RESOLVED_AT_INVALID');
+    const resolvedAtMs = typeof input.resolvedAt === 'string' ? Date.parse(input.resolvedAt) : NaN;
+    // A terminal decision cannot precede the request it purportedly resolved.
+    if (!Number.isFinite(resolvedAtMs) || resolvedAtMs < createdAtMs) throw new Error('NOFAX_REQUEST_RESOLVED_AT_INVALID');
     if (typeof input.decision !== 'string') throw new Error('NOFAX_REQUEST_DECISION_INVALID');
     const decision = input.decision.trim();
     if (!allowed.includes(decision)) throw new Error('NOFAX_REQUEST_DECISION_INVALID');
