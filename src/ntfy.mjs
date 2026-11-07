@@ -140,7 +140,7 @@ function publishAuthorization(config, token) {
   return `Bearer ${token}`;
 }
 
-function releasePublishResponse(response) {
+function releaseResponseBody(response) {
   try {
     // Start disposal without allowing a slow cleanup to delay an approval result.
     void Promise.resolve(response?.body?.cancel()).catch(() => {});
@@ -198,10 +198,10 @@ export async function sendNotification({ config, title, message, actions, priori
   }
   if (response === PUBLISH_TIMEOUT) {
     // Some fetch implementations ignore abort and return a body after the deadline.
-    void Promise.resolve(request).then(releasePublishResponse, () => {});
+    void Promise.resolve(request).then(releaseResponseBody, () => {});
     throw publishError('NOFAX_NTFY_PUBLISH_TIMEOUT', 'ambiguous');
   }
-  releasePublishResponse(response);
+  releaseResponseBody(response);
   if (!response?.ok) {
     const status = response?.status ?? 'NETWORK';
     const deliveryState = NOT_APPLIED_PUBLISH_STATUSES.has(status) ? 'not_applied' : 'ambiguous';
@@ -331,8 +331,9 @@ export async function pollRemoteResponse({ config, responseTopic, requestId, all
       });
   try {
     let response;
+    let request;
     try {
-      const request = fetchImpl(`${server}/${responseTopic}/json?poll=1&since=all`, {
+      request = fetchImpl(`${server}/${responseTopic}/json?poll=1&since=all`, {
         method: 'GET',
         headers: { accept: 'application/x-ndjson' },
         // The response topic itself is a capability; never disclose it via redirects.
@@ -347,7 +348,11 @@ export async function pollRemoteResponse({ config, responseTopic, requestId, all
       // through MCP error text, CLI diagnostics, or logs.
       throw new Error('NOFAX_NTFY_POLL_NETWORK');
     }
-    if (response === POLL_TIMEOUT) return null;
+    if (response === POLL_TIMEOUT) {
+      // A transport ignoring abort may still return a readable body after the deadline.
+      void Promise.resolve(request).then(releaseResponseBody, () => {});
+      return null;
+    }
     await ensureOk(response, 'NOFAX_NTFY_POLL');
 
     let text;
