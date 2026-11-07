@@ -14,7 +14,7 @@ function safeDiagnostic(error) {
   // Error messages may contain untrusted transport text. Keep diagnostics on
   // one visible line so terminal controls cannot forge a CLI or hook result.
   return String(error?.message ?? error).replace(
-    /[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/gu,
+    /[\x00-\x1f\x7f-\x9f\u061c\u200b\u200e-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff]/gu,
     (character) => '\\u' + character.codePointAt(0).toString(16).padStart(4, '0')
   );
 }
