@@ -168,6 +168,22 @@ describe("NofaxRequestStore", () => {
     });
   });
 
+  it("rejects legacy non-refinement decisions carrying unexpected private text", async () => {
+    const raw = rawStore("legacy-approval-unexpected-text");
+    const stub = raw as unknown as RequestStoreStub;
+    const input = pending();
+    await stub.createRequest(input);
+
+    await runInDurableObject(raw, async (instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE requests SET status = 'resolved', decision = 'allow', resolved_at = 2000, text = 'unexpected private text' WHERE request_id = ?",
+        input.requestId
+      );
+      expect(() => instance.getRequest(input.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+      expect(() => instance.getByCallbackHash(input.callbackHash, 2000)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+    });
+  });
+
   it("enforces first terminal response wins", async () => {
     const stub = store("first-wins");
     const input = pending();
