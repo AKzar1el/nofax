@@ -726,6 +726,32 @@ test('requestApproval ignores malformed or wrong-request replies and times out w
   assert.equal(result.decision, 'timeout');
 });
 
+test('standalone response polling cannot outlive its deadline after a wall-clock rollback', async () => {
+  let wallTime = Date.parse('2026-01-01T12:00:00Z');
+  let elapsed = 0;
+  let polls = 0;
+  const result = await waitRemoteResponse({
+    config,
+    responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz',
+    requestId: 'nfx_abcdefghijklmnopqrstuvwxyz',
+    allowed: ['allow', 'deny'],
+    kind: 'approval',
+    timeoutMs: 1000,
+    pollIntervalMs: 1000,
+    nowImpl: () => wallTime,
+    elapsedNowImpl: () => (elapsed += 250),
+    sleepImpl: async () => {},
+    fetchImpl: async () => {
+      polls += 1;
+      if (polls > 8) throw new Error('CLOCK_ROLLBACK_UNBOUNDED_WAIT');
+      wallTime -= 60_000;
+      return jsonResponse('');
+    }
+  });
+  assert.equal(result, null, 'no human response must remain unapproved');
+  assert.ok(polls > 0 && polls <= 4, 'elapsed deadline must cap the total polls');
+});
+
 test('direct response waits reject invalid deadlines and polling intervals before fetching', async () => {
   let fetches = 0;
   const options = {
