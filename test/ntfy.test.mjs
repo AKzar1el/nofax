@@ -311,6 +311,49 @@ test('ntfy polling never includes a response-topic capability in network errors'
   }
 });
 
+test('malformed UTF-8 in an ntfy poll event cannot produce an approval', async () => {
+  const requestId = 'synthetic-request-id';
+  const decision = JSON.stringify({ v: 1, requestId, decision: 'allow' });
+  const bytes = Buffer.concat([
+    Buffer.from('{"event":"message","title":"', 'utf8'),
+    Buffer.from([0xff]),
+    Buffer.from(`","message":${JSON.stringify(decision)}}\n`, 'utf8')
+  ]);
+
+  await assert.rejects(() => pollRemoteResponse({
+    config,
+    responseTopic: 'nofax_r_synthetic_private_response_capability',
+    requestId,
+    allowed: ['allow', 'deny'],
+    kind: 'approval',
+    fetchImpl: async () => new Response(bytes)
+  }), (error) => error?.message === 'NOFAX_NTFY_POLL_NETWORK');
+});
+
+test('ntfy poll accepts valid multibyte UTF-8 split across stream chunks', async () => {
+  const requestId = 'synthetic-request-id';
+  const decision = JSON.stringify({ v: 1, requestId, decision: 'allow' });
+  const bytes = Buffer.from(JSON.stringify({ event: 'message', title: 'Phone 🔐', message: decision }) + '\n');
+  const split = bytes.indexOf(Buffer.from('🔐')) + 1;
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(bytes.subarray(0, split));
+      controller.enqueue(bytes.subarray(split));
+      controller.close();
+    }
+  });
+
+  const result = await pollRemoteResponse({
+    config,
+    responseTopic: 'nofax_r_synthetic_private_response_capability',
+    requestId,
+    allowed: ['allow', 'deny'],
+    kind: 'approval',
+    fetchImpl: async () => new Response(body)
+  });
+  assert.equal(result.decision, 'allow');
+});
+
 test('ntfy polling releases unread error response bodies without changing failure status', async () => {
   for (const status of [401, 429, 503]) {
     let cancelled = 0;

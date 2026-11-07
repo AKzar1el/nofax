@@ -334,7 +334,9 @@ async function readPollText(response, signal) {
   };
   signal?.addEventListener('abort', cancel, { once: true });
   if (signal?.aborted) cancel();
-  const decoder = new TextDecoder();
+  // A replacement character can turn a corrupt notification into parseable
+  // approval JSON. Reject malformed transport bytes instead of decoding them.
+  const decoder = new TextDecoder('utf-8', { fatal: true });
   let text = '';
   try {
     while (true) {
