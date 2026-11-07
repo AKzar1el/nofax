@@ -72,6 +72,28 @@ describe("NofaxRequestStore", () => {
     expect(await stub.getByCallbackHash(created.callbackHash, 2_000)).toEqual(created);
   });
 
+  it("rejects approval and refinement rows with arbitrary choice decisions", async () => {
+    const raw = rawStore("kind-allowed-validation");
+    await runInDurableObject(raw, async (instance, state) => {
+      for (const invalid of [
+        { kind: "approval" as const, allowed: ["allow"] },
+        { kind: "approval" as const, allowed: ["allow", "deny", "ship"] },
+        { kind: "refinement" as const, allowed: ["refine", "allow"] }
+      ]) {
+        await expect(instance.createRequest(pending(invalid))).rejects.toThrow("NOFAX_REQUEST_ALLOWED_INVALID");
+      }
+
+      const valid = pending({ allowed: ["allow", "deny", "refine"] });
+      await instance.createRequest(valid);
+      expect(instance.getRequest(valid.requestId)?.allowed).toEqual(valid.allowed);
+
+      state.storage.sql.exec("UPDATE requests SET allowed_json = ? WHERE request_id = ?",
+        JSON.stringify(["allow", "deny", "ship"]), valid.requestId);
+      expect(() => instance.getRequest(valid.requestId)).toThrow("NOFAX_REQUEST_ALLOWED_INVALID");
+      expect(instance.listPending(10, 2_000)).toEqual([]);
+    });
+  });
+
   it("rejects unsupported alarm and ISO timestamp ranges before storing requests", async () => {
     const raw = rawStore("invalid-date-range");
     const outsideDateRange = 8_640_000_000_000_001;

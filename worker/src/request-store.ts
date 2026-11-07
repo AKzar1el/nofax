@@ -83,13 +83,22 @@ function validateTimestamp(value: unknown, name: string): number {
   return Number(value);
 }
 
-function validateAllowed(value: unknown): string[] {
+function validateAllowed(value: unknown, kind: RequestKind): string[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > 3) throw new Error("NOFAX_REQUEST_ALLOWED_INVALID");
   const allowed = value.map((item) => {
     if (typeof item !== "string" || !item.trim() || item.length > 80) throw new Error("NOFAX_REQUEST_ALLOWED_INVALID");
     return item.trim();
   });
   if (new Set(allowed).size !== allowed.length) throw new Error("NOFAX_REQUEST_ALLOWED_INVALID");
+  // Corrupt or imported rows cannot redefine approval/refinement as arbitrary choices.
+  if (kind === "approval" &&
+      (!allowed.includes("allow") || !allowed.includes("deny") ||
+       allowed.some((item) => !["allow", "deny", "refine"].includes(item)))) {
+    throw new Error("NOFAX_REQUEST_ALLOWED_INVALID");
+  }
+  if (kind === "refinement" && (allowed.length !== 1 || allowed[0] !== "refine")) {
+    throw new Error("NOFAX_REQUEST_ALLOWED_INVALID");
+  }
   return allowed;
 }
 
@@ -104,16 +113,16 @@ function normalizePending(input: PendingRequestInput): PendingRequestInput {
     kind: input.kind,
     title: boundText(input.title, 120, "TITLE"),
     message: boundText(input.message, 2200, "MESSAGE"),
-    allowed: validateAllowed(input.allowed),
+    allowed: validateAllowed(input.allowed, input.kind),
     callbackHash: validateCallbackHash(input.callbackHash),
     createdAt,
     expiresAt
   };
 }
 
-function parseAllowed(value: string): string[] {
+function parseAllowed(value: string, kind: RequestKind): string[] {
   try {
-    return validateAllowed(JSON.parse(value));
+    return validateAllowed(JSON.parse(value), kind);
   } catch (error) {
     if (error instanceof Error && error.message === "NOFAX_REQUEST_ALLOWED_INVALID") throw error;
     throw new Error("NOFAX_REQUEST_ALLOWED_INVALID");
@@ -147,7 +156,7 @@ function rowToRequest(row: RequestRow): StoredRequest {
     status,
     title: row.title,
     message: row.message,
-    allowed: parseAllowed(row.allowed_json),
+    allowed: parseAllowed(row.allowed_json, kind),
     callbackHash: validateCallbackHash(row.callback_hash),
     createdAt: row.created_at,
     expiresAt: row.expires_at
