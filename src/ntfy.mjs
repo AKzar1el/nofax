@@ -17,7 +17,7 @@ function visibleNotificationText(value) {
   // Never let untrusted notification text visually alter its own display.
   // Keep ordinary line breaks but quote terminal and direction controls.
   return typeof value === 'string'
-    ? value.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/gu,
+    ? value.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u2028-\u202e\u2066-\u2069]/gu,
       (character) => `\\u${character.codePointAt(0).toString(16).padStart(4, '0')}`)
     : value;
 }

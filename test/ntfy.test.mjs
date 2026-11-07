@@ -52,6 +52,24 @@ test('local ntfy notifications visibly escape terminal and bidi controls', async
   assert.doesNotMatch(payload.message, /[\x00-\x08\x0b-\x1f\u202a-\u202e\u2066-\u2069]/u);
 });
 
+test('local ntfy notifications visibly escape Unicode line and paragraph separators', async () => {
+  let payload;
+  const fetchImpl = async (_url, init) => {
+    payload = JSON.parse(init.body);
+    return jsonResponse({ id: 'synthetic' });
+  };
+  await sendNotification({
+    config,
+    title: 'Pending\u2028Approved',
+    message: 'Decision: pending\u2029Approved',
+    fetchImpl
+  });
+  assert.ok(payload.title.includes('\\u2028'));
+  assert.ok(payload.message.includes('\\u2029'));
+  assert.doesNotMatch(payload.title, /\u2028/u);
+  assert.doesNotMatch(payload.message, /\u2029/u);
+});
+
 test('local ntfy display escaping still enforces title and UTF-8 message bounds', async () => {
   let payload;
   const fetchImpl = async (_url, init) => {
