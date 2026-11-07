@@ -334,7 +334,7 @@ async function readPollText(response, signal) {
   };
   signal?.addEventListener('abort', cancel, { once: true });
   if (signal?.aborted) cancel();
-  const decoder = new TextDecoder();
+  const decoder = new TextDecoder('utf-8', { fatal: true });
   let text = '';
   try {
     while (true) {
@@ -483,7 +483,8 @@ export async function waitRemoteResponse({
       timeoutMs: remainingBeforePoll,
       fetchImpl
     });
-    if (response !== null) return response;
+    // A poll arriving at or after the deadline cannot grant human approval.
+    if (response !== null && elapsedClock() < deadline) return response;
     const remaining = deadline - elapsedClock();
     if (remaining <= 0) break;
     await sleepImpl(Math.min(pollIntervalMs, remaining));
