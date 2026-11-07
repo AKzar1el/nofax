@@ -482,6 +482,33 @@ test('standalone notification times out ambiguously even when fetch ignores abor
   assert.equal(observedSignal.aborted, true);
 });
 
+test('a null optional signal cannot disable the direct notification deadline', async () => {
+  let resolveFetch;
+  let observedSignal;
+  const pendingFetch = new Promise((resolve) => { resolveFetch = resolve; });
+  const publication = sendNotification({
+    config,
+    title: 'Build done',
+    message: 'All tests pass',
+    signal: null,
+    timeoutMs: 20,
+    fetchImpl: (_url, init) => {
+      observedSignal = init.signal;
+      return pendingFetch;
+    }
+  });
+
+  const result = await Promise.race([
+    publication.then(() => 'sent', (error) => error.message),
+    new Promise((resolve) => setTimeout(() => resolve('stalled'), 100))
+  ]);
+  resolveFetch(jsonResponse({ id: 'synthetic' }));
+  await publication.catch(() => {});
+
+  assert.equal(result, 'NOFAX_NTFY_PUBLISH_TIMEOUT');
+  assert.equal(observedSignal.aborted, true);
+});
+
 test('sendNotification releases a publish body that arrives after its timeout', async () => {
   let resolveRequest;
   let signal;

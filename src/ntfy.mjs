@@ -167,7 +167,7 @@ export async function sendNotification({ config, title, message, actions, priori
 
   // Caller-managed approval publication and confirmation already have a deadline.
   // A direct notification needs its own bounded transport when no signal is supplied.
-  const ownsTimeout = signal === undefined;
+  const ownsTimeout = signal == null;
   if (ownsTimeout) validateTimeoutMs(timeoutMs, 'NOFAX_PUBLISH_TIMEOUT_INVALID');
   const controller = ownsTimeout ? new AbortController() : null;
   let timeoutId;
