@@ -277,12 +277,17 @@ export function createMcpToolHandlers(overrides = {}) {
         // A poll transport can return after its deadline despite a timeout
         // hint. Do not turn that late result into an accepted human decision.
         if (response !== null && deps.elapsedNowImpl() <= deadline) {
+          // A wall-clock correction after request creation must not make a
+          // genuine terminal decision invalid or erase the human's denial.
+          const createdAtMs = Date.parse(request.createdAt);
+          const nowMs = deps.nowImpl();
+          const resolvedAtMs = Number.isFinite(createdAtMs) ? Math.max(nowMs, createdAtMs) : nowMs;
           const resolution = await deps.resolveRequestWithClaimImpl({
             home: deps.home,
             env: deps.env,
             requestId: request.requestId,
             response,
-            resolvedAt: new Date(deps.nowImpl()).toISOString()
+            resolvedAt: new Date(resolvedAtMs).toISOString()
           });
           request = resolution.request;
           // A new terminal claim is authoritative even when durable storage
