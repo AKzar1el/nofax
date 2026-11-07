@@ -69,6 +69,9 @@ function validateRequest(input) {
     if (typeof input.decision !== 'string') throw new Error('NOFAX_REQUEST_DECISION_INVALID');
     const decision = input.decision.trim();
     if (!allowed.includes(decision)) throw new Error('NOFAX_REQUEST_DECISION_INVALID');
+    // Only a refinement can carry human text; reject corrupt legacy sidecars
+    // and unexpected direct responses rather than persisting private content.
+    if (decision !== 'refine' && input.text !== undefined) throw new Error('NOFAX_REQUEST_TEXT_INVALID');
     if (decision === 'refine' && input.kind !== 'choice' && (typeof input.text !== 'string' || !input.text.trim())) {
       throw new Error('NOFAX_REQUEST_TEXT_INVALID');
     }
