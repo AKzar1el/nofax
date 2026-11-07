@@ -30,13 +30,16 @@ function safeSliceEnd(text, end) {
 
 function boundChoiceLabel(value) {
   let label = '';
+  let visibleContent = false;
   for (const character of value) {
     // Action labels are single-line and must not hide/reorder the human's choices.
     // Keep each visible escape or Unicode code point intact at the 32-unit limit.
     const visible = character === '\n' ? '\\u000a' : visibleNotificationText(character);
     if (label.length + visible.length > 32) break;
     label += visible;
+    if (/[\p{L}\p{N}\p{P}\p{S}]/u.test(character)) visibleContent = true;
   }
+  if (!visibleContent) throw new Error('NOFAX_CHOICE_INVALID');
   return label;
 }
 
