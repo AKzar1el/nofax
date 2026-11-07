@@ -534,6 +534,53 @@ test('pollRemoteResponse releases a late response body when fetch ignores abort'
   assert.equal(cancelled, 1, 'late polling responses must not retain an unread body');
 });
 
+test('pollRemoteResponse cancels a locked response body when reading times out', async () => {
+  let cancelled = 0;
+  const response = new Response(new ReadableStream({
+    pull() { return new Promise(() => {}); },
+    cancel() { cancelled += 1; }
+  }));
+  const poll = pollRemoteResponse({
+    config,
+    responseTopic: 'nofax_r_synthetic_private_response_capability',
+    requestId: 'synthetic-request-id',
+    allowed: ['allow', 'deny'],
+    kind: 'approval',
+    timeoutMs: 20,
+    fetchImpl: async () => response
+  });
+
+  assert.equal(await poll, null, 'a stalled body must never mean approval');
+  assert.equal(cancelled, 1, 'timed-out streams must be cancelled even when response.text() holds their reader');
+  assert.equal(response.body.locked, false, 'timed-out streams must release the reader lock');
+});
+
+test('a timed-out partial poll stream cannot return a buffered approval', async () => {
+  let cancelled = 0;
+  const requestId = 'synthetic-request-id';
+  const line = JSON.stringify({
+    event: 'message',
+    message: JSON.stringify({ v: 1, requestId, decision: 'allow' })
+  }) + '\n';
+  const response = new Response(new ReadableStream({
+    start(controller) { controller.enqueue(new TextEncoder().encode(line)); },
+    pull() { return new Promise(() => {}); },
+    cancel() { cancelled += 1; }
+  }));
+
+  const decision = await pollRemoteResponse({
+    config,
+    responseTopic: 'nofax_r_synthetic_private_response_capability',
+    requestId,
+    allowed: ['allow', 'deny'],
+    kind: 'approval',
+    timeoutMs: 20,
+    fetchImpl: async () => response
+  });
+  assert.equal(decision, null, 'a timed-out stream is never a completed human decision');
+  assert.equal(cancelled, 1);
+});
+
 test('sendNotification preserves Unicode at truncation boundaries', async () => {
   let payload;
   await sendNotification({
