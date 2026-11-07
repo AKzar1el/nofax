@@ -320,6 +320,34 @@ function parseNtfyPoll(text, requestId, allowed, kind) {
   return null;
 }
 
+async function readPollText(response, signal) {
+  // Response.text() hides its reader, making cancellation impossible if a
+  // transport ignores abort while the response body remains open.
+  if (typeof response.body?.getReader !== 'function') return response.text();
+  const reader = response.body.getReader();
+  const cancel = () => {
+    try {
+      void Promise.resolve(reader.cancel()).catch(() => {});
+    } catch {
+      // Timeout cleanup must not turn an unanswered request into a decision.
+    }
+  };
+  signal?.addEventListener('abort', cancel, { once: true });
+  if (signal?.aborted) cancel();
+  const decoder = new TextDecoder();
+  let text = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return text + decoder.decode();
+      text += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    signal?.removeEventListener('abort', cancel);
+    reader.releaseLock();
+  }
+}
+
 export async function pollRemoteResponse({ config, responseTopic, requestId, allowed, kind, timeoutMs, fetchImpl = fetch }) {
   const server = normalizeServer(config.server);
   let timeoutId;
@@ -360,14 +388,16 @@ export async function pollRemoteResponse({ config, responseTopic, requestId, all
 
     let text;
     try {
-      const body = response.text();
+      const body = readPollText(response, controller?.signal);
       text = timeout === null ? await body : await Promise.race([body, timeout]);
     } catch {
       if (controller?.signal.aborted) return null;
       // A stream-reader failure may also include the private polling URL.
       throw new Error('NOFAX_NTFY_POLL_NETWORK');
     }
-    if (text === POLL_TIMEOUT) return null;
+    // Cancellation can finish a partial read just before the timeout promise.
+    // Never parse that partial body as a human decision after the deadline.
+    if (text === POLL_TIMEOUT || controller?.signal.aborted) return null;
     return parseNtfyPoll(text, requestId, allowed, kind);
   } finally {
     if (timeoutId !== undefined) clearTimeout(timeoutId);
