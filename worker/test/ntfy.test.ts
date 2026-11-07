@@ -140,6 +140,24 @@ describe("remote ntfy publisher", () => {
     expect(payload?.message).toContain("\nStill pending");
   });
 
+  it("escapes hidden format marks without breaking emoji joiners or message line breaks", async () => {
+    let payload: { title: string; message: string } | undefined;
+    const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      payload = JSON.parse(String(init?.body));
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+
+    await publishNotification({
+      env: env(),
+      title: "Pending\u200e\u200f\u061c Approved",
+      message: "Review\u200b\u2060\ufeff required\nFamily: 👨‍👩‍👧",
+      fetchImpl
+    });
+
+    expect(payload?.title).toBe("Pending\\u200e\\u200f\\u061c Approved");
+    expect(payload?.message).toBe("Review\\u200b\\u2060\\ufeff required\nFamily: 👨‍👩‍👧");
+  });
+
   it("bounds notification payloads after expanding unsafe display controls", async () => {
     let payload: { title: string; message: string } | undefined;
     const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
