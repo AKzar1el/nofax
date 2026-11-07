@@ -165,6 +165,29 @@ describe("NofaxRequestStore", () => {
     expect(second?.request.decision).toBe("allow");
   });
 
+  it("preserves terminal chronology when the Worker clock moves backward", async () => {
+    const stub = store("clock-rollback-terminal");
+    const input = pending({ createdAt: 10_000, expiresAt: 20_000 });
+    await stub.createRequest(input);
+
+    const first = await stub.resolveByCallbackHash({
+      callbackHash: input.callbackHash,
+      decision: "allow",
+      nowMs: 5_000
+    });
+    expect(first?.newlyResolved).toBe(true);
+    expect(first?.request.resolvedAt).toBe(input.createdAt);
+    expect((await stub.getRequest(input.requestId))?.resolvedAt).toBe(input.createdAt);
+
+    const second = await stub.resolveByCallbackHash({
+      callbackHash: input.callbackHash,
+      decision: "deny",
+      nowMs: 6_000
+    });
+    expect(second?.newlyResolved).toBe(false);
+    expect(second?.request.decision).toBe("allow");
+  });
+
   it("rejects decisions outside the request allow-list", async () => {
     const raw = rawStore("allowed");
     const stub = raw as unknown as RequestStoreStub;

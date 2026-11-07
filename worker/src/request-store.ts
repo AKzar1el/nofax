@@ -298,6 +298,10 @@ export class NofaxRequestStore extends DurableObject<Env> {
       text = trimmed.slice(0, end);
     }
 
+    // A corrected-backward clock must not persist a terminal event before
+    // the request was created. Keep expiry validation based on actual nowMs.
+    const resolvedAt = Math.max(nowMs, current.createdAt);
+
     const writtenRows = this.ctx.storage.sql.exec<RequestRow>(
       `UPDATE requests
        SET status = 'resolved', decision = ?, text = ?, resolved_at = ?
@@ -305,7 +309,7 @@ export class NofaxRequestStore extends DurableObject<Env> {
        RETURNING *`,
       input.decision,
       text,
-      nowMs,
+      resolvedAt,
       callbackHash,
       nowMs
     ).toArray();
