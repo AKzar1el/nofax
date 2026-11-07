@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { link, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { discardPendingRequest, savePendingRequest, loadRequest, resolveRequest, resolveRequestWithClaim, listPendingRequests } from '../src/requests.mjs';
@@ -131,6 +131,29 @@ test('concurrent saves of the same request ID retain exactly one immutable recor
   assert.equal(failures.length, 1);
   assert.match(failures[0].reason.message, /NOFAX_REQUEST_ALREADY_EXISTS/);
   assert.deepEqual(await loadRequest({ home: root, requestId: pending.requestId }), successes[0].value);
+});
+
+test('a pre-existing temporary hardlink cannot overwrite another file or create a request', async (t) => {
+  const root = await home(t);
+  const directory = join(root, 'requests');
+  await mkdir(directory);
+  const primary = join(directory, `${pending.requestId}.json`);
+  const temporary = `${primary}.tmp-${process.pid}-2`;
+  const unrelated = join(root, 'unrelated.json');
+  await writeFile(unrelated, 'keep this content', 'utf8');
+  await link(unrelated, temporary);
+
+  const originalRandom = Math.random;
+  Math.random = () => 0.125;
+  try {
+    await assert.rejects(savePendingRequest({ home: root, request: pending }), { code: 'EEXIST' });
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  assert.equal(await readFile(unrelated, 'utf8'), 'keep this content');
+  assert.equal(await readFile(temporary, 'utf8'), 'keep this content');
+  await assert.rejects(readFile(primary, 'utf8'), { code: 'ENOENT' });
 });
 
 test('request filename and stored requestId must match before returning a pending request', async (t) => {
