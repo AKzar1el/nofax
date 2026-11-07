@@ -474,6 +474,31 @@ test('sendNotification releases a publish body that arrives after its timeout', 
   assert.equal(cancelled, 1, 'a fetch resolving after its deadline must not retain an unread body');
 });
 
+test('pollRemoteResponse releases a late response body when fetch ignores abort', async () => {
+  let resolveRequest;
+  let pollSignal;
+  const pendingRequest = new Promise((resolve) => { resolveRequest = resolve; });
+  const poll = pollRemoteResponse({
+    config,
+    responseTopic: 'nofax_r_synthetic_private_response_capability',
+    requestId: 'synthetic-request-id',
+    allowed: ['allow', 'deny'],
+    kind: 'approval',
+    timeoutMs: 20,
+    fetchImpl: (_url, init) => {
+      pollSignal = init.signal;
+      return pendingRequest;
+    }
+  });
+
+  assert.equal(await poll, null);
+  assert.equal(pollSignal.aborted, true);
+  let cancelled = 0;
+  resolveRequest(new Response(new ReadableStream({ cancel() { cancelled += 1; } })));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(cancelled, 1, 'late polling responses must not retain an unread body');
+});
+
 test('sendNotification preserves Unicode at truncation boundaries', async () => {
   let payload;
   await sendNotification({
