@@ -1,4 +1,4 @@
-import { chmod, link, mkdir, opendir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { chmod, link, mkdir, open, opendir, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { normalizeServer, resolveNofaxHome } from './config.mjs';
 
@@ -8,6 +8,7 @@ const PHONE_TOPIC = /^[A-Za-z0-9_-]{24,128}$/;
 const KINDS = new Set(['approval', 'choice', 'refinement']);
 const STATUSES = new Set(['pending', 'resolved']);
 const MAX_RESPONSE_TEXT = 2000;
+const MAX_REQUEST_RECORD_BYTES = 64 * 1024;
 const TRUNCATION_MARKER = '…[truncated]';
 
 function validateRequestId(value) {
@@ -89,9 +90,28 @@ function paths({ home, env, requestId }) {
   };
 }
 
+async function readBoundedRecord(path, tooLargeCode) {
+  const file = await open(path, 'r');
+  try {
+    // A corrupt local request record must not allocate unbounded memory during
+    // status inspection, cleanup, or recovery of a terminal human decision.
+    const buffer = Buffer.allocUnsafe(MAX_REQUEST_RECORD_BYTES + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
+      if (bytesRead === 0) break;
+      length += bytesRead;
+    }
+    if (length > MAX_REQUEST_RECORD_BYTES) throw new Error(tooLargeCode);
+    return buffer.toString('utf8', 0, length);
+  } finally {
+    await file.close();
+  }
+}
+
 async function loadTerminalClaim(path, requestId) {
   try {
-    const terminal = validateRequest(JSON.parse(await readFile(path, 'utf8')));
+    const terminal = validateRequest(JSON.parse(await readBoundedRecord(path, 'NOFAX_REQUEST_TERMINAL_TOO_LARGE')));
     if (terminal.status !== 'resolved') throw new Error('NOFAX_REQUEST_TERMINAL_INVALID');
     if (terminal.requestId !== requestId) throw new Error('NOFAX_REQUEST_ID_MISMATCH');
     return terminal;
@@ -137,7 +157,7 @@ export async function discardPendingRequest({ home, env, requestId }) {
   const { file, terminal } = paths({ home, env, requestId });
   if (await loadTerminalClaim(terminal, requestId) !== null) return false;
   try {
-    const current = validateRequest(JSON.parse(await readFile(file, 'utf8')));
+    const current = validateRequest(JSON.parse(await readBoundedRecord(file, 'NOFAX_REQUEST_TOO_LARGE')));
     if (current.requestId !== requestId) throw new Error('NOFAX_REQUEST_ID_MISMATCH');
     if (current.status !== 'pending') return false;
     await unlink(file);
@@ -154,7 +174,7 @@ export async function loadRequest({ home, env, requestId }) {
   const claimed = await loadTerminalClaim(terminal, requestId);
   if (claimed !== null) return claimed;
   try {
-    const request = validateRequest(JSON.parse(await readFile(file, 'utf8')));
+    const request = validateRequest(JSON.parse(await readBoundedRecord(file, 'NOFAX_REQUEST_TOO_LARGE')));
     if (request.requestId !== requestId) throw new Error('NOFAX_REQUEST_ID_MISMATCH');
     return request;
   } catch (error) {
