@@ -491,6 +491,24 @@ test('sendNotification preserves Unicode at truncation boundaries', async () => 
   assert.match(payload.title, /…\[truncated\]$/);
   assert.match(payload.message, /…\[truncated\]$/);
 });
+test('requestApproval rejects invalid polling before notification publication', async () => {
+  for (const pollIntervalMs of [0, -1, 0.5, NaN, Infinity, 2_147_483_648]) {
+    let fetchCalls = 0;
+    await assert.rejects(
+      () => requestApproval({
+        config,
+        title: 'Permission',
+        message: 'Needs a human answer',
+        timeoutMs: 30,
+        pollIntervalMs,
+        fetchImpl: async () => { fetchCalls += 1; return jsonResponse({ id: 'unexpected' }); }
+      }),
+      /NOFAX_POLL_INTERVAL_INVALID/
+    );
+    assert.equal(fetchCalls, 0, 'invalid polling cadence must never publish');
+  }
+});
+
 test('requestApproval publishes Allow/Deny HTTP actions and returns matching remote decision', async () => {
   const calls = [];
   let responseTopic;
