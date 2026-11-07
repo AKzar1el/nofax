@@ -917,6 +917,36 @@ test('string choice options use the same validation and bounds as object choices
   assert.equal(JSON.parse(payload.actions[0].body).decision, value);
 });
 
+test('choice transport rejects labels without visible content before publishing or persisting', async () => {
+  let sideEffects = 0;
+  for (const label of ['\u200d', '\u200e', '\u0301', `${'\u200e'.repeat(6)}Ship`]) {
+    await assert.rejects(() => createRemoteRequest({
+      config,
+      title: 'Pick',
+      message: 'Choose',
+      options: [{ value: 'allow', label }],
+      beforePublish: async () => { sideEffects += 1; },
+      fetchImpl: async () => { sideEffects += 1; return jsonResponse({}); }
+    }), /NOFAX_CHOICE_INVALID/);
+  }
+  assert.equal(sideEffects, 0);
+});
+
+test('choice labels may consist entirely of a visible joined emoji', async () => {
+  let payload;
+  await createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Choose',
+    options: [{ value: 'developer', label: '👩‍💻' }],
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'published' });
+    }
+  });
+  assert.equal(payload.actions[0].label, '👩‍💻');
+});
+
 test('choice labels preserve Unicode at the ntfy visible-label boundary', async () => {
   let payload;
   const label = `${'A'.repeat(31)}😀-tail`;
