@@ -102,7 +102,10 @@ function refineAction({ shortcutName, server, responseTopic, requestId }) {
 }
 
 async function ensureOk(response, code) {
-  if (!response?.ok) throw new Error(`${code}_${response?.status ?? 'NETWORK'}`);
+  if (!response?.ok) {
+    releaseResponseBody(response);
+    throw new Error(`${code}_${response?.status ?? 'NETWORK'}`);
+  }
   return response;
 }
 
