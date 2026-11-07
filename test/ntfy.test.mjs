@@ -70,6 +70,27 @@ test('local ntfy notifications visibly escape Unicode line and paragraph separat
   assert.doesNotMatch(payload.message, /\u2029/u);
 });
 
+test('local ntfy visibly escapes hidden format marks in messages and choice labels', async () => {
+  let payload;
+  const fetchImpl = async (_url, init) => {
+    payload = JSON.parse(init.body);
+    return jsonResponse({ id: 'synthetic' });
+  };
+  await createRemoteRequest({
+    config,
+    title: 'Allow\u200e',
+    message: 'Pending\u061c\u200b\u200f\u2060\ufeff\nDeveloper 👩\u200d💻',
+    options: [{ value: 'allow', label: 'Allow\u200f' }, { value: 'deny', label: 'Deny' }],
+    fetchImpl
+  });
+  assert.ok(payload.title.includes('\\u200e'));
+  for (const codePoint of ['061c', '200b', '200f', '2060', 'feff']) {
+    assert.ok(payload.message.includes(`\\u${codePoint}`));
+  }
+  assert.equal(payload.actions[0].label, 'Allow\\u200f');
+  assert.ok(payload.message.includes('\nDeveloper 👩\u200d💻'));
+});
+
 test('local ntfy display escaping still enforces title and UTF-8 message bounds', async () => {
   let payload;
   const fetchImpl = async (_url, init) => {
