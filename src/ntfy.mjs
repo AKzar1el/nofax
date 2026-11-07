@@ -459,6 +459,8 @@ async function requestDecision({
 }) {
   // Validate the decision window before createRemoteRequest persists or sends.
   validateTimeoutMs(timeoutMs, 'NOFAX_DECISION_TIMEOUT_INVALID');
+  // Reject invalid polling before persisting or publishing a remote request.
+  validateTimeoutMs(pollIntervalMs, 'NOFAX_POLL_INTERVAL_INVALID');
   const remote = await createRemoteRequest({ config, title, message, options, includeRefine, publishTimeoutMs, fetchImpl });
   const response = await waitRemoteResponse({
     config,
