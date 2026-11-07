@@ -350,6 +350,12 @@ async function readPollText(response, signal) {
 
 export async function pollRemoteResponse({ config, responseTopic, requestId, allowed, kind, timeoutMs, fetchImpl = fetch }) {
   const server = normalizeServer(config.server);
+  // MCP callers pass fractional remaining milliseconds; reject only invalid
+  // or overflowing delays that Node timers would silently clamp.
+  if (timeoutMs !== undefined &&
+      (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMER_TIMEOUT_MS)) {
+    throw new Error('NOFAX_NTFY_POLL_TIMEOUT_INVALID');
+  }
   let timeoutId;
   const controller = timeoutMs === undefined ? null : new AbortController();
   const timeout = controller === null

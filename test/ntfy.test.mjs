@@ -311,6 +311,26 @@ test('ntfy polling never includes a response-topic capability in network errors'
   }
 });
 
+test('direct ntfy poll rejects invalid timeout hints before network access', async () => {
+  let fetches = 0;
+  const options = {
+    config,
+    responseTopic: 'synthetic_response_capability',
+    requestId: 'synthetic-request-id',
+    allowed: ['allow', 'deny'],
+    kind: 'approval',
+    fetchImpl: async () => {
+      fetches += 1;
+      return jsonResponse('');
+    }
+  };
+  for (const timeoutMs of [0, -1, null, Number.NaN, Infinity, 2_147_483_648, '10']) {
+    await assert.rejects(() => pollRemoteResponse({ ...options, timeoutMs }),
+      /NOFAX_NTFY_POLL_TIMEOUT_INVALID/);
+  }
+  assert.equal(fetches, 0, 'invalid poll deadlines must never contact ntfy');
+});
+
 test('ntfy polling releases unread error response bodies without changing failure status', async () => {
   for (const status of [401, 429, 503]) {
     let cancelled = 0;
