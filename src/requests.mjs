@@ -40,6 +40,16 @@ function validateRequest(input) {
   if (allowed.some((value) => !value || value.length > 80) || new Set(allowed).size !== allowed.length) {
     throw new Error('NOFAX_REQUEST_ALLOWED_INVALID');
   }
+  // An imported record cannot turn an approval or refinement into an
+  // arbitrary choice by changing its stored allowed values.
+  if (input.kind === 'approval' &&
+      (!allowed.includes('allow') || !allowed.includes('deny') ||
+       allowed.some((value) => !['allow', 'deny', 'refine'].includes(value)))) {
+    throw new Error('NOFAX_REQUEST_ALLOWED_INVALID');
+  }
+  if (input.kind === 'refinement' && (allowed.length !== 1 || allowed[0] !== 'refine')) {
+    throw new Error('NOFAX_REQUEST_ALLOWED_INVALID');
+  }
   if (!STATUSES.has(input.status)) throw new Error('NOFAX_REQUEST_STATUS_INVALID');
   const createdAtMs = typeof input.createdAt === 'string' ? Date.parse(input.createdAt) : NaN;
   if (!Number.isFinite(createdAtMs)) throw new Error('NOFAX_REQUEST_CREATED_AT_INVALID');

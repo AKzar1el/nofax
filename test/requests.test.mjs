@@ -29,6 +29,34 @@ test('pending requests persist and reload without losing the response topic', as
   assert.equal(stored.responseTopic, pending.responseTopic);
 });
 
+test('approval and refinement request kinds reject mismatched allowed decisions', async (t) => {
+  const root = await home(t);
+  for (const invalid of [
+    { kind: 'approval', allowed: ['allow'] },
+    { kind: 'approval', allowed: ['allow', 'deny', 'ship'] },
+    { kind: 'refinement', allowed: ['refine', 'allow'] }
+  ]) {
+    await assert.rejects(
+      savePendingRequest({ home: root, request: { ...pending, ...invalid } }),
+      /NOFAX_REQUEST_ALLOWED_INVALID/
+    );
+  }
+
+  await savePendingRequest({ home: root, request: pending });
+  const path = join(root, 'requests', `${pending.requestId}.json`);
+  await writeFile(path, JSON.stringify({ ...pending, allowed: ['allow', 'deny', 'ship'] }), 'utf8');
+  await assert.rejects(loadRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_ALLOWED_INVALID/);
+  await assert.rejects(listPendingRequests({ home: root }), /NOFAX_REQUEST_ALLOWED_INVALID/);
+
+  const withRefine = {
+    ...pending,
+    requestId: 'nfx_abcdefghijklmnopqrstuvw8',
+    allowed: ['allow', 'deny', 'refine']
+  };
+  await savePendingRequest({ home: root, request: withRefine });
+  assert.deepEqual(await loadRequest({ home: root, requestId: withRefine.requestId }), withRefine);
+});
+
 test('replayed request IDs cannot overwrite a legacy resolved denial', async (t) => {
   const root = await home(t);
   await savePendingRequest({ home: root, request: pending });
