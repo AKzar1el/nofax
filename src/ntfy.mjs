@@ -460,15 +460,19 @@ export async function waitRemoteResponse({
   pollIntervalMs = 1000,
   fetchImpl = fetch,
   nowImpl = Date.now,
+  elapsedNowImpl,
   sleepImpl = sleep
 }) {
   // This is also exported for direct callers, which bypass requestDecision's
   // deadline validation. Reject zero/overflow intervals before any polling.
   validateTimeoutMs(timeoutMs, 'NOFAX_DECISION_TIMEOUT_INVALID');
   validateTimeoutMs(pollIntervalMs, 'NOFAX_POLL_INTERVAL_INVALID');
-  const deadline = nowImpl() + timeoutMs;
+  // Wall-clock corrections must not extend an unattended human approval wait.
+  // Preserve injected virtual clocks used by existing integration callers.
+  const elapsedClock = elapsedNowImpl ?? (nowImpl === Date.now ? () => performance.now() : nowImpl);
+  const deadline = elapsedClock() + timeoutMs;
   while (true) {
-    const remainingBeforePoll = deadline - nowImpl();
+    const remainingBeforePoll = deadline - elapsedClock();
     if (remainingBeforePoll <= 0) break;
     const response = await pollRemoteResponse({
       config,
@@ -480,7 +484,7 @@ export async function waitRemoteResponse({
       fetchImpl
     });
     if (response !== null) return response;
-    const remaining = deadline - nowImpl();
+    const remaining = deadline - elapsedClock();
     if (remaining <= 0) break;
     await sleepImpl(Math.min(pollIntervalMs, remaining));
   }
