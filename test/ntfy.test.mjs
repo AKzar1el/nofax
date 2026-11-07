@@ -349,6 +349,41 @@ test('direct ntfy poll rejects invalid timeout hints before network access', asy
   assert.equal(fetches, 0, 'invalid poll deadlines must never contact ntfy');
 });
 
+test('malformed UTF-8 in an ntfy poll event cannot produce an approval', async () => {
+  const requestId = 'synthetic-request-id';
+  const decision = JSON.stringify({ v: 1, requestId, decision: 'allow' });
+  const bytes = Buffer.concat([
+    Buffer.from('{"event":"message","title":"', 'utf8'),
+    Buffer.from([0xff]),
+    Buffer.from('","message":' + JSON.stringify(decision) + '}\n', 'utf8')
+  ]);
+  await assert.rejects(() => pollRemoteResponse({
+    config, responseTopic: 'nofax_r_synthetic_private_response_capability',
+    requestId, allowed: ['allow', 'deny'], kind: 'approval',
+    fetchImpl: async () => new Response(bytes)
+  }), (error) => error?.message === 'NOFAX_NTFY_POLL_NETWORK');
+});
+
+test('ntfy poll accepts multibyte UTF-8 split across stream chunks', async () => {
+  const requestId = 'synthetic-request-id';
+  const decision = JSON.stringify({ v: 1, requestId, decision: 'allow' });
+  const bytes = Buffer.from(JSON.stringify({ event: 'message', title: 'Phone 🔐', message: decision }) + '\n');
+  const split = bytes.indexOf(Buffer.from('🔐')) + 1;
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(bytes.subarray(0, split));
+      controller.enqueue(bytes.subarray(split));
+      controller.close();
+    }
+  });
+  const result = await pollRemoteResponse({
+    config, responseTopic: 'nofax_r_synthetic_private_response_capability',
+    requestId, allowed: ['allow', 'deny'], kind: 'approval',
+    fetchImpl: async () => new Response(body)
+  });
+  assert.equal(result.decision, 'allow');
+});
+
 test('ntfy polling releases unread error response bodies without changing failure status', async () => {
   for (const status of [401, 429, 503]) {
     let cancelled = 0;
@@ -750,6 +785,26 @@ test('standalone response polling cannot outlive its deadline after a wall-clock
   });
   assert.equal(result, null, 'no human response must remain unapproved');
   assert.ok(polls > 0 && polls <= 4, 'elapsed deadline must cap the total polls');
+});
+
+test('direct response waits reject decisions arriving at or after the deadline', async () => {
+  const requestId = 'nfx_abcdefghijklmnopqrstuvwxyz';
+  const event = JSON.stringify({
+    event: 'message',
+    message: JSON.stringify({ v: 1, requestId, decision: 'allow' })
+  });
+  for (const deliveredAt of [9, 10, 11]) {
+    let now = 0;
+    const result = await waitRemoteResponse({
+      config, responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz',
+      requestId, allowed: ['allow', 'deny'], kind: 'approval',
+      timeoutMs: 10, nowImpl: () => now,
+      fetchImpl: async () => { now = deliveredAt; return jsonResponse(event + '\n'); },
+      sleepImpl: async (ms) => { now += ms; }
+    });
+    assert.equal(result?.decision ?? null, deliveredAt < 10 ? 'allow' : null,
+      'response delivered at ' + deliveredAt + ' ms must respect 10 ms deadline');
+  }
 });
 
 test('direct response waits reject invalid deadlines and polling intervals before fetching', async () => {
