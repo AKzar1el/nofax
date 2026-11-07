@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { buildAgentSummary, createRequestId, createResponseTopic, redactAndBound } from '../src/protocol.mjs';
 
 test('approval summaries expose display-control characters literally instead of executing them', () => {
-  const input = 'echo safe\rOVERWRITE\u001b[2K\u202e--hidden\u2066\u0000';
+  const input = 'echo safe\rOVERWRITE\u001b[2K\u202e--hidden\u2066\u0000\u2028Spoofed heading\u2029';
   const marker = 'NOFAX_SYNTHETIC_DISPLAY_CONTROL_SECRET_12345';
   const summary = buildAgentSummary({
     source: 'Codex',
@@ -11,8 +11,8 @@ test('approval summaries expose display-control characters literally instead of 
   });
   const bounded = redactAndBound(input);
   for (const output of [summary, bounded]) {
-    assert.doesNotMatch(output, /[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/u);
-    assert.match(output, /\\u000dOVERWRITE\\u001b\[2K\\u202e--hidden\\u2066\\u0000/);
+    assert.doesNotMatch(output, /[\x00-\x08\x0b-\x1f\x7f-\x9f\u2028-\u202e\u2066-\u2069]/u);
+    assert.match(output, /\\u000dOVERWRITE\\u001b\[2K\\u202e--hidden\\u2066\\u0000\\u2028Spoofed heading\\u2029/);
     assert.match(output, /echo safe/);
   }
   assert.doesNotMatch(summary, new RegExp(marker));
