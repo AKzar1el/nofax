@@ -311,6 +311,41 @@ test('ntfy polling never includes a response-topic capability in network errors'
   }
 });
 
+test('ntfy polling releases unread error response bodies without changing failure status', async () => {
+  for (const status of [401, 429, 503]) {
+    let cancelled = 0;
+    const response = new Response(new ReadableStream({
+      cancel() { cancelled += 1; }
+    }), { status });
+
+    await assert.rejects(() => pollRemoteResponse({
+      config,
+      responseTopic: 'synthetic_response_capability',
+      requestId: 'synthetic-request-id',
+      allowed: ['allow', 'deny'],
+      kind: 'approval',
+      fetchImpl: async () => response
+    }), (error) => error?.message === `NOFAX_NTFY_POLL_${status}`);
+    assert.equal(cancelled, 1, `HTTP ${status} must release its unread poll body`);
+  }
+});
+
+test('ntfy polling cleanup failures cannot mask an HTTP error', async () => {
+  const response = {
+    ok: false,
+    status: 503,
+    body: { cancel: () => Promise.reject(new Error('synthetic cleanup failure')) }
+  };
+  await assert.rejects(() => pollRemoteResponse({
+    config,
+    responseTopic: 'synthetic_response_capability',
+    requestId: 'synthetic-request-id',
+    allowed: ['allow', 'deny'],
+    kind: 'approval',
+    fetchImpl: async () => response
+  }), (error) => error?.message === 'NOFAX_NTFY_POLL_503');
+});
+
 test('sendNotification releases an unread successful publish response body', async () => {
   let cancelled = 0;
   const response = new Response(new ReadableStream({
