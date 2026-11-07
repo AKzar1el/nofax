@@ -108,6 +108,34 @@ test('oversized terminal claims cannot be ignored or replaced by a pending recor
   await assert.rejects(discardPendingRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_TERMINAL_TOO_LARGE/);
 });
 
+test('malformed UTF-8 in a pending record fails closed for read, list, and discard', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  const path = join(root, 'requests', `${pending.requestId}.json`);
+  const [before, after] = JSON.stringify({ ...pending, allowed: ['allow', 'den!y'] }).split('!');
+  await writeFile(path, Buffer.concat([Buffer.from(before), Buffer.from([0xff]), Buffer.from(after)]));
+
+  await assert.rejects(loadRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_INVALID_UTF8/);
+  await assert.rejects(listPendingRequests({ home: root }), /NOFAX_REQUEST_INVALID_UTF8/);
+  await assert.rejects(discardPendingRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_INVALID_UTF8/);
+  assert.equal((await readFile(path)).includes(0xff), true);
+});
+
+test('malformed UTF-8 in a terminal claim cannot be treated as a human decision', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  const terminal = {
+    ...pending, status: 'resolved', resolvedAt: '2026-09-09T18:01:00.000Z',
+    decision: 'deny', text: 'human!reply'
+  };
+  const path = join(root, 'requests', `${pending.requestId}.terminal.json`);
+  const [before, after] = JSON.stringify(terminal).split('!');
+  await writeFile(path, Buffer.concat([Buffer.from(before), Buffer.from([0xff]), Buffer.from(after)]));
+
+  await assert.rejects(loadRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_TERMINAL_INVALID_UTF8/);
+  await assert.rejects(savePendingRequest({ home: root, request: pending }), /NOFAX_REQUEST_TERMINAL_INVALID_UTF8/);
+});
+
 test('local request record at the 64 KiB byte boundary still loads', async (t) => {
   const root = await home(t);
   await savePendingRequest({ home: root, request: pending });
