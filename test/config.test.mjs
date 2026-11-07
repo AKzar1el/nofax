@@ -76,6 +76,27 @@ test('config reads enforce a 64 KiB byte limit without blocking explicit recover
   assert.deepEqual(await loadConfig({ home }), replaced);
 });
 
+test('config reads accept a UTF-8 BOM but reject malformed UTF-8 without silently replacing bytes', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-utf8-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const config = await initConfig({ home });
+  const path = join(home, 'config.json');
+
+  await writeFile(path, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(JSON.stringify(config))]));
+  assert.deepEqual(await loadConfig({ home }), config);
+
+  const malformed = Buffer.concat([
+    Buffer.from(`${JSON.stringify(config).slice(0, -1)},"comment":"`),
+    Buffer.from([0xc3, 0x28]),
+    Buffer.from('"}')
+  ]);
+  await writeFile(path, malformed);
+  await assert.rejects(loadConfig({ home }), /NOFAX_CONFIG_INVALID_UTF8/);
+  await assert.rejects(initConfig({ home }), /NOFAX_CONFIG_INVALID_UTF8/);
+  const recovered = await initConfig({ home, force: true });
+  assert.deepEqual(await loadConfig({ home }), recovered);
+});
+
 test('normalizes server and rejects credentials/query fragments', () => {
   assert.equal(normalizeServer('https://ntfy.sh/'), 'https://ntfy.sh');
   assert.throws(() => normalizeServer('ftp://ntfy.sh'), /NOFAX_SERVER_PROTOCOL/);
