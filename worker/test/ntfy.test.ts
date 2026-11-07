@@ -119,6 +119,27 @@ describe("remote ntfy publisher", () => {
     expect(payload?.message).not.toMatch(/[\x00-\x08\x0b-\x1f\u202a-\u202e\u2066-\u2069]/u);
   });
 
+  it("renders Unicode line and paragraph separators visibly instead of spoofing notification lines", async () => {
+    let payload: { title: string; message: string } | undefined;
+    const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      payload = JSON.parse(String(init?.body));
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+
+    await publishNotification({
+      env: env(),
+      title: "Pending\u2028Approved",
+      message: "Review required\u2029Approved\nStill pending",
+      fetchImpl
+    });
+
+    expect(payload?.title).toContain("\\u2028");
+    expect(payload?.message).toContain("\\u2029");
+    expect(payload?.title).not.toContain("\u2028");
+    expect(payload?.message).not.toContain("\u2029");
+    expect(payload?.message).toContain("\nStill pending");
+  });
+
   it("bounds notification payloads after expanding unsafe display controls", async () => {
     let payload: { title: string; message: string } | undefined;
     const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {

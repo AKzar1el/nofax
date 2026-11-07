@@ -9,9 +9,9 @@ const MAX_TIMEOUT_MS = 2_147_483_647;
 
 function visibleNotificationText(value: string): string {
   // MCP callers can supply terminal controls or Unicode direction overrides.
-  // Keep ordinary line breaks, but render other display controls literally so
+  // Keep ordinary line breaks, but render separators and display controls literally so
   // a phone notification cannot visually disguise its title or message.
-  return value.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/gu,
+  return value.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u2028-\u202e\u2066-\u2069]/gu,
     (character) => `\\u${character.codePointAt(0)!.toString(16).padStart(4, "0")}`);
 }
 
