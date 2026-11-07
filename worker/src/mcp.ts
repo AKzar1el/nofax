@@ -3,6 +3,7 @@ import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
 import type { Env } from "./env";
 import { createRemoteToolHandlers, type RemoteToolHandlers } from "./mcp-tools";
+import workerPackage from "../package.json";
 
 export const REMOTE_MCP_TOOL_NAMES = Object.freeze([
   "nofax_notify",
@@ -46,7 +47,7 @@ const LIST_PENDING_OUTPUT_SCHEMA = z.object({
 
 export function buildRemoteMcpServer({ handlers }: { handlers: RemoteToolHandlers }): McpServer {
   const server = new McpServer(
-    { name: "nofax", version: "0.3.0" },
+    { name: "nofax", version: workerPackage.version },
     { instructions: SERVER_INSTRUCTIONS }
   );
 
