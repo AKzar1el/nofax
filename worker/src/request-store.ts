@@ -153,12 +153,15 @@ function rowToRequest(row: RequestRow): StoredRequest {
     expiresAt: row.expires_at
   };
   if (status === "resolved") {
+    // "refine" may also be the literal value of a choice option. Only an
+    // approval/refinement response requires human-authored refinement text.
+    const needsRefinementText = row.decision === "refine" && kind !== "choice";
     if (typeof row.decision !== "string" || !result.allowed.includes(row.decision) ||
         !validStoredTimestamp(row.resolved_at) ||
         row.resolved_at < row.created_at ||
         row.resolved_at > row.expires_at ||
-        (row.decision !== "refine" && row.text !== null) ||
-        (row.decision === "refine" && !validStoredText(row.text, 2000)) ||
+        (!needsRefinementText && row.text !== null) ||
+        (needsRefinementText && !validStoredText(row.text, 2000)) ||
         (row.text !== null && !validStoredText(row.text, 2000))) {
       throw new Error("NOFAX_REQUEST_ROW_INVALID");
     }
@@ -292,7 +295,7 @@ export class NofaxRequestStore extends DurableObject<Env> {
     }
 
     let text: string | null = null;
-    if (input.decision === "refine") {
+    if (input.decision === "refine" && current.kind !== "choice") {
       if (typeof input.text !== "string" || !input.text.trim()) throw new Error("NOFAX_REQUEST_TEXT_INVALID");
       const trimmed = input.text.trim();
       const last = trimmed.charCodeAt(1_999);
