@@ -40,7 +40,7 @@ function makeHandlers({ home, pollResult = null, onConfirm = () => {}, onNotify 
     },
     pollRemoteResponseImpl: async () => pollResult,
     sendResponseConfirmationImpl: async (input) => onConfirm(input),
-    nowImpl: (() => { let t = 0; return () => (t += 1000); })(),
+    nowImpl: (() => { let t = 0; return () => (t += 250); })(),
     sleepImpl: async () => {}
   });
 }
@@ -206,7 +206,7 @@ test('durable wait stays bound to the server and topic used when the request was
     sendResponseConfirmationImpl: async ({ config: confirmConfig }) => {
       confirmationConfig = confirmConfig;
     },
-    nowImpl: (() => { let now = 0; return () => (now += 1000); })(),
+    nowImpl: (() => { let now = 0; return () => (now += 250); })(),
     sleepImpl: async () => {}
   });
 
@@ -322,6 +322,40 @@ test('MCP wait does not accept a poll decision returned after its elapsed deadli
   });
 
   await handlers.requestApproval({ message: 'Synthetic approval' });
+  const result = await handlers.waitForResponse({ requestId, waitSeconds: 1 });
+  assert.equal(result.status, 'pending');
+  assert.equal(result.mustWait, true);
+  assert.equal(confirmations, 0);
+  assert.equal((await loadRequest({ home, requestId })).status, 'pending');
+});
+
+test('MCP wait never claims a decision arriving exactly at its elapsed deadline', async (t) => {
+  const home = await makeHome(t);
+  const requestId = 'nfx_abcdefghijklmnopqrstuv90';
+  let elapsed = 0;
+  let confirmations = 0;
+  const handlers = createMcpToolHandlers({
+    home,
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: async (input) => {
+      const remote = {
+        requestId,
+        responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz1290',
+        allowed: ['allow', 'deny']
+      };
+      await input.beforePublish(remote);
+      return remote;
+    },
+    pollRemoteResponseImpl: async () => {
+      elapsed = 1000;
+      return { decision: 'allow' };
+    },
+    sendResponseConfirmationImpl: async () => { confirmations += 1; },
+    elapsedNowImpl: () => elapsed,
+    sleepImpl: async () => {}
+  });
+
+  await handlers.requestApproval({ message: 'Synthetic boundary approval' });
   const result = await handlers.waitForResponse({ requestId, waitSeconds: 1 });
   assert.equal(result.status, 'pending');
   assert.equal(result.mustWait, true);

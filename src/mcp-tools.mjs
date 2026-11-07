@@ -276,7 +276,7 @@ export function createMcpToolHandlers(overrides = {}) {
         });
         // A poll transport can return after its deadline despite a timeout
         // hint. Do not turn that late result into an accepted human decision.
-        if (response !== null && deps.elapsedNowImpl() <= deadline) {
+        if (response !== null && deps.elapsedNowImpl() < deadline) {
           // A wall-clock correction after request creation must not make a
           // genuine terminal decision invalid or erase the human's denial.
           const createdAtMs = Date.parse(request.createdAt);
