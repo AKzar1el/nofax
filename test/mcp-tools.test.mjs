@@ -361,6 +361,44 @@ test('wait uses elapsed time even when the system clock moves backward', async (
   assert.ok(polls > 0 && polls <= 4);
 });
 
+test('clock rollback cannot discard an explicit human terminal decision', async (t) => {
+  for (const decision of ['allow', 'deny']) {
+    const home = await makeHome(t);
+    const requestId = 'nfx_abcdefghijklmnopqrstuv91';
+    let wallTime = Date.parse('2026-01-01T12:00:00Z');
+    let confirmations = 0;
+    const handlers = createMcpToolHandlers({
+      home,
+      loadConfigImpl: async () => config,
+      createRemoteRequestImpl: async (input) => {
+        const remote = {
+          requestId,
+          responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz1291',
+          allowed: ['allow', 'deny']
+        };
+        await input.beforePublish(remote);
+        return remote;
+      },
+      pollRemoteResponseImpl: async () => ({ decision }),
+      sendResponseConfirmationImpl: async () => { confirmations += 1; },
+      nowImpl: () => wallTime,
+      elapsedNowImpl: () => 0
+    });
+
+    await handlers.requestApproval({ message: 'Approve or deny synthetic operation' });
+    const pending = await loadRequest({ home, requestId });
+    wallTime -= 60_000;
+    const result = await handlers.waitForResponse({ requestId, waitSeconds: 1 });
+    assert.equal(result.status, 'resolved');
+    assert.equal(result.decision, decision);
+    assert.equal(confirmations, 1);
+    const stored = await loadRequest({ home, requestId });
+    assert.equal(stored.decision, decision);
+    assert.equal(stored.createdAt, pending.createdAt);
+    assert.ok(Date.parse(stored.resolvedAt) >= Date.parse(pending.createdAt));
+  }
+});
+
 test('wait converges on a durable terminal response resolved by another waiter', async (t) => {
   const home = await makeHome(t);
   const requestId = 'nfx_abcdefghijklmnopqrstuv95';
