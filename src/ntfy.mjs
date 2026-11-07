@@ -418,6 +418,10 @@ export async function waitRemoteResponse({
   nowImpl = Date.now,
   sleepImpl = sleep
 }) {
+  // This is also exported for direct callers, which bypass requestDecision's
+  // deadline validation. Reject zero/overflow intervals before any polling.
+  validateTimeoutMs(timeoutMs, 'NOFAX_DECISION_TIMEOUT_INVALID');
+  validateTimeoutMs(pollIntervalMs, 'NOFAX_POLL_INTERVAL_INVALID');
   const deadline = nowImpl() + timeoutMs;
   while (true) {
     const remainingBeforePoll = deadline - nowImpl();
