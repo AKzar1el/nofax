@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { McpServer } from "@modelcontextprotocol/server";
 import { buildRemoteMcpServer, REMOTE_MCP_TOOL_NAMES } from "../src/mcp";
+import workerPackage from "../package.json";
 
 const EXPECTED = [
   "nofax_notify",
@@ -20,6 +21,17 @@ describe("remote MCP server", () => {
       listPending: async () => ({ status: "ok", requests: [] })
     };
     expect(buildRemoteMcpServer({ handlers: handlers as never })).toBeInstanceOf(McpServer);
+  });
+
+  it("advertises the actual remote Worker package version", () => {
+    const handlers = {
+      notify: async () => ({ status: "sent" }),
+      getRequest: async () => ({ status: "ok", request: {} }),
+      listPending: async () => ({ status: "ok", requests: [] })
+    };
+    const server = buildRemoteMcpServer({ handlers: handlers as never });
+    const advertised = server.server as unknown as { _serverInfo: { version: string } };
+    expect(advertised._serverInfo.version).toBe(workerPackage.version);
   });
 
   it("advertises output contracts for every remote tool", () => {
