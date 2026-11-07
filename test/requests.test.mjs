@@ -409,6 +409,35 @@ test('direct refinement resolution visibly marks bounded text', async (t) => {
   assert.match(result.text, /…\[truncated\]$/);
 });
 
+test('non-refinement terminal decisions reject unexpected private text', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  await assert.rejects(
+    resolveRequest({
+      home: root,
+      requestId: pending.requestId,
+      response: { decision: 'allow', text: 'unexpected private content' },
+      resolvedAt: '2026-09-09T18:01:00.000Z'
+    }),
+    /NOFAX_REQUEST_TEXT_INVALID/
+  );
+  assert.equal((await loadRequest({ home: root, requestId: pending.requestId })).status, 'pending');
+
+  const corruptLegacy = {
+    ...pending,
+    status: 'resolved',
+    resolvedAt: '2026-09-09T18:01:00.000Z',
+    decision: 'deny',
+    text: 'unexpected private content'
+  };
+  await writeFile(join(root, 'requests', `${pending.requestId}.terminal.json`),
+    `${JSON.stringify(corruptLegacy)}\n`, 'utf8');
+  await assert.rejects(
+    loadRequest({ home: root, requestId: pending.requestId }),
+    /NOFAX_REQUEST_TEXT_INVALID/
+  );
+});
+
 test('terminal resolution keeps the original projection pending and persists the sidecar winner', async (t) => {
   const root = await home(t);
   await savePendingRequest({ home: root, request: pending });
