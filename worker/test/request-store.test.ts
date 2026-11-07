@@ -111,6 +111,11 @@ describe("NofaxRequestStore", () => {
       sql.exec("UPDATE requests SET expires_at = 2000, status = 'resolved', decision = 'deny', resolved_at = -1 WHERE request_id = ?", input.requestId);
       expect(() => instance.getRequest(input.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
 
+      // Imported/corrupt terminal rows must not invent a decision before creation.
+      sql.exec("UPDATE requests SET resolved_at = 500 WHERE request_id = ?", input.requestId);
+      expect(() => instance.getRequest(input.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+      expect(() => instance.getByCallbackHash(input.callbackHash, 1500)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+
       // A corrupt legacy row must not manufacture a human decision after expiry.
       sql.exec("UPDATE requests SET resolved_at = 2001 WHERE request_id = ?", input.requestId);
       expect(() => instance.getRequest(input.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
