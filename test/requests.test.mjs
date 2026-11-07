@@ -108,6 +108,42 @@ test('oversized terminal claims cannot be ignored or replaced by a pending recor
   await assert.rejects(discardPendingRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_TERMINAL_TOO_LARGE/);
 });
 
+test('malformed UTF-8 in durable pending choices cannot silently change allowed decisions', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  const path = join(root, 'requests', `${pending.requestId}.json`);
+  const bytes = Buffer.from(JSON.stringify(pending));
+  const choice = bytes.indexOf(Buffer.from('"deny"'));
+  assert.notEqual(choice, -1);
+  bytes[choice + 1] = 0xff;
+  await writeFile(path, bytes);
+
+  await assert.rejects(loadRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_INVALID_UTF8/);
+  await assert.rejects(listPendingRequests({ home: root }), /NOFAX_REQUEST_INVALID_UTF8/);
+  await assert.rejects(discardPendingRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_INVALID_UTF8/);
+});
+
+test('malformed UTF-8 in a terminal claim fails closed without permitting replay', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  const terminal = join(root, 'requests', `${pending.requestId}.terminal.json`);
+  const bytes = Buffer.from(JSON.stringify({
+    ...pending,
+    status: 'resolved',
+    decision: 'deny',
+    text: 'manual review x',
+    resolvedAt: '2026-09-09T18:01:00.000Z'
+  }));
+  const textEnd = bytes.indexOf(Buffer.from('review x'));
+  assert.notEqual(textEnd, -1);
+  bytes[textEnd + 7] = 0xff;
+  await writeFile(terminal, bytes);
+
+  await assert.rejects(loadRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_TERMINAL_INVALID_UTF8/);
+  await assert.rejects(savePendingRequest({ home: root, request: pending }), /NOFAX_REQUEST_TERMINAL_INVALID_UTF8/);
+  await assert.rejects(discardPendingRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_TERMINAL_INVALID_UTF8/);
+});
+
 test('local request record at the 64 KiB byte boundary still loads', async (t) => {
   const root = await home(t);
   await savePendingRequest({ home: root, request: pending });

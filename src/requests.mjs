@@ -90,7 +90,7 @@ function paths({ home, env, requestId }) {
   };
 }
 
-async function readBoundedRecord(path, tooLargeCode) {
+async function readBoundedRecord(path, errorPrefix) {
   const file = await open(path, 'r');
   try {
     // A corrupt local request record must not allocate unbounded memory during
@@ -102,8 +102,15 @@ async function readBoundedRecord(path, tooLargeCode) {
       if (bytesRead === 0) break;
       length += bytesRead;
     }
-    if (length > MAX_REQUEST_RECORD_BYTES) throw new Error(tooLargeCode);
-    return buffer.toString('utf8', 0, length);
+    if (length > MAX_REQUEST_RECORD_BYTES) throw new Error(`${errorPrefix}_TOO_LARGE`);
+    try {
+      // Replacement characters can silently alter stored approval choices or
+      // human refinement text. Corrupt durable records must fail closed.
+      return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+        .decode(buffer.subarray(0, length));
+    } catch {
+      throw new Error(`${errorPrefix}_INVALID_UTF8`);
+    }
   } finally {
     await file.close();
   }
@@ -111,7 +118,7 @@ async function readBoundedRecord(path, tooLargeCode) {
 
 async function loadTerminalClaim(path, requestId) {
   try {
-    const terminal = validateRequest(JSON.parse(await readBoundedRecord(path, 'NOFAX_REQUEST_TERMINAL_TOO_LARGE')));
+    const terminal = validateRequest(JSON.parse(await readBoundedRecord(path, 'NOFAX_REQUEST_TERMINAL')));
     if (terminal.status !== 'resolved') throw new Error('NOFAX_REQUEST_TERMINAL_INVALID');
     if (terminal.requestId !== requestId) throw new Error('NOFAX_REQUEST_ID_MISMATCH');
     return terminal;
@@ -166,7 +173,7 @@ export async function discardPendingRequest({ home, env, requestId }) {
   const { file, terminal } = paths({ home, env, requestId });
   if (await loadTerminalClaim(terminal, requestId) !== null) return false;
   try {
-    const current = validateRequest(JSON.parse(await readBoundedRecord(file, 'NOFAX_REQUEST_TOO_LARGE')));
+    const current = validateRequest(JSON.parse(await readBoundedRecord(file, 'NOFAX_REQUEST')));
     if (current.requestId !== requestId) throw new Error('NOFAX_REQUEST_ID_MISMATCH');
     if (current.status !== 'pending') return false;
     await unlink(file);
@@ -183,7 +190,7 @@ export async function loadRequest({ home, env, requestId }) {
   const claimed = await loadTerminalClaim(terminal, requestId);
   if (claimed !== null) return claimed;
   try {
-    const request = validateRequest(JSON.parse(await readBoundedRecord(file, 'NOFAX_REQUEST_TOO_LARGE')));
+    const request = validateRequest(JSON.parse(await readBoundedRecord(file, 'NOFAX_REQUEST')));
     if (request.requestId !== requestId) throw new Error('NOFAX_REQUEST_ID_MISMATCH');
     return request;
   } catch (error) {
