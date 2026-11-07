@@ -707,6 +707,33 @@ test('direct response waits reject invalid deadlines and polling intervals befor
   assert.equal(fetches, 0);
 });
 
+test('direct response waits never accept an approval delivered after their deadline', async () => {
+  const requestId = 'nfx_abcdefghijklmnopqrstuvwxyz';
+  const event = JSON.stringify({
+    event: 'message',
+    message: JSON.stringify({ v: 1, requestId, decision: 'allow' })
+  });
+  for (const deliveredAt of [9, 11]) {
+    let now = 0;
+    const result = await waitRemoteResponse({
+      config,
+      responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz',
+      requestId,
+      allowed: ['allow', 'deny'],
+      kind: 'approval',
+      timeoutMs: 10,
+      nowImpl: () => now,
+      fetchImpl: async () => {
+        now = deliveredAt;
+        return jsonResponse(`${event}\n`);
+      },
+      sleepImpl: async (ms) => { now += ms; }
+    });
+    assert.equal(result?.decision ?? null, deliveredAt < 10 ? 'allow' : null,
+      `a response delivered at ${deliveredAt} ms must respect the 10 ms deadline`);
+  }
+});
+
 test('requestChoice enforces ntfy three-action limit and returns a selected option', async () => {
   await assert.rejects(() => requestChoice({
     config,

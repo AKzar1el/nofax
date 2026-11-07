@@ -473,7 +473,9 @@ export async function waitRemoteResponse({
       timeoutMs: remainingBeforePoll,
       fetchImpl
     });
-    if (response !== null) return response;
+    // An unresponsive poll transport may deliver a decision after the caller's
+    // deadline. A late message cannot retroactively grant approval.
+    if (response !== null && nowImpl() <= deadline) return response;
     const remaining = deadline - nowImpl();
     if (remaining <= 0) break;
     await sleepImpl(Math.min(pollIntervalMs, remaining));
