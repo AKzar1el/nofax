@@ -19,6 +19,22 @@ test('approval summaries expose display-control characters literally instead of 
   assert.match(summary, /api_key=\[REDACTED\]/);
 });
 
+test('approval summaries visibly escape hidden format marks but preserve emoji joiners', () => {
+  const message = 'Allow\u061c\u200b\u200e\u200f\u2060\ufeff now\nDeveloper 👩\u200d💻';
+  const outputs = [
+    redactAndBound(message),
+    buildAgentSummary({ message, toolInput: { note: message } })
+  ];
+  for (const output of outputs) {
+    for (const codePoint of ['061c', '200b', '200e', '200f', '2060', 'feff']) {
+      assert.doesNotMatch(output, new RegExp(String.fromCodePoint(Number.parseInt(codePoint, 16))));
+      assert.ok(output.includes(`\\u${codePoint}`), `format mark U+${codePoint} must be visible`);
+    }
+    assert.ok(output.includes('Developer 👩\u200d💻'), 'joined emoji must remain intact');
+  }
+  assert.ok(outputs[1].includes(' now\nDeveloper'), 'ordinary line breaks remain readable');
+});
+
 test('redacts credentials from escaped and double-escaped JSON in agent summaries', () => {
   const marker = 'NOFAX_SYNTHETIC_ESCAPED_JSON_SECRET_CANARY_12345';
   const object = JSON.stringify({ api_key: marker, accessToken: marker, note: 'run tests' });
