@@ -1006,6 +1006,27 @@ test('string choice options use the same validation and bounds as object choices
   assert.equal(JSON.parse(payload.actions[0].body).decision, value);
 });
 
+test('malformed UTF-16 choice values and labels fail before persistence or publishing', async () => {
+  let sideEffects = 0;
+  for (const loneSurrogate of ['\ud800', '\udc00']) {
+    for (const options of [
+      [`ship${loneSurrogate}`],
+      [{ value: `ship${loneSurrogate}`, label: 'Ship' }],
+      [{ value: 'ship', label: `Ship${loneSurrogate}` }]
+    ]) {
+      await assert.rejects(() => createRemoteRequest({
+        config,
+        title: 'Pick',
+        message: 'Choose',
+        options,
+        beforePublish: async () => { sideEffects += 1; },
+        fetchImpl: async () => { sideEffects += 1; return jsonResponse({}); }
+      }), /NOFAX_CHOICE_INVALID/);
+    }
+  }
+  assert.equal(sideEffects, 0);
+});
+
 test('choice transport rejects labels without visible content before publishing or persisting', async () => {
   let sideEffects = 0;
   for (const label of ['\u200d', '\u200e', '\u0301', `${'\u200e'.repeat(6)}Ship`]) {
