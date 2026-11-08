@@ -198,6 +198,35 @@ test('hook stdin accepts valid JSON at the exact 1 MiB byte boundary', async () 
   assert.equal(stderr.read(), '');
 });
 
+test('direct hook stdinText rejects lone UTF-16 surrogates before approval', async () => {
+  for (const adapter of ['claude', 'codex', 'gemini']) {
+    const input = JSON.stringify({
+      hook_event_name: adapter === 'gemini' ? 'BeforeTool' : 'PermissionRequest',
+      tool_name: 'Bash',
+      tool_input: { command: 'echo X' }
+    });
+    for (const surrogate of ['\uD83E', '\uDD84']) {
+      const malformed = input.replace('echo X', `echo ${surrogate}`);
+      assert.equal(malformed.isWellFormed(), false);
+      assert.doesNotThrow(() => JSON.parse(malformed));
+      const stdout = capture();
+      const stderr = capture();
+      let sideEffects = 0;
+      const code = await runCli(['hook', adapter], {
+        stdinText: malformed,
+        stdout,
+        stderr,
+        loadConfigImpl: async () => { sideEffects += 1; return {}; },
+        requestApprovalImpl: async () => { sideEffects += 1; return { decision: 'allow' }; }
+      });
+      assert.equal(code, 0, `${adapter} should fall back to native approval`);
+      assert.equal(sideEffects, 0, 'malformed text must not load config or contact a phone');
+      assert.match(stderr.read(), /NOFAX_HOOK_INVALID_UTF8/);
+      assert.equal(stdout.read(), adapter === 'gemini' ? '{"decision":"ask"}\n' : '');
+    }
+  }
+});
+
 test('streamed hook input stops at the byte limit before consuming later chunks', async () => {
   let yielded = 0;
   let sideEffects = 0;
