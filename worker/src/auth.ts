@@ -1,11 +1,21 @@
 import type { Env } from "./env";
 
+function hasRepeatedKeyPattern(key: string): boolean {
+  // Eight distinct symbols do not make a repeated, user-chosen motif secret.
+  for (let length = 1; length <= Math.floor(key.length / 2); length += 1) {
+    if (key.length % length === 0 && key === key.slice(0, length).repeat(key.length / length)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function configuredKey(env: Env): string | null {
   if (typeof env.NOFAX_REMOTE_KEY !== "string") return null;
   const key = env.NOFAX_REMOTE_KEY.trim();
   // This rejects obvious weak/malformed keys; it cannot prove random generation.
   if (key.length < 32 || key.length > 128 || !/^[A-Za-z0-9_-]+$/.test(key)) return null;
-  if (new Set(key).size < 8) return null;
+  if (new Set(key).size < 8 || hasRepeatedKeyPattern(key)) return null;
   return key;
 }
 

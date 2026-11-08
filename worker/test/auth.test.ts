@@ -30,6 +30,7 @@ describe("remote MCP authentication", () => {
       "A".repeat(64),
       "remote_key_abcdefghijklmnopqrstuvwxyz.123456",
       "remote_key_abcdefghijklmnopqrstuvwxyz123456".repeat(4),
+      "abcdEF12".repeat(5), // 40 characters and 8 unique symbols, but guessable
       "  "
     ];
     for (const key of configured) {
