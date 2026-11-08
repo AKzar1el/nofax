@@ -673,6 +673,24 @@ test('durable allowed values reject duplicates after normalization', async (t) =
   );
 });
 
+test('durable choice allow-lists reject malformed UTF-16 on write and legacy read', async (t) => {
+  const root = await home(t);
+  const file = join(root, 'requests', `${pending.requestId}.json`);
+  for (const loneSurrogate of ['\ud800', '\udc00']) {
+    const request = { ...pending, kind: 'choice', allowed: [`ship${loneSurrogate}`] };
+    await assert.rejects(
+      savePendingRequest({ home: root, request }),
+      /NOFAX_REQUEST_ALLOWED_INVALID/
+    );
+    await mkdir(join(root, 'requests'), { recursive: true });
+    await writeFile(file, JSON.stringify(request), 'utf8');
+    await assert.rejects(
+      loadRequest({ home: root, requestId: pending.requestId }),
+      /NOFAX_REQUEST_ALLOWED_INVALID/
+    );
+  }
+});
+
 test('durable allowed values normalize surrounding whitespace before persistence and resolution', async (t) => {
   const root = await home(t);
   const request = {

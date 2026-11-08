@@ -37,7 +37,8 @@ function validateRequest(input) {
     throw new Error('NOFAX_REQUEST_ALLOWED_INVALID');
   }
   const allowed = input.allowed.map((value) => value.trim());
-  if (allowed.some((value) => !value || value.length > 80) || new Set(allowed).size !== allowed.length) {
+  if (allowed.some((value) => !value || value.length > 80 || !value.isWellFormed()) ||
+      new Set(allowed).size !== allowed.length) {
     throw new Error('NOFAX_REQUEST_ALLOWED_INVALID');
   }
   // An imported record cannot turn an approval or refinement into an
