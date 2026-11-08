@@ -9,9 +9,9 @@ const POLL_TIMEOUT = Symbol('NOFAX_POLL_TIMEOUT');
 const PUBLISH_TIMEOUT = Symbol('NOFAX_PUBLISH_TIMEOUT');
 const DEFAULT_PUBLISH_TIMEOUT_MS = 15_000;
 const MAX_TIMER_TIMEOUT_MS = 2_147_483_647;
-// ntfy rejects invalid requests, unauthorized/forbidden publishing and rate
-// limits before accepting the message. These must not leave orphan approvals.
-const NOT_APPLIED_PUBLISH_STATUSES = new Set([400, 401, 403, 429]);
+// ntfy rejects invalid, unauthorized, oversized, and rate-limited requests
+// before accepting the message. These must not leave orphan approvals.
+const NOT_APPLIED_PUBLISH_STATUSES = new Set([400, 401, 403, 413, 429]);
 
 function visibleNotificationText(value) {
   // Never let untrusted notification text visually alter its own display.

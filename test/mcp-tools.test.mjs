@@ -83,8 +83,8 @@ test('approval persists its durable request before remote publication continues'
   assert.equal(storedBeforePublish.requestId, requestId);
 });
 
-test('ntfy 401/403 authentication refusal and other definitive rejections discard pending approvals', async (t) => {
-  for (const status of [400, 401, 403, 429]) {
+test('ntfy definitive HTTP rejections, including oversized payloads, discard pending approvals', async (t) => {
+  for (const status of [400, 401, 403, 413, 429]) {
     const home = await makeHome(t);
     const handlers = createMcpToolHandlers({
       home,
