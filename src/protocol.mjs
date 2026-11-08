@@ -13,8 +13,12 @@ const TRUNCATION_MARKER = '…[truncated]';
 function normalizeSecretKeyName(key) {
   let normalized = '';
 
-  for (let index = 0; index < key.length; index += 1) {
-    const char = key[index];
+  // Invisible format marks can split a credential field name without changing
+  // its appearance. Ignore them for classification, not for display.
+  const comparisonKey = key.replace(/[\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufe0e-\ufe0f\ufeff]/gu, '');
+
+  for (let index = 0; index < comparisonKey.length; index += 1) {
+    const char = comparisonKey[index];
     const code = char.charCodeAt(0);
     const isUpper = code >= 65 && code <= 90;
     const isLower = code >= 97 && code <= 122;
@@ -25,8 +29,8 @@ function normalizeSecretKeyName(key) {
       continue;
     }
 
-    const previousCode = index > 0 ? key.charCodeAt(index - 1) : -1;
-    const nextCode = index + 1 < key.length ? key.charCodeAt(index + 1) : -1;
+    const previousCode = index > 0 ? comparisonKey.charCodeAt(index - 1) : -1;
+    const nextCode = index + 1 < comparisonKey.length ? comparisonKey.charCodeAt(index + 1) : -1;
     const previousIsUpper = previousCode >= 65 && previousCode <= 90;
     const previousIsLower = previousCode >= 97 && previousCode <= 122;
     const previousIsDigit = previousCode >= 48 && previousCode <= 57;

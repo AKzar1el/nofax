@@ -260,6 +260,20 @@ test('redacts camelCase and PascalCase variants of known secret keys', () => {
   assert.equal(result.secretaryName, 'also-keep-me');
 });
 
+test('redacts credential keys obscured by invisible Unicode format marks', () => {
+  const marker = 'NOFAX_SYNTHETIC_INVISIBLE_KEY_CREDENTIAL';
+  const secretKeys = ['to\u200bken', 'pass\u200dword', 'api\u2060Key', 'client\u00adSecret'];
+  const input = Object.fromEntries(secretKeys.map((key) => [key, marker]));
+  input.secretaryName = 'safe detail';
+  const redacted = redactAndBound(input);
+  for (const key of secretKeys) assert.equal(redacted[key], '[REDACTED]');
+  assert.equal(redacted.secretaryName, 'safe detail');
+  assert.deepEqual(redactAndBound(['to\u200bken', marker, 'mode', 'safe']),
+    ['to\\u200bken', '[REDACTED]', 'mode', 'safe']);
+  assert.equal(redactAndBound({ name: 'pass\u200dword', value: marker }).value, '[REDACTED]');
+  assert.doesNotMatch(buildAgentSummary({ toolInput: input }), new RegExp(marker));
+});
+
 test('redacts hosted Git personal access tokens without hiding adjacent metadata', () => {
   const marker = 'NOFAX_SYNTHETIC_PAT_CREDENTIAL';
   const input = {
