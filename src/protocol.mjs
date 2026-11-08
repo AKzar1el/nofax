@@ -379,7 +379,8 @@ export function parseResponseMessage(message, { requestId, allowed, kind }) {
     if (kind === 'choice') return { decision: 'refine' };
     if (typeof parsed.text !== 'string') return null;
     const text = parsed.text.trim();
-    if (!text) return null;
+    // JSON permits escaped lone surrogates; never silently rewrite a human refinement.
+    if (!text || !text.isWellFormed()) return null;
     return { decision: 'refine', text: boundResponseText(text) };
   }
 

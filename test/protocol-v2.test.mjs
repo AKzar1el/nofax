@@ -16,6 +16,20 @@ test('parseResponseMessage accepts refinement text', () => {
   assert.deepEqual(result, { decision: 'refine', text: 'make it shorter' });
 });
 
+test('parseResponseMessage rejects ill-formed UTF-16 in human refinement text', () => {
+  for (const surrogate of ['\ud800', '\udc00']) {
+    // Escaped surrogate sequences are syntactically valid JSON but not valid text.
+    const message = JSON.stringify({ v: 1, requestId: 'nfx_test', decision: 'refine', text: `before${surrogate}after` });
+    assert.equal(parseResponseMessage(message, { requestId: 'nfx_test', allowed: ['refine'] }), null);
+  }
+
+  const emoji = 'Use \ud83d\udc69\u200d\ud83d\udcbb';
+  const validMessage = JSON.stringify({ v: 1, requestId: 'nfx_test', decision: 'refine', text: emoji });
+  assert.deepEqual(parseResponseMessage(validMessage, { requestId: 'nfx_test', allowed: ['refine'] }), {
+    decision: 'refine', text: emoji
+  });
+});
+
 test('parseResponseMessage preserves refinement text beyond the summary string bound', () => {
   const text = 'r'.repeat(1200);
   const result = parseResponseMessage(JSON.stringify({ v: 1, requestId: 'nfx_test', decision: 'refine', text }), {
