@@ -93,6 +93,21 @@ function validateAllowed(value: unknown): string[] {
   return allowed;
 }
 
+function validateAllowedForKind(kind: RequestKind, input: unknown): string[] {
+  const allowed = validateAllowed(input);
+  // A persisted approval cannot become an arbitrary choice by substituting
+  // its allow-list, including when reading legacy or corrupted SQL rows.
+  if (kind === "approval" &&
+      (!allowed.includes("allow") || !allowed.includes("deny") ||
+       allowed.some((decision) => !["allow", "deny", "refine"].includes(decision)))) {
+    throw new Error("NOFAX_REQUEST_ALLOWED_INVALID");
+  }
+  if (kind === "refinement" && (allowed.length !== 1 || allowed[0] !== "refine")) {
+    throw new Error("NOFAX_REQUEST_ALLOWED_INVALID");
+  }
+  return allowed;
+}
+
 function normalizePending(input: PendingRequestInput): PendingRequestInput {
   const requestId = validateRequestId(input?.requestId);
   if (!KINDS.has(input?.kind)) throw new Error("NOFAX_REQUEST_KIND_INVALID");
@@ -104,7 +119,7 @@ function normalizePending(input: PendingRequestInput): PendingRequestInput {
     kind: input.kind,
     title: boundText(input.title, 120, "TITLE"),
     message: boundText(input.message, 2200, "MESSAGE"),
-    allowed: validateAllowed(input.allowed),
+    allowed: validateAllowedForKind(input.kind, input.allowed),
     callbackHash: validateCallbackHash(input.callbackHash),
     createdAt,
     expiresAt
@@ -153,7 +168,7 @@ function rowToRequest(row: RequestRow): StoredRequest {
     status,
     title: row.title,
     message: row.message,
-    allowed: parseAllowed(row.allowed_json),
+    allowed: validateAllowedForKind(kind, parseAllowed(row.allowed_json)),
     callbackHash: validateCallbackHash(row.callback_hash),
     createdAt: row.created_at,
     expiresAt: row.expires_at
