@@ -106,6 +106,26 @@ test('local ntfy visibly escapes hidden format marks in messages and choice labe
   assert.ok(payload.message.includes('\nDeveloper 👩\u200d💻'));
 });
 
+test('local ntfy action labels expose zero-width joiners while preserving message emoji', async () => {
+  let payload;
+  await createRemoteRequest({
+    config,
+    title: 'Approval',
+    message: 'Developer 👩\u200d💻',
+    options: [
+      { value: 'allow', label: 'Al\u200clow' },
+      { value: 'deny', label: 'De\u200dny' }
+    ],
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.equal(payload.actions[0].label, 'Al\\u200clow');
+  assert.equal(payload.actions[1].label, 'De\\u200dny');
+  assert.equal(payload.message, 'Developer 👩\u200d💻');
+});
+
 test('local ntfy shows invisible Unicode operators and grapheme joiners as escapes', async () => {
   let payload;
   await createRemoteRequest({
@@ -970,13 +990,14 @@ test('choice labels may consist entirely of a visible joined emoji', async () =>
     config,
     title: 'Pick',
     message: 'Choose',
-    options: [{ value: 'developer', label: '👩‍💻' }],
+    options: [{ value: 'developer', label: '👩‍💻' }, { value: 'developer-modified', label: '👩🏽‍💻' }],
     fetchImpl: async (_url, init) => {
       payload = JSON.parse(init.body);
       return jsonResponse({ id: 'published' });
     }
   });
   assert.equal(payload.actions[0].label, '👩‍💻');
+  assert.equal(payload.actions[1].label, '👩🏽‍💻');
 });
 
 test('choice labels preserve Unicode at the ntfy visible-label boundary', async () => {
