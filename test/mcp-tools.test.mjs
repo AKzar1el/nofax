@@ -45,6 +45,28 @@ function makeHandlers({ home, pollResult = null, onConfirm = () => {}, onNotify 
   });
 }
 
+test('MCP notification and approval text rejects unpaired UTF-16 before side effects', async () => {
+  let notifications = 0;
+  let approvals = 0;
+  const handlers = createMcpToolHandlers({
+    loadConfigImpl: async () => config,
+    sendNotificationImpl: async () => { notifications += 1; },
+    createRemoteRequestImpl: async () => { approvals += 1; }
+  });
+
+  const high = '\ud800';
+  const low = '\udc00';
+  await assert.rejects(() => handlers.notify({ title: `Approval${high}`, message: 'Synthetic' }), /NOFAX_TITLE_INVALID_UTF8/);
+  await assert.rejects(() => handlers.notify({ title: 'Approval', message: `Synthetic${low}` }), /NOFAX_MESSAGE_INVALID_UTF8/);
+  await assert.rejects(() => handlers.requestApproval({ title: `Approval${low}`, message: 'Synthetic' }), /NOFAX_TITLE_INVALID_UTF8/);
+  await assert.rejects(() => handlers.requestApproval({ title: 'Approval', message: `Synthetic${high}` }), /NOFAX_MESSAGE_INVALID_UTF8/);
+  assert.equal(notifications, 0);
+  assert.equal(approvals, 0);
+
+  await handlers.notify({ title: 'Approved \ud83d\ude80', message: 'Paired emoji \ud83d\ude00' });
+  assert.equal(notifications, 1);
+});
+
 test('approval returns a durable pending handle and mandatory repeated-wait instruction', async (t) => {
   const home = await makeHome(t);
   const handlers = makeHandlers({ home });
