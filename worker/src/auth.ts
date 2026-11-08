@@ -1,6 +1,6 @@
 import type { Env } from "./env";
 
-function hasRepeatedKeyPattern(key: string): boolean {
+export function hasRepeatedKeyPattern(key: string): boolean {
   // Eight distinct symbols do not make a repeated, user-chosen motif secret.
   for (let length = 1; length <= Math.floor(key.length / 2); length += 1) {
     if (key.length % length === 0 && key === key.slice(0, length).repeat(key.length / length)) {

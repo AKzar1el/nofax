@@ -1,5 +1,6 @@
 import type { Env } from "./env";
 import { boundText } from "./protocol";
+import { hasRepeatedKeyPattern } from "./auth";
 
 type FetchLike = typeof fetch;
 
@@ -151,7 +152,8 @@ export async function publishNotification({
   const topic = typeof env.NTFY_TOPIC === "string" ? env.NTFY_TOPIC.trim() : "";
   if (!topic) throw new Error("NOFAX_NTFY_TOPIC_REQUIRED");
   // Topics are bearer-like capabilities: do not publish to short or path-like names.
-  if (topic.length < 24 || topic.length > 64 || !/^[A-Za-z0-9_-]+$/.test(topic) || new Set(topic).size < 8) {
+  if (topic.length < 24 || topic.length > 64 || !/^[A-Za-z0-9_-]+$/.test(topic) ||
+      new Set(topic).size < 8 || hasRepeatedKeyPattern(topic)) {
     throw new Error("NOFAX_NTFY_TOPIC_INVALID");
   }
   // Larger timer delays can overflow to an immediate timeout in Node runtimes.

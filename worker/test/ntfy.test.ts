@@ -369,6 +369,8 @@ describe("remote ntfy publisher", () => {
     const topics = [
       "short",
       "x".repeat(24),
+      "abcdefgh".repeat(4),
+      "abcdefghijkl".repeat(3),
       "x".repeat(65),
       "nofax/abcdefghijklmnopqrstuvwxyz123456",
       "nofax.abcdefghijklmnopqrstuvwxyz123456",
