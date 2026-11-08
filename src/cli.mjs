@@ -81,16 +81,17 @@ async function readStdin(stdinText, stdinStream = process.stdin) {
       const last = text.charCodeAt(text.length - 1);
       const hasHighSurrogate = last >= 0xD800 && last <= 0xDBFF;
       pendingHighSurrogate = hasHighSurrogate ? text.slice(-1) : '';
-      append(Buffer.from(hasHighSurrogate ? text.slice(0, -1) : text));
+      const completeText = hasHighSurrogate ? text.slice(0, -1) : text;
+      if (!completeText.isWellFormed()) throw new Error('NOFAX_HOOK_INVALID_UTF8');
+      append(Buffer.from(completeText));
     } else {
       if (pendingHighSurrogate) {
-        append(Buffer.from(pendingHighSurrogate));
-        pendingHighSurrogate = '';
+        throw new Error('NOFAX_HOOK_INVALID_UTF8');
       }
       append(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     }
   }
-  if (pendingHighSurrogate) append(Buffer.from(pendingHighSurrogate));
+  if (pendingHighSurrogate) throw new Error('NOFAX_HOOK_INVALID_UTF8');
   try {
     // Replacement characters would make the command shown for human approval
     // differ from the bytes supplied by the hook. Reject malformed input.

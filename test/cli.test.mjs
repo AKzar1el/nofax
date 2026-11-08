@@ -285,6 +285,39 @@ test('streamed hook input rejects malformed UTF-8 before loading config or reque
   }
 });
 
+test('string-stream hook input rejects lone UTF-16 surrogates before remote approval', async () => {
+  const validJson = JSON.stringify({
+    hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'echo X' }
+  });
+  const splitAt = validJson.indexOf('X');
+  for (const chunks of [
+    [validJson.replace('echo X', 'echo \uD83E!')],
+    [validJson.replace('echo X', 'echo \uDD84')],
+    [validJson.slice(0, splitAt) + '\uD83E', Buffer.from(validJson.slice(splitAt + 1))]
+  ]) {
+    for (const adapter of ['claude', 'codex', 'gemini']) {
+      async function* stdinStream() {
+        yield* chunks;
+      }
+      const stdout = capture();
+      const stderr = capture();
+      let sideEffects = 0;
+      const code = await runCli(['hook', adapter], {
+        stdinStream: stdinStream(),
+        stdout,
+        stderr,
+        loadConfigImpl: async () => { sideEffects += 1; return {}; },
+        requestApprovalImpl: async () => { sideEffects += 1; return { decision: 'allow' }; }
+      });
+      assert.equal(code, 0);
+      assert.equal(sideEffects, 0, 'malformed text must not reach configuration or approval');
+      assert.match(stderr.read(), /NOFAX_HOOK_INVALID_UTF8/);
+      if (adapter === 'gemini') assert.deepEqual(JSON.parse(stdout.read()), { decision: 'ask' });
+      else assert.equal(stdout.read(), '');
+    }
+  }
+});
+
 test('streamed hook input preserves a surrogate pair split across string chunks', async () => {
   const input = JSON.stringify({
     hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'echo 🦄' }
