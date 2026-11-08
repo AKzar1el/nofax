@@ -23,6 +23,12 @@ function visibleNotificationText(value) {
     : value;
 }
 
+function visibleNotificationTitle(value) {
+  const visible = visibleNotificationText(value);
+  // Titles are single-line; a raw newline could impersonate notification body text.
+  return typeof visible === 'string' ? visible.replace(/\n/g, '\\u000a') : visible;
+}
+
 function safeSliceEnd(text, end) {
   const previous = text.charCodeAt(end - 1);
   return previous >= 0xD800 && previous <= 0xDBFF ? end - 1 : end;
@@ -162,7 +168,7 @@ export async function sendNotification({ config, title, message, actions, priori
   const authorization = publishAuthorization(config, authToken);
   const payload = {
     topic,
-    title: boundText(visibleNotificationText(title), MAX_TITLE, 'TITLE'),
+    title: boundText(visibleNotificationTitle(title), MAX_TITLE, 'TITLE'),
     message: boundMessageText(visibleNotificationText(message)),
     priority,
     tags

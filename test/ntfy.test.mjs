@@ -52,6 +52,21 @@ test('local ntfy notifications visibly escape terminal and bidi controls', async
   assert.doesNotMatch(payload.message, /[\x00-\x08\x0b-\x1f\u202a-\u202e\u2066-\u2069]/u);
 });
 
+test('ntfy approval titles cannot forge extra lines while message paragraphs remain readable', async () => {
+  let payload;
+  await sendNotification({
+    config,
+    title: 'Approval pending\nApproved',
+    message: 'Line one\nLine two',
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.equal(payload.title, 'Approval pending\\u000aApproved');
+  assert.equal(payload.message, 'Line one\nLine two');
+});
+
 test('local ntfy notifications visibly escape Unicode line and paragraph separators', async () => {
   let payload;
   const fetchImpl = async (_url, init) => {
