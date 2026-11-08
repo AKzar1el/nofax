@@ -23,6 +23,20 @@ test('init creates config and prints a subscription URL', async (t) => {
   assert.equal(stderr.read(), '');
 });
 
+test('config warns about a legacy repeated topic without leaking it in diagnostics', async () => {
+  const topic = 'nofax_123'.repeat(4);
+  const config = { version: 1, server: 'https://ntfy.sh', topic, timeoutSeconds: 300 };
+  const stdout = capture();
+  const stderr = capture();
+  const code = await runCli(['config'], {
+    stdout, stderr, loadConfigImpl: async () => config
+  });
+  assert.equal(code, 0);
+  assert.deepEqual(JSON.parse(stdout.read()), config);
+  assert.match(stderr.read(), /repeated.*rotate/i);
+  assert.doesNotMatch(stderr.read(), new RegExp(topic));
+});
+
 test('generic approve prints stable machine-readable JSON', async () => {
   const stdout = capture();
   const stderr = capture();

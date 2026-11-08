@@ -74,6 +74,19 @@ export function validateTopic(topic) {
   return topic;
 }
 
+export function hasRepeatedTopicPattern(topic) {
+  if (typeof topic !== 'string' || topic.length < 24) return false;
+  // Full repetition of a short user-picked motif is guessable even when it
+  // contains eight distinct characters. Do not reject legacy config on load.
+  for (let motifLength = 1; motifLength <= Math.floor(topic.length / 2); motifLength += 1) {
+    if (topic.length % motifLength === 0 &&
+        topic === topic.slice(0, motifLength).repeat(topic.length / motifLength)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function validateTimeout(value) {
   if (!Number.isInteger(value) || value < 5 || value > 3600) throw new Error('NOFAX_TIMEOUT_INVALID');
   return value;
@@ -117,6 +130,11 @@ export async function initConfig({ home, env, server = DEFAULT_SERVER, topic, ti
     topic: topic ?? createPhoneTopic(),
     timeoutSeconds
   });
+  // A newly supplied capability must not be trivially repetitive. Existing
+  // installations remain readable until the owner rotates subscriptions.
+  if (topic !== undefined && hasRepeatedTopicPattern(config.topic)) {
+    throw new Error('NOFAX_TOPIC_PREDICTABLE');
+  }
   await mkdir(root, { recursive: true, mode: 0o700 });
   const path = join(root, 'config.json');
   const temporaryPath = join(root, `.config.json.${randomUUID()}.tmp`);

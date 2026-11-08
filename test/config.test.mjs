@@ -133,3 +133,24 @@ test('rejects predictable phone topics that disclose notification capabilities',
     assert.throws(() => validateConfig({ ...config, topic }), /NOFAX_TOPIC_INVALID/, topic);
   }
 });
+
+test('new custom phone topics reject repeated patterns without invalidating existing subscriptions', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-topic-repetition-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const repeated = ['nofax_123'.repeat(4), 'abcdefgh'.repeat(3), 'aabbccddeeffgghh'.repeat(2)];
+
+  for (const topic of repeated) {
+    await assert.rejects(initConfig({ home, topic }), /NOFAX_TOPIC_PREDICTABLE/, topic);
+    await assert.rejects(loadConfig({ home }), /NOFAX_NOT_INITIALIZED/);
+  }
+
+  // Legacy topics must still load so users can rotate the phone subscription
+  // intentionally instead of silently losing remote approval notifications.
+  const legacy = {
+    version: 1, server: 'https://ntfy.sh', topic: repeated[0], timeoutSeconds: 300
+  };
+  await writeFile(join(home, 'config.json'), JSON.stringify(legacy));
+  assert.deepEqual(await loadConfig({ home }), legacy);
+  assert.deepEqual(await initConfig({ home }), legacy);
+  assert.match((await initConfig({ home, force: true })).topic, /^nofax_[A-Za-z0-9_-]{32}$/);
+});

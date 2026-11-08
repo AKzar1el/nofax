@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { initConfig, loadConfig } from './config.mjs';
+import { hasRepeatedTopicPattern, initConfig, loadConfig } from './config.mjs';
 import { requestApproval, requestRefinement, sendNotification } from './ntfy.mjs';
 import { handleClaudePermissionRequest } from './adapters/claude.mjs';
 import { handleCodexPermissionRequest } from './adapters/codex.mjs';
@@ -53,6 +53,12 @@ function parseArgs(args, allowedFlags = []) {
 
 function rejectUnexpectedArgs(positionals) {
   if (positionals.length > 0) throw new Error(`NOFAX_UNEXPECTED_ARGUMENT:${positionals[0]}`);
+}
+
+function warnLegacyTopic(config, stderr) {
+  if (hasRepeatedTopicPattern(config?.topic)) {
+    stderr.write('nofax: warning: existing phone topic has a repeated pattern and may be guessable; rotate with "nofax init --force" and resubscribe your phone.\n');
+  }
 }
 
 async function readStdin(stdinText, stdinStream = process.stdin) {
@@ -194,6 +200,7 @@ export async function runCli(args, overrides = {}) {
       deps.stdout.write('Nofax ready.\n');
       deps.stdout.write(`Subscribe your ntfy app to: ${config.server}/${config.topic}\n`);
       deps.stdout.write('Then run: nofax test\n');
+      warnLegacyTopic(config, deps.stderr);
       return 0;
     }
 
@@ -201,6 +208,7 @@ export async function runCli(args, overrides = {}) {
       rejectUnexpectedArgs(args.slice(1));
       const config = await deps.loadConfigImpl({ env: deps.env });
       deps.stdout.write(`${JSON.stringify(config, null, 2)}\n`);
+      warnLegacyTopic(config, deps.stderr);
       return 0;
     }
 
