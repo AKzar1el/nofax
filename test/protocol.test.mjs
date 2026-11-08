@@ -35,6 +35,17 @@ test('approval summaries visibly escape hidden format marks but preserve emoji j
   assert.ok(outputs[1].includes(' now\nDeveloper'), 'ordinary line breaks remain readable');
 });
 
+test('approval summaries expose non-emoji joiners without breaking emoji sequences', () => {
+  const message = 'A\u200cllow D\u200deny Team 👩🏽\u200d💻';
+  for (const output of [
+    redactAndBound(message),
+    buildAgentSummary({ message, toolInput: { note: message } })
+  ]) {
+    assert.ok(output.includes('A\\u200cllow D\\u200deny'), 'hidden joiners in words must be visible');
+    assert.ok(output.includes('👩🏽\u200d💻'), 'emoji ZWJ with skin-tone modifier stays joined');
+  }
+});
+
 test('redacts credentials from escaped and double-escaped JSON in agent summaries', () => {
   const marker = 'NOFAX_SYNTHETIC_ESCAPED_JSON_SECRET_CANARY_12345';
   const object = JSON.stringify({ api_key: marker, accessToken: marker, note: 'run tests' });
