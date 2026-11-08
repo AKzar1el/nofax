@@ -159,6 +159,23 @@ describe("remote ntfy publisher", () => {
     expect(payload?.message).toContain("\nNo decision recorded");
   });
 
+  it("exposes hidden title joiners without breaking joined emoji", async () => {
+    let payload: { title: string; message: string } | undefined;
+    const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      payload = JSON.parse(String(init?.body));
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+
+    await publishNotification({
+      env: env(),
+      title: "Al\u200clow De\u200dny 👩🏽\u200d💻",
+      message: "Human decision still pending",
+      fetchImpl
+    });
+
+    expect(payload?.title).toBe("Al\\u200clow De\\u200dny 👩🏽\u200d💻");
+  });
+
   it("escapes hidden format marks without breaking emoji joiners or message line breaks", async () => {
     let payload: { title: string; message: string } | undefined;
     const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {

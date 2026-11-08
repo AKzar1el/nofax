@@ -16,8 +16,23 @@ function visibleNotificationText(value: string): string {
 }
 
 function visibleNotificationTitle(value: string): string {
-  // Titles must remain single-line so untrusted text cannot impersonate body content.
-  return visibleNotificationText(value).replace(/\n/g, "\\u000a");
+  // Titles are single-line decision cues, so hidden joiners must not disguise
+  // words; retain only genuine joined emoji, including skin-tone sequences.
+  const characters = [...value];
+  return characters.map((character, index) => {
+    if (character === "\n") return "\\u000a";
+    if (character === "\u200c" || character === "\u200d") {
+      let before = index - 1;
+      while (before >= 0 && /[\ufe0e\ufe0f\p{Emoji_Modifier}]/u.test(characters[before])) before--;
+      if (character === "\u200d" &&
+          /\p{Extended_Pictographic}/u.test(characters[before] ?? "") &&
+          /\p{Extended_Pictographic}/u.test(characters[index + 1] ?? "")) {
+        return character;
+      }
+      return `\\u${character.codePointAt(0)!.toString(16).padStart(4, "0")}`;
+    }
+    return visibleNotificationText(character);
+  }).join("");
 }
 
 function boundNtfyMessage(value: string): string {

@@ -24,9 +24,11 @@ function visibleNotificationText(value) {
 }
 
 function visibleNotificationTitle(value) {
-  const visible = visibleNotificationText(value);
-  // Titles are single-line; a raw newline could impersonate notification body text.
-  return typeof visible === 'string' ? visible.replace(/\n/g, '\\u000a') : visible;
+  if (typeof value !== 'string') return value;
+  // A title is a single-line decision cue; expose hidden joiners between letters
+  // while preserving real joined emoji such as 👩🏽‍💻.
+  const characters = [...value];
+  return characters.map((character, index) => visibleActionCharacter(character, characters, index)).join('');
 }
 
 function visibleActionCharacter(character, characters, index) {
