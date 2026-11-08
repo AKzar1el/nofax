@@ -91,6 +91,23 @@ test('local ntfy visibly escapes hidden format marks in messages and choice labe
   assert.ok(payload.message.includes('\nDeveloper 👩\u200d💻'));
 });
 
+test('local ntfy shows invisible Unicode operators and grapheme joiners as escapes', async () => {
+  let payload;
+  await createRemoteRequest({
+    config,
+    title: 'Pending\u2061approved',
+    message: 'Review\u034fstatus\u2063now',
+    options: [{ value: 'allow', label: 'Allow\u2064' }, { value: 'deny', label: 'Deny' }],
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.equal(payload.title, 'Pending\\u2061approved');
+  assert.equal(payload.message, 'Review\\u034fstatus\\u2063now');
+  assert.equal(payload.actions[0].label, 'Allow\\u2064');
+});
+
 test('local ntfy display escaping still enforces title and UTF-8 message bounds', async () => {
   let payload;
   const fetchImpl = async (_url, init) => {
