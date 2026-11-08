@@ -158,6 +158,24 @@ describe("remote ntfy publisher", () => {
     expect(payload?.message).toBe("Review\\u200b\\u2060\\ufeff required\nFamily: 👨‍👩‍👧");
   });
 
+  it("makes grapheme joiners and invisible math operators visible in phone notices", async () => {
+    let payload: { title: string; message: string } | undefined;
+    const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      payload = JSON.parse(String(init?.body));
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+
+    await publishNotification({
+      env: env(),
+      title: "Pending\u034f\u2061Approved",
+      message: "Review\u2062\u2063\u2064 required\nStill pending",
+      fetchImpl
+    });
+
+    expect(payload?.title).toBe("Pending\\u034f\\u2061Approved");
+    expect(payload?.message).toBe("Review\\u2062\\u2063\\u2064 required\nStill pending");
+  });
+
   it("bounds notification payloads after expanding unsafe display controls", async () => {
     let payload: { title: string; message: string } | undefined;
     const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {

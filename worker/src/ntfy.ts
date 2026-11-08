@@ -11,7 +11,7 @@ function visibleNotificationText(value: string): string {
   // MCP callers can supply terminal controls or Unicode direction overrides.
   // Keep ordinary line breaks and emoji joiners, but quote invisible marks
   // that could visually disguise a phone notification's title or message.
-  return value.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u061c\u200b\u200e-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff]/gu,
+  return value.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u034f\u061c\u200b\u200e-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/gu,
     (character) => `\\u${character.codePointAt(0)!.toString(16).padStart(4, "0")}`);
 }
 
