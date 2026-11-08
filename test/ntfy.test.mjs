@@ -528,11 +528,12 @@ test('sendNotification releases an unread successful publish response body', asy
   assert.equal(cancelled, 1);
 });
 
-test('sendNotification releases failed response bodies and treats auth refusals as not applied', async () => {
+test('sendNotification releases failed response bodies and classifies definitive rejections', async () => {
   for (const [status, deliveryState] of [
     [400, 'not_applied'],
     [401, 'not_applied'],
     [403, 'not_applied'],
+    [413, 'not_applied'],
     [429, 'not_applied'],
     [503, 'ambiguous']
   ]) {
