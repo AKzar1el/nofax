@@ -73,6 +73,22 @@ test('CLI error diagnostics quote terminal controls and forged log lines', async
   assert.equal(stderr.read(), 'nofax: upstream failed \\u001b[2J\\u000anofax: approved \\u202eDENY\n');
 });
 
+test('CLI diagnostics expose invisible Unicode that can disguise approval words', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  const code = await runCli(['notify', 'Check status'], {
+    stdout,
+    stderr,
+    loadConfigImpl: async () => ({}),
+    sendNotificationImpl: async () => {
+      throw new Error('A\u200blow D\u200deny \u00ad\u2060\ufeff');
+    }
+  });
+  assert.equal(code, 1);
+  assert.equal(stdout.read(), '');
+  assert.equal(stderr.read(), 'nofax: A\\u200blow D\\u200deny \\u00ad\\u2060\\ufeff\n');
+});
+
 test('hook approval errors cannot inject terminal controls into fallback diagnostics', async () => {
   const stdout = capture();
   const stderr = capture();
