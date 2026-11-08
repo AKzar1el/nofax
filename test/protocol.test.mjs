@@ -20,13 +20,13 @@ test('approval summaries expose display-control characters literally instead of 
 });
 
 test('approval summaries visibly escape hidden format marks but preserve emoji joiners', () => {
-  const message = 'Allow\u061c\u200b\u200e\u200f\u2060\ufeff now\nDeveloper 👩\u200d💻';
+  const message = 'Allow\u034f\u061c\u200b\u200e\u200f\u2060\u2061\u2062\u2063\u2064\ufeff now\nDeveloper 👩\u200d💻';
   const outputs = [
     redactAndBound(message),
     buildAgentSummary({ message, toolInput: { note: message } })
   ];
   for (const output of outputs) {
-    for (const codePoint of ['061c', '200b', '200e', '200f', '2060', 'feff']) {
+    for (const codePoint of ['034f', '061c', '200b', '200e', '200f', '2060', '2061', '2062', '2063', '2064', 'feff']) {
       assert.doesNotMatch(output, new RegExp(String.fromCodePoint(Number.parseInt(codePoint, 16))));
       assert.ok(output.includes(`\\u${codePoint}`), `format mark U+${codePoint} must be visible`);
     }
