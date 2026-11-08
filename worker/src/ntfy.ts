@@ -15,6 +15,11 @@ function visibleNotificationText(value: string): string {
     (character) => `\\u${character.codePointAt(0)!.toString(16).padStart(4, "0")}`);
 }
 
+function visibleNotificationTitle(value: string): string {
+  // Titles must remain single-line so untrusted text cannot impersonate body content.
+  return visibleNotificationText(value).replace(/\n/g, "\\u000a");
+}
+
 function boundNtfyMessage(value: string): string {
   const text = boundText(value, 2200, "MESSAGE");
   const encoder = new TextEncoder();
@@ -159,7 +164,7 @@ export async function publishNotification({
   // Otherwise a local validation error is mislabeled as a network failure.
   const body = JSON.stringify({
     topic,
-    title: boundText(visibleNotificationText(title), 120, "TITLE"),
+    title: boundText(visibleNotificationTitle(title), 120, "TITLE"),
     message: boundNtfyMessage(visibleNotificationText(message)),
     priority: 4,
     tags: ["bell"]
