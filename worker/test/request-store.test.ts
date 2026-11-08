@@ -72,6 +72,38 @@ describe("NofaxRequestStore", () => {
     expect(await stub.getByCallbackHash(created.callbackHash, 2_000)).toEqual(created);
   });
 
+  it("rejects request kinds with incompatible decision allow-lists before persistence", async () => {
+    await runInDurableObject(rawStore("kind-allowed-invariant"), async (instance) => {
+      for (const invalid of [
+        pending({ allowed: ["allow", "execute"] }),
+        pending({ allowed: ["allow"] }),
+        pending({ kind: "refinement", allowed: ["allow", "deny"] }),
+        pending({ kind: "refinement", allowed: ["refine", "deny"] })
+      ]) {
+        await expect(instance.createRequest(invalid)).rejects.toThrow("NOFAX_REQUEST_ALLOWED_INVALID");
+      }
+      expect(instance.getRequest(pending().requestId)).toBeNull();
+    });
+  });
+
+  it("refuses corrupt legacy approval allow-lists before inspection or callback resolution", async () => {
+    const raw = rawStore("legacy-kind-allowed-invariant");
+    const stub = raw as unknown as RequestStoreStub;
+    const input = pending();
+    await stub.createRequest(input);
+    await runInDurableObject(raw, async (instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE requests SET allowed_json = ? WHERE request_id = ?",
+        JSON.stringify(["allow", "execute"]), input.requestId
+      );
+      expect(() => instance.getRequest(input.requestId)).toThrow("NOFAX_REQUEST_ALLOWED_INVALID");
+      expect(() => instance.resolveByCallbackHash({
+        callbackHash: input.callbackHash, decision: "execute", nowMs: 2_000
+      })).toThrow("NOFAX_REQUEST_ALLOWED_INVALID");
+      expect(instance.listPending(1, 2_000)).toEqual([]);
+    });
+  });
+
   it("rejects unsupported alarm and ISO timestamp ranges before storing requests", async () => {
     const raw = rawStore("invalid-date-range");
     const outsideDateRange = 8_640_000_000_000_001;
