@@ -149,13 +149,13 @@ describe("remote ntfy publisher", () => {
 
     await publishNotification({
       env: env(),
-      title: "Pending\u200e\u200f\u061c Approved",
-      message: "Review\u200b\u2060\ufeff required\nFamily: 👨‍👩‍👧",
+      title: "Pending\u034f\u200e\u200f\u061c Approved",
+      message: "Review\u200b\u2060\u2061\u2062\u2063\u2064\ufeff required\nFamily: 👨‍👩‍👧",
       fetchImpl
     });
 
-    expect(payload?.title).toBe("Pending\\u200e\\u200f\\u061c Approved");
-    expect(payload?.message).toBe("Review\\u200b\\u2060\\ufeff required\nFamily: 👨‍👩‍👧");
+    expect(payload?.title).toBe("Pending\\u034f\\u200e\\u200f\\u061c Approved");
+    expect(payload?.message).toBe("Review\\u200b\\u2060\\u2061\\u2062\\u2063\\u2064\\ufeff required\nFamily: 👨‍👩‍👧");
   });
 
   it("bounds notification payloads after expanding unsafe display controls", async () => {
