@@ -15,11 +15,11 @@ const NOT_APPLIED_PUBLISH_STATUSES = new Set([400, 401, 403, 413, 429]);
 
 function visibleNotificationText(value) {
   // Never let untrusted notification text visually alter its own display.
-  // Keep ordinary line breaks and emoji joiners, but quote invisible direction
-  // marks and zero-width separators that can disguise decision labels.
+  // Keep ordinary line breaks and genuine emoji joiners, but expose invisible
+  // separators embedded in words that can disguise decision labels.
   return typeof value === 'string'
-    ? value.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u00ad\u034f\u061c\u180e\u200b\u200e-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/gu,
-      (character) => `\\u${character.codePointAt(0).toString(16).padStart(4, '0')}`)
+    ? [...value].map((character, index, characters) =>
+      visibleNotificationCharacter(character, characters, index)).join('')
     : value;
 }
 
@@ -29,8 +29,7 @@ function visibleNotificationTitle(value) {
   return typeof visible === 'string' ? visible.replace(/\n/g, '\\u000a') : visible;
 }
 
-function visibleActionCharacter(character, characters, index) {
-  if (character === '\n') return '\\u000a';
+function visibleNotificationCharacter(character, characters, index) {
   // Preserve genuine emoji ZWJ sequences, including skin-tone modifiers, but
   // expose joiners hidden inside decision words rather than disguising choices.
   if (character === '\u200c' || character === '\u200d') {
@@ -43,7 +42,13 @@ function visibleActionCharacter(character, characters, index) {
     }
     return `\\u${character.codePointAt(0).toString(16).padStart(4, '0')}`;
   }
-  return visibleNotificationText(character);
+  return character.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u00ad\u034f\u061c\u180e\u200b\u200e-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/gu,
+    (control) => `\\u${control.codePointAt(0).toString(16).padStart(4, '0')}`);
+}
+
+function visibleActionCharacter(character, characters, index) {
+  if (character === '\n') return '\\u000a';
+  return visibleNotificationCharacter(character, characters, index);
 }
 
 function safeSliceEnd(text, end) {

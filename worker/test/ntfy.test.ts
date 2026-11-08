@@ -177,6 +177,24 @@ describe("remote ntfy publisher", () => {
     expect(payload?.message).toBe("Review\\u200b\\u2060\\ufeff required\nFamily: 👨‍👩‍👧");
   });
 
+  it("exposes joiners inside notice words while preserving genuine emoji sequences", async () => {
+    let payload: { title: string; message: string } | undefined;
+    const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      payload = JSON.parse(String(init?.body));
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+
+    await publishNotification({
+      env: env(),
+      title: "Al\u200dlow",
+      message: "De\u200cny 👩🏽\u200d💻",
+      fetchImpl
+    });
+
+    expect(payload?.title).toBe("Al\\u200dlow");
+    expect(payload?.message).toBe("De\\u200cny 👩🏽\u200d💻");
+  });
+
   it("makes grapheme joiners and invisible math operators visible in phone notices", async () => {
     let payload: { title: string; message: string } | undefined;
     const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
