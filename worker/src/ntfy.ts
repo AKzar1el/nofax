@@ -7,6 +7,16 @@ const MAX_ERROR_BODY_BYTES = 2_048;
 const MAX_NTFY_MESSAGE_BYTES = 4_096;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 
+function hasRepeatedTopicPattern(topic: string): boolean {
+  // Even eight distinct characters can form a short, guessable repeating topic.
+  for (let length = 1; length <= Math.floor(topic.length / 2); length += 1) {
+    if (topic.length % length === 0 && topic === topic.slice(0, length).repeat(topic.length / length)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function visibleNotificationText(value: string): string {
   // MCP callers can supply terminal controls or Unicode direction overrides.
   // Preserve emoji ZWJ sequences, but expose hidden joiners inside words.
@@ -163,7 +173,8 @@ export async function publishNotification({
   const topic = typeof env.NTFY_TOPIC === "string" ? env.NTFY_TOPIC.trim() : "";
   if (!topic) throw new Error("NOFAX_NTFY_TOPIC_REQUIRED");
   // Topics are bearer-like capabilities: do not publish to short or path-like names.
-  if (topic.length < 24 || topic.length > 64 || !/^[A-Za-z0-9_-]+$/.test(topic) || new Set(topic).size < 8) {
+  if (topic.length < 24 || topic.length > 64 || !/^[A-Za-z0-9_-]+$/.test(topic) ||
+      new Set(topic).size < 8 || hasRepeatedTopicPattern(topic)) {
     throw new Error("NOFAX_NTFY_TOPIC_INVALID");
   }
   // Larger timer delays can overflow to an immediate timeout in Node runtimes.

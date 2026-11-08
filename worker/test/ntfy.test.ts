@@ -406,6 +406,7 @@ describe("remote ntfy publisher", () => {
       "short",
       "x".repeat(24),
       "x".repeat(65),
+      "abcDEF12".repeat(4),
       "nofax/abcdefghijklmnopqrstuvwxyz123456",
       "nofax.abcdefghijklmnopqrstuvwxyz123456",
       "nofax_abcdefghijklmnopqrstuvwxyz123456?x=1"
