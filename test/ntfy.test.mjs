@@ -143,6 +143,27 @@ test('local ntfy shows invisible Unicode operators and grapheme joiners as escap
   assert.equal(payload.actions[0].label, 'Allow\\u2064');
 });
 
+test('local ntfy exposes soft hyphen and Mongolian vowel separator in phone choices', async () => {
+  let payload;
+  await createRemoteRequest({
+    config,
+    title: 'Approval\u00adneeded',
+    message: 'Review\u180enow',
+    options: [
+      { value: 'first', label: 'Al\u00adlow' },
+      { value: 'second', label: 'Deny' }
+    ],
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.equal(payload.title, 'Approval\\u00adneeded');
+  assert.equal(payload.message, 'Review\\u180enow');
+  assert.equal(payload.actions[0].label, 'Al\\u00adlow');
+  assert.equal(JSON.parse(payload.actions[0].body).decision, 'first');
+});
+
 test('local ntfy display escaping still enforces title and UTF-8 message bounds', async () => {
   let payload;
   const fetchImpl = async (_url, init) => {

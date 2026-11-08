@@ -195,6 +195,24 @@ describe("remote ntfy publisher", () => {
     expect(payload?.message).toBe("Review\\u2062\\u2063\\u2064 required\nStill pending");
   });
 
+  it("exposes soft hyphen and Mongolian vowel separator in remote notification text", async () => {
+    let payload: { title: string; message: string } | undefined;
+    const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      payload = JSON.parse(String(init?.body));
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+
+    await publishNotification({
+      env: env(),
+      title: "Approval\u00adneeded",
+      message: "Review\u180enow",
+      fetchImpl
+    });
+
+    expect(payload?.title).toBe("Approval\\u00adneeded");
+    expect(payload?.message).toBe("Review\\u180enow");
+  });
+
   it("bounds notification payloads after expanding unsafe display controls", async () => {
     let payload: { title: string; message: string } | undefined;
     const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
