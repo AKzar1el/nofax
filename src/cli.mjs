@@ -60,6 +60,11 @@ async function readStdin(stdinText, stdinStream = process.stdin) {
     if (Buffer.byteLength(stdinText, 'utf8') > MAX_HOOK_STDIN_BYTES) {
       throw new Error('NOFAX_HOOK_INPUT_TOO_LARGE');
     }
+    // Match stream validation: malformed JavaScript text must never be
+    // normalized before a human sees the command requiring approval.
+    if (typeof stdinText === 'string' && !stdinText.isWellFormed()) {
+      throw new Error('NOFAX_HOOK_INVALID_UTF8');
+    }
     return stdinText;
   }
 
