@@ -126,6 +126,21 @@ test('local ntfy action labels expose zero-width joiners while preserving messag
   assert.equal(payload.message, 'Developer 👩\u200d💻');
 });
 
+test('local ntfy exposes word-hidden joiners in titles and messages but keeps emoji joins', async () => {
+  let payload;
+  await sendNotification({
+    config,
+    title: 'Al\u200dlow',
+    message: 'De\u200cny 👩🏽\u200d💻',
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.equal(payload.title, 'Al\\u200dlow');
+  assert.equal(payload.message, 'De\\u200cny 👩🏽\u200d💻');
+});
+
 test('local ntfy shows invisible Unicode operators and grapheme joiners as escapes', async () => {
   let payload;
   await createRemoteRequest({
