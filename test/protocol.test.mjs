@@ -35,6 +35,18 @@ test('approval summaries visibly escape hidden format marks but preserve emoji j
   assert.ok(outputs[1].includes(' now\nDeveloper'), 'ordinary line breaks remain readable');
 });
 
+test('approval summaries reveal hidden word separators without splitting emoji', () => {
+  const message = 'App\u00adrove Re\u180eview De\u200ccide Al\u200dlow Developer 👩\u200d💻';
+  const outputs = [redactAndBound(message), buildAgentSummary({ message })];
+  for (const output of outputs) {
+    assert.ok(output.includes('App\\u00adrove'), 'soft hyphens are visible');
+    assert.ok(output.includes('Re\\u180eview'), 'Mongolian separators are visible');
+    assert.ok(output.includes('De\\u200ccide'), 'zero-width non-joiners are visible');
+    assert.ok(output.includes('Al\\u200dlow'), 'non-emoji joiners are visible');
+    assert.ok(output.includes('Developer 👩\u200d💻'), 'genuine emoji joiners remain intact');
+  }
+});
+
 test('redacts credentials from escaped and double-escaped JSON in agent summaries', () => {
   const marker = 'NOFAX_SYNTHETIC_ESCAPED_JSON_SECRET_CANARY_12345';
   const object = JSON.stringify({ api_key: marker, accessToken: marker, note: 'run tests' });

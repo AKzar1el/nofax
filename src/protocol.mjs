@@ -224,8 +224,17 @@ function safeSliceEnd(text, end) {
 function escapeDisplayControls(text) {
   // Human-facing summaries must reveal hidden direction and zero-width marks,
   // while retaining ordinary line breaks and emoji joiners.
-  return text.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u034f\u061c\u200b\u200e-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/gu,
-    (character) => `\\u${character.codePointAt(0).toString(16).padStart(4, '0')}`);
+  const characters = [...text];
+  return characters.map((character, index) => {
+    if (character === '\u200d') {
+      let before = index - 1;
+      while (before >= 0 && /[\ufe0e\ufe0f\p{Emoji_Modifier}]/u.test(characters[before])) before--;
+      if (/\p{Extended_Pictographic}/u.test(characters[before] ?? '') &&
+          /\p{Extended_Pictographic}/u.test(characters[index + 1] ?? '')) return character;
+    }
+    if (!/[\x00-\x08\x0b-\x1f\x7f-\x9f\u00ad\u034f\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/u.test(character)) return character;
+    return `\\u${character.codePointAt(0).toString(16).padStart(4, '0')}`;
+  }).join('');
 }
 
 function boundResponseText(value) {
