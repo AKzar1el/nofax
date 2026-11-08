@@ -198,6 +198,37 @@ test('local ntfy display escaping still enforces title and UTF-8 message bounds'
   assert.doesNotMatch(payload.message, /\u202e/);
 });
 
+test('direct ntfy notifications and approval persistence reject malformed UTF-16 text', async () => {
+  let published = 0;
+  let persisted = 0;
+  const fetchImpl = async () => { published += 1; return jsonResponse({ id: 'unexpected' }); };
+  for (const surrogate of ['\ud800', '\udc00']) {
+    for (const field of ['title', 'message']) {
+      const input = { title: 'Permission needed', message: 'Review the action' };
+      input[field] = `Before${surrogate}after`;
+      const error = new RegExp(`NOFAX_${field.toUpperCase()}_INVALID_UTF16`);
+      await assert.rejects(() => sendNotification({ config, ...input, fetchImpl }), error);
+      await assert.rejects(() => createRemoteRequest({
+        config, ...input, options: ['allow', 'deny'], fetchImpl,
+        beforePublish: async () => { persisted += 1; }
+      }), error);
+    }
+  }
+  assert.equal(published, 0);
+  assert.equal(persisted, 0);
+
+  let sent;
+  await sendNotification({
+    config, title: 'Paired \ud83d\udc69', message: 'Emoji \ud83d\udc69\u200d\ud83d\udcbb',
+    fetchImpl: async (_url, init) => {
+      sent = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.equal(sent.title, 'Paired \ud83d\udc69');
+  assert.equal(sent.message, 'Emoji \ud83d\udc69\u200d\ud83d\udcbb');
+});
+
 test('unsafe cleartext ntfy servers fail before publish, approval persistence, or polling', async () => {
   const unsafe = { ...config, server: 'http://ntfy.example.invalid' };
   let networkCalls = 0;
