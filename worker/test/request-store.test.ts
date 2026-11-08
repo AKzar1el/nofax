@@ -123,6 +123,28 @@ describe("NofaxRequestStore", () => {
     });
   });
 
+  it("rejects pending legacy rows containing terminal decision fields", async () => {
+    const raw = rawStore("pending-with-terminal-columns");
+    const stub = raw as unknown as RequestStoreStub;
+    const input = pending();
+    await stub.createRequest(input);
+
+    await runInDurableObject(raw, async (instance, state) => {
+      for (const update of [
+        "UPDATE requests SET decision = 'deny' WHERE request_id = ?",
+        "UPDATE requests SET decision = NULL, resolved_at = 2000 WHERE request_id = ?",
+        "UPDATE requests SET resolved_at = NULL, text = 'private' WHERE request_id = ?"
+      ]) {
+        state.storage.sql.exec(update, input.requestId);
+        expect(() => instance.getRequest(input.requestId)).toThrow("NOFAX_REQUEST_ROW_INVALID");
+        expect(() => instance.resolveByCallbackHash({
+          callbackHash: input.callbackHash, decision: "allow", nowMs: 2_000
+        })).toThrow("NOFAX_REQUEST_ROW_INVALID");
+        expect(instance.listPending(1, 2_000)).toEqual([]);
+      }
+    });
+  });
+
   it("rejects corrupt legacy notification text without hiding other pending approvals", async () => {
     const raw = rawStore("corrupt-row-text");
     const stub = raw as unknown as RequestStoreStub;
