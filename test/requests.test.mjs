@@ -351,6 +351,36 @@ test('pending requests preserve optional notification transport affinity', async
   assert.equal(resolved.topic, request.topic);
 });
 
+test('new pending requests reject guessable affinity topics without invalidating legacy records', async (t) => {
+  const root = await home(t);
+  const weakTopic = 'abcdefgh'.repeat(3);
+  const request = {
+    ...pending,
+    requestId: 'nfx_abcdefghijklmnopqrstuvw9',
+    server: 'https://ntfy.example',
+    topic: weakTopic
+  };
+
+  await assert.rejects(
+    savePendingRequest({ home: root, request }),
+    /NOFAX_TOPIC_INVALID/
+  );
+
+  // A previously stored human decision still needs to be readable, even if
+  // its historic phone topic no longer meets today's creation requirements.
+  const requestsRoot = join(root, 'requests');
+  await mkdir(requestsRoot, { recursive: true });
+  await writeFile(join(requestsRoot, `${request.requestId}.terminal.json`), JSON.stringify({
+    ...request,
+    status: 'resolved',
+    resolvedAt: '2026-09-09T18:01:00.000Z',
+    decision: 'deny'
+  }));
+  const historic = await loadRequest({ home: root, requestId: request.requestId });
+  assert.equal(historic.topic, weakTopic);
+  assert.equal(historic.decision, 'deny');
+});
+
 test('pending request transport affinity is either complete or absent for legacy compatibility', async (t) => {
   const root = await home(t);
   await assert.rejects(

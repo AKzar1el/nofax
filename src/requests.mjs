@@ -1,6 +1,6 @@
 import { chmod, link, mkdir, open, opendir, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { normalizeServer, resolveNofaxHome } from './config.mjs';
+import { normalizeServer, resolveNofaxHome, validateTopic } from './config.mjs';
 
 const REQUEST_ID = /^nfx_[A-Za-z0-9_-]{20,80}$/;
 const RESPONSE_TOPIC = /^nofax_r_[A-Za-z0-9_-]{20,120}$/;
@@ -179,6 +179,9 @@ async function createExclusiveRecord(path, value) {
 export async function savePendingRequest({ home, env, request }) {
   const normalized = validateRequest(request);
   if (normalized.status !== 'pending') throw new Error('NOFAX_REQUEST_NOT_PENDING');
+  // New records must use a strong notification topic. Keep the looser read
+  // contract for historical denials and other already-persisted decisions.
+  if (normalized.topic !== undefined) validateTopic(normalized.topic);
   const { requestsRoot, file, terminal } = paths({ home, env, requestId: normalized.requestId });
   await mkdir(requestsRoot, { recursive: true, mode: 0o700 });
   if (await loadTerminalClaim(terminal, normalized.requestId) !== null) {
