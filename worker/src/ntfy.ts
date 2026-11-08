@@ -89,12 +89,23 @@ function publishAuthorization(env: Env): string | undefined {
   return `Bearer ${token}`;
 }
 
-async function readBoundedText(response: Response): Promise<string> {
+async function readBoundedText(response: Response, signal?: AbortSignal): Promise<string> {
   if (!response.body) return "";
 
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
+  const cancelOnAbort = () => {
+    try {
+      // A fetch shim can ignore abort after returning response headers. The
+      // deadline must still release its pending error-body reader.
+      void Promise.resolve(reader.cancel()).catch(() => {});
+    } catch {
+      // Disposal errors must not override the publication timeout.
+    }
+  };
+  signal?.addEventListener("abort", cancelOnAbort, { once: true });
+  if (signal?.aborted) cancelOnAbort();
 
   try {
     while (true) {
@@ -109,6 +120,7 @@ async function readBoundedText(response: Response): Promise<string> {
       chunks.push(value);
     }
   } finally {
+    signal?.removeEventListener("abort", cancelOnAbort);
     reader.releaseLock();
   }
 
@@ -121,7 +133,7 @@ async function readBoundedText(response: Response): Promise<string> {
   return new TextDecoder().decode(bytes);
 }
 
-async function publishError(response: Response, authenticated = false): Promise<Error> {
+async function publishError(response: Response, authenticated = false, signal?: AbortSignal): Promise<Error> {
   const prefix = `NOFAX_NTFY_PUBLISH_${response.status}`;
   const parts: string[] = [];
 
@@ -130,7 +142,7 @@ async function publishError(response: Response, authenticated = false): Promise<
   // Expose only strictly validated numeric diagnostics, never provider prose.
   if (!authenticated) {
     try {
-      const body = await readBoundedText(response);
+      const body = await readBoundedText(response, signal);
       if (body) {
         const parsed = JSON.parse(body) as { code?: unknown };
         const code = parsed?.code;
@@ -225,7 +237,7 @@ export async function publishNotification({
 
     if (!response.ok) {
       try {
-        throw await publishError(response, authorization !== undefined);
+        throw await publishError(response, authorization !== undefined, controller.signal);
       } finally {
         releaseResponseBody(response);
       }
