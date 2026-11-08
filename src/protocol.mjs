@@ -224,7 +224,7 @@ function safeSliceEnd(text, end) {
 function escapeDisplayControls(text) {
   // Human-facing summaries must reveal hidden direction and zero-width marks,
   // while retaining ordinary line breaks and emoji joiners.
-  return text.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u061c\u200b\u200e-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff]/gu,
+  return text.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u034f\u061c\u200b\u200e-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/gu,
     (character) => `\\u${character.codePointAt(0).toString(16).padStart(4, '0')}`);
 }
 
