@@ -51,6 +51,12 @@ function validateRequest(input) {
     throw new Error('NOFAX_REQUEST_ALLOWED_INVALID');
   }
   if (!STATUSES.has(input.status)) throw new Error('NOFAX_REQUEST_STATUS_INVALID');
+  if (input.status === 'pending' &&
+      (input.resolvedAt !== undefined || input.decision !== undefined || input.text !== undefined)) {
+    // Do not silently strip a legacy denial or private human text and then
+    // treat its record as a fresh, unresolved approval request.
+    throw new Error('NOFAX_REQUEST_PENDING_TERMINAL_FIELDS_INVALID');
+  }
   const createdAtMs = typeof input.createdAt === 'string' ? Date.parse(input.createdAt) : NaN;
   if (!Number.isFinite(createdAtMs)) throw new Error('NOFAX_REQUEST_CREATED_AT_INVALID');
   const hasServer = input.server !== undefined;

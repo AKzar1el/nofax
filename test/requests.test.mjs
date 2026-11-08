@@ -29,6 +29,28 @@ test('pending requests persist and reload without losing the response topic', as
   assert.equal(stored.responseTopic, pending.responseTopic);
 });
 
+test('pending records reject embedded terminal decisions and private response text', async (t) => {
+  const root = await home(t);
+  const terminalFields = {
+    resolvedAt: '2026-09-09T18:01:00.000Z',
+    decision: 'deny',
+    text: 'private human response'
+  };
+  for (const [field, value] of Object.entries(terminalFields)) {
+    await assert.rejects(
+      savePendingRequest({ home: root, request: { ...pending, [field]: value } }),
+      /NOFAX_REQUEST_PENDING_TERMINAL_FIELDS_INVALID/
+    );
+  }
+
+  await savePendingRequest({ home: root, request: pending });
+  const path = join(root, 'requests', `${pending.requestId}.json`);
+  await writeFile(path, JSON.stringify({ ...pending, ...terminalFields }), 'utf8');
+  await assert.rejects(loadRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_PENDING_TERMINAL_FIELDS_INVALID/);
+  await assert.rejects(listPendingRequests({ home: root }), /NOFAX_REQUEST_PENDING_TERMINAL_FIELDS_INVALID/);
+  await assert.rejects(discardPendingRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_PENDING_TERMINAL_FIELDS_INVALID/);
+});
+
 test('approval and refinement request kinds reject mismatched allowed decisions', async (t) => {
   const root = await home(t);
   for (const invalid of [
