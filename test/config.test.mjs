@@ -129,7 +129,9 @@ test('ntfy topic maximum is 64 characters', async () => {
 test('rejects predictable phone topics that disclose notification capabilities', async () => {
   const { validateConfig } = await import('../src/config.mjs');
   const config = { version: 1, server: 'https://ntfy.sh', timeoutSeconds: 300 };
-  for (const topic of ['a'.repeat(32), 'ab'.repeat(20), 'team'.repeat(8)]) {
+  for (const topic of ['a'.repeat(32), 'ab'.repeat(20), 'team'.repeat(8), 'abcdefgh'.repeat(4), 'M9_aBcD2'.repeat(4)]) {
     assert.throws(() => validateConfig({ ...config, topic }), /NOFAX_TOPIC_INVALID/, topic);
   }
+  const nonPeriodic = 'abcdefgh'.repeat(3) + 'Z';
+  assert.equal(validateConfig({ ...config, topic: nonPeriodic }).topic, nonPeriodic);
 });
