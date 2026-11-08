@@ -29,6 +29,23 @@ function visibleNotificationTitle(value) {
   return typeof visible === 'string' ? visible.replace(/\n/g, '\\u000a') : visible;
 }
 
+function visibleActionCharacter(character, characters, index) {
+  if (character === '\n') return '\\u000a';
+  // Preserve genuine emoji ZWJ sequences, including skin-tone modifiers, but
+  // expose joiners hidden inside decision words rather than disguising choices.
+  if (character === '\u200c' || character === '\u200d') {
+    let before = index - 1;
+    while (before >= 0 && /[\ufe0e\ufe0f\p{Emoji_Modifier}]/u.test(characters[before])) before--;
+    if (character === '\u200d' &&
+        /\p{Extended_Pictographic}/u.test(characters[before] ?? '') &&
+        /\p{Extended_Pictographic}/u.test(characters[index + 1] ?? '')) {
+      return character;
+    }
+    return `\\u${character.codePointAt(0).toString(16).padStart(4, '0')}`;
+  }
+  return visibleNotificationText(character);
+}
+
 function safeSliceEnd(text, end) {
   const previous = text.charCodeAt(end - 1);
   return previous >= 0xD800 && previous <= 0xDBFF ? end - 1 : end;
@@ -37,10 +54,11 @@ function safeSliceEnd(text, end) {
 function boundChoiceLabel(value) {
   let label = '';
   let visibleContent = false;
-  for (const character of value) {
+  const characters = [...value];
+  for (const [index, character] of characters.entries()) {
     // Action labels are single-line and must not hide/reorder the human's choices.
     // Keep each visible escape or Unicode code point intact at the 32-unit limit.
-    const visible = character === '\n' ? '\\u000a' : visibleNotificationText(character);
+    const visible = visibleActionCharacter(character, characters, index);
     if (label.length + visible.length > 32) break;
     label += visible;
     if (/[\p{L}\p{N}\p{P}\p{S}]/u.test(character)) visibleContent = true;
