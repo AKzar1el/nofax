@@ -30,10 +30,26 @@ function safeSliceEnd(text: string, end: number): number {
   return previous >= 0xd800 && previous <= 0xdbff ? end - 1 : end;
 }
 
+function isWellFormedText(text: string): boolean {
+  for (let index = 0; index < text.length; index += 1) {
+    const unit = text.charCodeAt(index);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = text.charCodeAt(++index);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function boundText(value: unknown, max: number, name: string): string {
   if (!Number.isInteger(max) || max < 1) throw new Error("NOFAX_TEXT_BOUND_INVALID");
   if (typeof value !== "string" || !value.trim()) throw new Error(`NOFAX_${name}_REQUIRED`);
   const text = value.trim();
+  // UTF-8 serialization would replace an unpaired surrogate and change what
+  // the human sees; reject it before persistence or notification delivery.
+  if (!isWellFormedText(text)) throw new Error(`NOFAX_${name}_INVALID_UTF8`);
   if (text.length <= max) return text;
   const marker = "…[truncated]";
   if (max <= marker.length) return text.slice(0, safeSliceEnd(text, max));
