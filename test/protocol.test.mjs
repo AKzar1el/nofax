@@ -817,8 +817,26 @@ test('redacts URI userinfo passwords inside ordinary string fields', () => {
   assert.equal(result.web, 'https://alice:[REDACTED]@example.test/private');
   assert.equal(result.encoded, 'mongodb+srv://service:[REDACTED]@cluster.example.test/app');
   assert.equal(result.cacheUri, 'redis://:[REDACTED]@cache.example.test:6379/0');
-  assert.equal(result.usernameOnly, 'https://alice@example.test/path');
+  assert.equal(result.usernameOnly, 'https://[REDACTED]@example.test/path');
   assert.equal(result.portOnly, 'https://example.test:8443/path');
+});
+
+test('redacts username-only URL credentials from agent summaries', () => {
+  const marker = 'NOFAX_USERNAME_ONLY_URL_SECRET_CANARY';
+  const githubUrl = `https://${marker}@github.com/example/repo.git`;
+  const gitlabUrl = `https://glpat-${marker}@gitlab.com/example/repo.git`;
+  const summary = buildAgentSummary({
+    source: 'Codex',
+    toolName: 'shell',
+    toolInput: { command: `git clone ${githubUrl}` }
+  });
+
+  for (const result of [redactAndBound(githubUrl), redactAndBound(gitlabUrl), summary]) {
+    assert.doesNotMatch(result, new RegExp(marker));
+  }
+  assert.equal(redactAndBound(githubUrl), 'https://[REDACTED]@github.com/example/repo.git');
+  assert.equal(redactAndBound(gitlabUrl), 'https://[REDACTED]@gitlab.com/example/repo.git');
+  assert.match(summary, /https:\/\/\[REDACTED\]@github\.com\/example\/repo\.git/);
 });
 
 test('buildAgentSummary does not expose URI userinfo passwords', () => {

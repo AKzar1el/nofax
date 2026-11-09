@@ -97,6 +97,13 @@ function redactSecretText(value) {
     '$1$2:[REDACTED]@'
   );
 
+  // Some Git providers accept an access token as the entire URL username,
+  // without a password delimiter. Preserve the host/path, never the userinfo.
+  redacted = redacted.replace(
+    /\b([A-Za-z][A-Za-z0-9+.-]{1,31}:\/\/)[^\s\/@:]+@(?=[^\s\/?#@]+)/g,
+    '$1[REDACTED]@'
+  );
+
   // Commands may embed a JSON string containing another serialized JSON object,
   // such as \"api_key\":\"value\". Redact escaped credential fields too.
   redacted = redacted.replace(
