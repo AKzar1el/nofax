@@ -360,6 +360,23 @@ describe("NofaxRequestStore", () => {
     expect(result?.request.text?.length).toBe(2_000);
   });
 
+  it("rejects malformed Unicode refinement text before persisting a human decision", async () => {
+    const raw = rawStore("refine-invalid-unicode");
+    const input = pending({ kind: "refinement", allowed: ["refine"] });
+    await runInDurableObject(raw, async (instance) => {
+      await instance.createRequest(input);
+      for (const invalid of [String.fromCharCode(0xd800), String.fromCharCode(0xdc00)]) {
+        expect(() => instance.resolveByCallbackHash({
+          callbackHash: input.callbackHash,
+          decision: "refine",
+          text: `change ${invalid} please`,
+          nowMs: 2_000
+        })).toThrow("NOFAX_REQUEST_TEXT_INVALID");
+        expect(instance.getRequest(input.requestId)?.status).toBe("pending");
+      }
+    });
+  });
+
   it("does not split a Unicode surrogate pair at the refinement text limit", async () => {
     const stub = store("refine-unicode-bound");
     const input = pending({ kind: "refinement", allowed: ["refine"] });
