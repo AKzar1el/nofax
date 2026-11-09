@@ -30,6 +30,41 @@ test('sendNotification publishes bounded JSON to the configured phone topic', as
   assert.equal(calls[0].init.headers.authorization, undefined);
 });
 
+test('ntfy rejects malformed UTF-16 title and message before any publication', async () => {
+  let publications = 0;
+  const fetchImpl = async () => {
+    publications += 1;
+    return jsonResponse({ id: 'synthetic' });
+  };
+  await assert.rejects(
+    sendNotification({ config, title: 'Pending\ud800', message: 'Review', fetchImpl }),
+    /NOFAX_TITLE_INVALID_UNICODE/
+  );
+  await assert.rejects(
+    sendNotification({ config, title: 'Pending', message: 'Review\udc00', fetchImpl }),
+    /NOFAX_MESSAGE_INVALID_UNICODE/
+  );
+  assert.equal(publications, 0);
+});
+
+test('ntfy malformed UTF-16 request text never persists pending approval', async () => {
+  let persisted = 0;
+  let published = 0;
+  await assert.rejects(
+    createRemoteRequest({
+      config,
+      title: 'Review',
+      message: 'Approve\ud800?',
+      options: ['allow', 'deny'],
+      beforePublish: async () => { persisted += 1; },
+      fetchImpl: async () => { published += 1; return jsonResponse({ id: 'synthetic' }); }
+    }),
+    /NOFAX_MESSAGE_INVALID_UNICODE/
+  );
+  assert.equal(persisted, 0);
+  assert.equal(published, 0);
+});
+
 test('local ntfy notifications visibly escape terminal and bidi controls', async () => {
   let payload;
   const fetchImpl = async (_url, init) => {

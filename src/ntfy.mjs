@@ -74,6 +74,8 @@ function boundChoiceLabel(value) {
 
 function boundText(value, max, name) {
   if (typeof value !== 'string' || value.trim().length === 0) throw new Error(`NOFAX_${name}_REQUIRED`);
+  // JSON transport would replace lone UTF-16 surrogates and alter human-visible text.
+  if (!value.isWellFormed()) throw new Error(`NOFAX_${name}_INVALID_UNICODE`);
   const text = value.trim();
   if (text.length <= max) return text;
   const end = safeSliceEnd(text, max - 14);
