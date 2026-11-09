@@ -613,6 +613,31 @@ test('createRemoteRequest rejects invalid input before persisting or publishing'
   }
 });
 
+test('ntfy refuses malformed UTF-16 text before sending or recording an approval', async () => {
+  const invalidCases = [
+    { title: 'Approve\ud800', message: 'Needs review', error: /NOFAX_TITLE_INVALID_UTF8/ },
+    { title: 'Approval', message: 'Approve\udc00', error: /NOFAX_MESSAGE_INVALID_UTF8/ }
+  ];
+  for (const input of invalidCases) {
+    let sent = 0;
+    let persisted = 0;
+    const fetchImpl = async () => { sent += 1; return jsonResponse({ id: 'unexpected' }); };
+    await assert.rejects(() => sendNotification({
+      config, title: input.title, message: input.message, fetchImpl
+    }), input.error);
+    await assert.rejects(() => createRemoteRequest({
+      config,
+      title: input.title,
+      message: input.message,
+      options: ['allow'],
+      beforePublish: async () => { persisted += 1; },
+      fetchImpl
+    }), input.error);
+    assert.equal(sent, 0, 'malformed approval content must not reach ntfy');
+    assert.equal(persisted, 0, 'malformed approval content must not be recorded');
+  }
+});
+
 test('requestApproval rejects invalid decision deadlines before sending any approval notification', async () => {
   for (const timeoutMs of [0, -1, 0.5, Number.NaN, Infinity, 2_147_483_648]) {
     let published = 0;

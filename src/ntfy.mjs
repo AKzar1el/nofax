@@ -75,6 +75,8 @@ function boundChoiceLabel(value) {
 function boundText(value, max, name) {
   if (typeof value !== 'string' || value.trim().length === 0) throw new Error(`NOFAX_${name}_REQUIRED`);
   const text = value.trim();
+  // Replacing an unpaired surrogate would change the exact request shown on the phone.
+  if (!text.isWellFormed()) throw new Error(`NOFAX_${name}_INVALID_UTF8`);
   if (text.length <= max) return text;
   const end = safeSliceEnd(text, max - 14);
   return `${text.slice(0, end)}…[truncated]`;
