@@ -26,6 +26,14 @@ describe("worker protocol", () => {
     expect(boundText("abcdefghijk", 10, "MESSAGE").length).toBeLessThanOrEqual(10);
   });
 
+  it("rejects malformed UTF-16 rather than silently replacing request text", () => {
+    for (const input of ["Allow\ud800now", "Deny\udc00now", "\ud800"]) {
+      expect(() => boundText(input, 120, "TITLE")).toThrow("NOFAX_TITLE_INVALID_UTF8");
+      expect(() => boundText(input, 20, "MESSAGE")).toThrow("NOFAX_MESSAGE_INVALID_UTF8");
+    }
+    expect(boundText("Review \ud83d\ude80", 120, "TITLE")).toBe("Review \ud83d\ude80");
+  });
+
   it("does not split astral Unicode when truncating user-visible text", () => {
     const marker = "\u2026[truncated]";
     const max = 20;
