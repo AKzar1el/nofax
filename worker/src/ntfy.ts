@@ -64,7 +64,9 @@ function serverUrl(env: Env): string {
   const raw = env.NTFY_SERVER ?? "https://ntfy.sh";
   let url: URL;
   try {
-    if (typeof raw !== "string") throw new Error("invalid server");
+    // WHATWG URL parsing removes embedded CR/LF/TAB; do not let a concealed
+    // authority character redirect notification topics to another hostname.
+    if (typeof raw !== "string" || /[\x00-\x1f\x7f]/.test(raw)) throw new Error("invalid server");
     url = new URL(raw.trim());
   } catch {
     throw new Error("NOFAX_NTFY_SERVER_INVALID");
