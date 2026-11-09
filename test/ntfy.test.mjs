@@ -30,6 +30,22 @@ test('sendNotification publishes bounded JSON to the configured phone topic', as
   assert.equal(calls[0].init.headers.authorization, undefined);
 });
 
+test('direct ntfy notifications reject malformed Unicode before contacting the provider', async () => {
+  for (const invalid of ['\ud800', '\udc00']) {
+    for (const field of ['title', 'message']) {
+      let fetchCalls = 0;
+      await assert.rejects(() => sendNotification({
+        config,
+        title: 'Build done',
+        message: 'All tests pass',
+        [field]: `Human ${invalid} decision`,
+        fetchImpl: async () => { fetchCalls += 1; return jsonResponse({ id: 'unexpected' }); }
+      }), new RegExp(`NOFAX_${field.toUpperCase()}_INVALID_UTF8`));
+      assert.equal(fetchCalls, 0, 'malformed text must not be delivered to ntfy');
+    }
+  }
+});
+
 test('local ntfy notifications visibly escape terminal and bidi controls', async () => {
   let payload;
   const fetchImpl = async (_url, init) => {
