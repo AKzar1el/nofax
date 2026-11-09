@@ -489,6 +489,36 @@ test('direct refinement resolution visibly marks bounded text', async (t) => {
   assert.match(result.text, /…\[truncated\]$/);
 });
 
+test('durable refinements reject malformed UTF-16 before claim and on legacy read', async (t) => {
+  const root = await home(t);
+  const request = { ...pending, kind: 'refinement', allowed: ['refine'] };
+  const resolvedAt = '2026-09-09T18:01:00.000Z';
+  await savePendingRequest({ home: root, request });
+
+  for (const surrogate of ['\ud800', '\udc00']) {
+    const text = `human${surrogate}`;
+    await assert.rejects(
+      resolveRequest({ home: root, requestId: request.requestId, response: { decision: 'refine', text }, resolvedAt }),
+      /NOFAX_REQUEST_TEXT_INVALID/
+    );
+    assert.equal((await loadRequest({ home: root, requestId: request.requestId })).status, 'pending');
+
+    const terminal = { ...request, status: 'resolved', resolvedAt, decision: 'refine', text };
+    const path = join(root, 'requests', `${request.requestId}.terminal.json`);
+    await writeFile(path, JSON.stringify(terminal), 'utf8');
+    await assert.rejects(loadRequest({ home: root, requestId: request.requestId }), /NOFAX_REQUEST_TEXT_INVALID/);
+    await unlink(path);
+  }
+
+  const valid = await resolveRequest({
+    home: root,
+    requestId: request.requestId,
+    response: { decision: 'refine', text: 'Human says \u{1f600}' },
+    resolvedAt
+  });
+  assert.equal(valid.text, 'Human says \u{1f600}');
+});
+
 test('non-refinement terminal decisions reject unexpected private text', async (t) => {
   const root = await home(t);
   await savePendingRequest({ home: root, request: pending });
