@@ -38,6 +38,15 @@ describe("worker protocol", () => {
     expect(lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff).toBe(false);
   });
 
+  it("rejects malformed UTF-16 before accepting or truncating remote request text", () => {
+    for (const name of ["TITLE", "MESSAGE"]) {
+      for (const text of ["before\ud800after", "before\udc00after", `${"a".repeat(140)}\ud800`]) {
+        expect(() => boundText(text, 120, name)).toThrow(`NOFAX_${name}_UNICODE_INVALID`);
+      }
+    }
+    expect(boundText("Valid \ud83d\ude80 pair", 120, "MESSAGE")).toBe("Valid \ud83d\ude80 pair");
+  });
+
   it("escapes HTML-sensitive characters", () => {
     const escaped = escapeHtml(`<script>alert("x")</script>&'`);
     expect(escaped).not.toContain("<script>");

@@ -30,10 +30,19 @@ function safeSliceEnd(text: string, end: number): number {
   return previous >= 0xd800 && previous <= 0xdbff ? end - 1 : end;
 }
 
+export function isWellFormedText(text: string): boolean {
+  for (const character of text) {
+    const codeUnit = character.charCodeAt(0);
+    if (character.length === 1 && codeUnit >= 0xd800 && codeUnit <= 0xdfff) return false;
+  }
+  return true;
+}
+
 export function boundText(value: unknown, max: number, name: string): string {
   if (!Number.isInteger(max) || max < 1) throw new Error("NOFAX_TEXT_BOUND_INVALID");
   if (typeof value !== "string" || !value.trim()) throw new Error(`NOFAX_${name}_REQUIRED`);
   const text = value.trim();
+  if (!isWellFormedText(text)) throw new Error(`NOFAX_${name}_UNICODE_INVALID`);
   if (text.length <= max) return text;
   const marker = "…[truncated]";
   if (max <= marker.length) return text.slice(0, safeSliceEnd(text, max));

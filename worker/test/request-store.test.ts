@@ -72,6 +72,16 @@ describe("NofaxRequestStore", () => {
     expect(await stub.getByCallbackHash(created.callbackHash, 2_000)).toEqual(created);
   });
 
+  it("does not persist malformed UTF-16 notification text", async () => {
+    await runInDurableObject(rawStore("malformed-unicode-text"), async (instance) => {
+      await expect(instance.createRequest(pending({ title: "Deploy?\ud800" })))
+        .rejects.toThrow("NOFAX_TITLE_UNICODE_INVALID");
+      await expect(instance.createRequest(pending({ message: "Release\udc00" })))
+        .rejects.toThrow("NOFAX_MESSAGE_UNICODE_INVALID");
+      expect(instance.getRequest(pending().requestId)).toBeNull();
+    });
+  });
+
   it("rejects request kinds with incompatible decision allow-lists before persistence", async () => {
     await runInDurableObject(rawStore("kind-allowed-invariant"), async (instance) => {
       for (const invalid of [

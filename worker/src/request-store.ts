@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
-import { boundText } from "./protocol";
+import { boundText, isWellFormedText } from "./protocol";
 
 const REQUEST_ID = /^nfx_[A-Za-z0-9_-]{20,80}$/;
 const CALLBACK_HASH = /^[a-f0-9]{64}$/;
@@ -136,7 +136,8 @@ function parseAllowed(value: string): string[] {
 }
 
 function validStoredText(value: unknown, maxLength: number): value is string {
-  return typeof value === "string" && value.trim().length > 0 && value.length <= maxLength;
+  return typeof value === "string" && value.trim().length > 0 &&
+    value.length <= maxLength && isWellFormedText(value);
 }
 
 function rowToRequest(row: RequestRow): StoredRequest {
