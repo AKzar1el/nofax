@@ -539,6 +539,29 @@ test('choice handlers reject overlong decision values instead of silently trunca
   }), /NOFAX_CHOICE_INVALID/);
 });
 
+test('choice handlers reject ill-formed Unicode in values and labels before transport', async () => {
+  let transportCalls = 0;
+  const handlers = createMcpToolHandlers({
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: async () => {
+      transportCalls += 1;
+      throw new Error('transport must not be called');
+    }
+  });
+
+  for (const option of [
+    'ship\ud800',
+    { value: 'ship\udc00', label: 'Ship' },
+    { value: 'ship', label: 'Ship\ud800' },
+    { value: 'ship', label: `${'A'.repeat(40)}\udc00` }
+  ]) {
+    await assert.rejects(() => handlers.requestChoice({
+      title: 'Pick one', message: 'Choose an option', options: [option]
+    }), /NOFAX_CHOICE_INVALID/);
+  }
+  assert.equal(transportCalls, 0);
+});
+
 test('choice handlers reject duplicate normalized decision values before transport', async () => {
   let transportCalls = 0;
   const handlers = createMcpToolHandlers({
