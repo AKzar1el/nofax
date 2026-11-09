@@ -447,6 +447,23 @@ describe("remote ntfy publisher", () => {
     expect(fetchCalls).toBe(0);
   });
 
+  it("rejects hidden control characters in the ntfy server authority", async () => {
+    let fetchCalls = 0;
+    const fetchImpl = (async () => {
+      fetchCalls += 1;
+      return new Response("unexpected");
+    }) as typeof fetch;
+    for (const control of ["\n", "\r", "\t"]) {
+      await expect(publishNotification({
+        env: env({ NTFY_SERVER: `https://ntfy.example${control}.other.invalid` }),
+        title: "Private notification",
+        message: "Synthetic approval context",
+        fetchImpl
+      })).rejects.toThrow("NOFAX_NTFY_SERVER_INVALID");
+    }
+    expect(fetchCalls).toBe(0);
+  });
+
   it("normalizes the configured HTTPS ntfy origin", async () => {
     let target = "";
     const fetchImpl = (async (url: RequestInfo | URL) => {
