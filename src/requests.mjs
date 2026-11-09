@@ -95,7 +95,10 @@ function validateRequest(input) {
     base.resolvedAt = input.resolvedAt;
     base.decision = decision;
     if (input.text !== undefined) {
-      if (typeof input.text !== 'string' || !input.text.trim()) throw new Error('NOFAX_REQUEST_TEXT_INVALID');
+      // JSON can preserve escaped lone surrogates even after strict UTF-8 decoding.
+      if (typeof input.text !== 'string' || !input.text.trim() || !input.text.isWellFormed()) {
+        throw new Error('NOFAX_REQUEST_TEXT_INVALID');
+      }
       base.text = boundResponseText(input.text);
     }
   }
