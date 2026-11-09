@@ -142,10 +142,11 @@ function redactSecretText(value) {
   );
 
   redacted = redacted.replace(
-    /([?&#])((?:[A-Za-z]|%[0-9a-fA-F]{2})(?:[A-Za-z0-9._-]|%[0-9a-fA-F]{2}){0,63})=([^&\s"'`,;]+)/g,
+    /([?&#])((?:[A-Za-z]|%[0-9a-fA-F]{2})(?:[A-Za-z0-9._+-]|%[0-9a-fA-F]{2}){0,63})=([^&\s"'`,;]+)/g,
     (match, prefix, key) => {
       let decodedKey;
-      try { decodedKey = decodeURIComponent(key); } catch { return match; }
+      // Form-encoded query keys interpret '+' as a space (e.g. api+key).
+      try { decodedKey = decodeURIComponent(key.replace(/\+/g, ' ')); } catch { return match; }
       return isSecretKey(decodedKey) || decodedKey.toLowerCase() === 'signature'
         ? `${prefix}${key}=[REDACTED]`
         : match;
