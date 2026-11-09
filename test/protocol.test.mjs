@@ -87,7 +87,7 @@ test('redacts credentials whose JSON property names use Unicode escapes', () => 
 
 test('redacts credentials hidden by percent-encoded query parameter names', () => {
   const marker = 'NOFAX_SYNTHETIC_ENCODED_QUERY_SECRET_12345';
-  for (const key of ['api_key', 'api%5Fkey', 'tok%65n', '%74oken']) {
+  for (const key of ['api_key', 'api%5Fkey', 'tok%65n', '%74oken', 'api+key', 'access+token', '%61pi+key']) {
     const command = `curl https://example.invalid/path?${key}=${marker}&mode=safe`;
     const summary = buildAgentSummary({ source: 'Codex', toolName: 'shell', toolInput: { command } });
     const bounded = redactAndBound(command);
@@ -98,6 +98,7 @@ test('redacts credentials hidden by percent-encoded query parameter names', () =
     }
   }
   assert.match(redactAndBound('https://example.invalid/?m%6fde=safe'), /m%6fde=safe/);
+  assert.match(redactAndBound('https://example.invalid/?mode+name=safe'), /mode\+name=safe/);
 });
 
 test('redacts separator-rich credential names inside nested JSON strings', () => {
