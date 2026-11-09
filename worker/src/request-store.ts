@@ -138,7 +138,8 @@ function parseAllowed(value: string): string[] {
 }
 
 function validStoredText(value: unknown, maxLength: number): value is string {
-  return typeof value === "string" && value.trim().length > 0 && value.length <= maxLength;
+  return typeof value === "string" && value.trim().length > 0 &&
+    value.length <= maxLength && isWellFormedText(value);
 }
 
 function rowToRequest(row: RequestRow): StoredRequest {
@@ -321,6 +322,8 @@ export class NofaxRequestStore extends DurableObject<Env> {
     if (input.decision === "refine" && current.kind !== "choice") {
       if (typeof input.text !== "string" || !input.text.trim()) throw new Error("NOFAX_REQUEST_TEXT_INVALID");
       const trimmed = input.text.trim();
+      // Reject lone UTF-16 surrogates before writing a terminal human decision.
+      if (!isWellFormedText(trimmed)) throw new Error("NOFAX_REQUEST_TEXT_INVALID");
       const last = trimmed.charCodeAt(1_999);
       // Do not split a supplementary Unicode character across the UTF-16 limit.
       const end = trimmed.length > 2_000 && last >= 0xd800 && last <= 0xdbff ? 1_999 : 2_000;
