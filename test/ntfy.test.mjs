@@ -1006,6 +1006,28 @@ test('string choice options use the same validation and bounds as object choices
   assert.equal(JSON.parse(payload.actions[0].body).decision, value);
 });
 
+test('ntfy rejects malformed UTF-16 choice values and labels before any side effects', async () => {
+  const invalidOptions = [
+    ['allow\ud800'],
+    [{ value: 'allow\udc00', label: 'Allow' }],
+    [{ value: 'allow', label: 'Allow\ud800' }]
+  ];
+  for (const options of invalidOptions) {
+    let persisted = 0;
+    let published = 0;
+    await assert.rejects(() => createRemoteRequest({
+      config,
+      title: 'Pick',
+      message: 'Choose',
+      options,
+      beforePublish: async () => { persisted += 1; },
+      fetchImpl: async () => { published += 1; return jsonResponse({ id: 'unexpected' }); }
+    }), /NOFAX_CHOICE_INVALID/);
+    assert.equal(persisted, 0, 'malformed choice must not persist an approval');
+    assert.equal(published, 0, 'malformed choice must not be sent to ntfy');
+  }
+});
+
 test('choice transport rejects labels without visible content before publishing or persisting', async () => {
   let sideEffects = 0;
   for (const label of ['\u200d', '\u200e', '\u0301', `${'\u200e'.repeat(6)}Ship`]) {
