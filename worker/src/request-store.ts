@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
-import { boundText } from "./protocol";
+import { boundText, isWellFormedText } from "./protocol";
 
 const REQUEST_ID = /^nfx_[A-Za-z0-9_-]{20,80}$/;
 const CALLBACK_HASH = /^[a-f0-9]{64}$/;
@@ -86,7 +86,9 @@ function validateTimestamp(value: unknown, name: string): number {
 function validateAllowed(value: unknown): string[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > 3) throw new Error("NOFAX_REQUEST_ALLOWED_INVALID");
   const allowed = value.map((item) => {
-    if (typeof item !== "string" || !item.trim() || item.length > 80) throw new Error("NOFAX_REQUEST_ALLOWED_INVALID");
+    if (typeof item !== "string" || !item.trim() || item.length > 80 || !isWellFormedText(item)) {
+      throw new Error("NOFAX_REQUEST_ALLOWED_INVALID");
+    }
     return item.trim();
   });
   if (new Set(allowed).size !== allowed.length) throw new Error("NOFAX_REQUEST_ALLOWED_INVALID");
