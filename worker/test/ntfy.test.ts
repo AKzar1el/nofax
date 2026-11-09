@@ -583,4 +583,32 @@ describe("bounded remote ntfy publication", () => {
     await Promise.resolve();
     expect(canceled).toBe(true);
   });
+
+  it("does not wait for provider cancellation after an oversized error body", async () => {
+    let canceled = false;
+    const fetchImpl = (async () => new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(2_049));
+        },
+        cancel() {
+          canceled = true;
+          return new Promise<void>(() => {});
+        }
+      }),
+      { status: 503 }
+    )) as typeof fetch;
+    const attempt = publishNotification({
+      env: env(),
+      title: "Alert",
+      message: "Requires attention",
+      timeoutMs: 1_000,
+      fetchImpl
+    });
+    await expect(Promise.race([
+      attempt,
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("TEST_SLOW_CANCEL")), 300))
+    ])).rejects.toThrow("NOFAX_NTFY_PUBLISH_503");
+    expect(canceled).toBe(true);
+  });
 });

@@ -114,7 +114,9 @@ async function readBoundedText(response: Response, signal?: AbortSignal): Promis
       if (!value) continue;
       total += value.byteLength;
       if (total > MAX_ERROR_BODY_BYTES) {
-        await reader.cancel();
+        // An oversized diagnostic is unusable; do not wait for a provider
+        // whose stream cancellation never settles.
+        cancel();
         return "";
       }
       chunks.push(value);
