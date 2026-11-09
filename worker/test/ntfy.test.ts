@@ -557,10 +557,14 @@ describe("bounded remote ntfy publication", () => {
   });
 
   it("bounds reading a nonterminating provider error body", async () => {
+    let canceled = false;
     const fetchImpl = (async () => new Response(
       new ReadableStream<Uint8Array>({
         start(controller) {
           controller.enqueue(new TextEncoder().encode('{"error":"partial"'));
+        },
+        cancel() {
+          canceled = true;
         }
       }),
       { status: 503 }
@@ -576,5 +580,7 @@ describe("bounded remote ntfy publication", () => {
       attempt,
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error("TEST_UNBOUNDED_BODY")), 160))
     ])).rejects.toThrow("NOFAX_NTFY_PUBLISH_TIMEOUT");
+    await Promise.resolve();
+    expect(canceled).toBe(true);
   });
 });
