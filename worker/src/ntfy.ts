@@ -32,7 +32,8 @@ function visibleNotificationText(value: string): string {
       }
       return `\\u${character.codePointAt(0)!.toString(16).padStart(4, "0")}`;
     }
-    return character.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u00ad\u034f\u061c\u180e\u200b\u200e-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/gu,
+    // Blank Hangul/Braille fillers can disguise approval words.
+    return character.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u00ad\u034f\u061c\u115f-\u1160\u180e\u200b\u200e-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\u2800\u3164\uffa0\ufeff]/gu,
       (control) => `\\u${control.codePointAt(0)!.toString(16).padStart(4, "0")}`);
   }).join("");
 }
