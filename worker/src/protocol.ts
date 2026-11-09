@@ -30,7 +30,7 @@ function safeSliceEnd(text: string, end: number): number {
   return previous >= 0xd800 && previous <= 0xdbff ? end - 1 : end;
 }
 
-function isWellFormedText(text: string): boolean {
+export function isWellFormedText(text: string): boolean {
   for (let index = 0; index < text.length; index += 1) {
     const unit = text.charCodeAt(index);
     if (unit >= 0xd800 && unit <= 0xdbff) {
