@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-const SECRET_KEY = /(?:^|[_-])(token|password|passwd|secret|api[_-]?key|authorization|cookie|credential|private[_-]?key)(?:$|[_-])/i;
+const SECRET_KEY = /(?:^|[_-])(token|password|passwd|secret|api[_-]?key|authorization|cookie|session[_-]?(?:id|key)|credential|private[_-]?key)(?:$|[_-])/i;
 const MAX_STRING = 500;
 const MAX_REDACTION_INPUT = 16 * 1024;
 const MAX_DEPTH = 5;

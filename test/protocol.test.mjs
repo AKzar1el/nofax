@@ -620,6 +620,29 @@ test('redacts secret values embedded inside ordinary string fields', () => {
   assert.equal(result.benign, 'secretaryName=alice safeTokenizedValue=visible apiKeynote=keep');
 });
 
+test('redacts session identifiers used as credentials in commands and approval summaries', () => {
+  const marker = 'NOFAX_SESSION_CREDENTIAL_CANARY_7H8';
+  const command = `curl --session-id ${marker} "https://example.test/api?session_id=${marker}&mode=safe"`;
+  const input = {
+    sessionId: marker,
+    headers: { 'X-Session-Id': marker },
+    command,
+    safeSessionCount: 2
+  };
+  const redacted = redactAndBound(input);
+  const summary = buildAgentSummary({
+    source: 'Claude Code', toolName: 'Bash', toolInput: input
+  });
+
+  assert.equal(redacted.sessionId, '[REDACTED]');
+  assert.equal(redacted.headers['X-Session-Id'], '[REDACTED]');
+  assert.match(redacted.command, /--session-id \[REDACTED\]/);
+  assert.match(redacted.command, /session_id=\[REDACTED\]/);
+  assert.match(redacted.command, /mode=safe/);
+  assert.equal(redacted.safeSessionCount, 2);
+  assert.doesNotMatch(summary, new RegExp(marker));
+});
+
 test('redacts secret values in URL fragment parameters', () => {
   const marker = 'NOFAX_FRAGMENT_SECRET_CANARY_XYZ';
   const access = redactAndBound(`https://example.test/callback#access_token=${marker}&token_type=bearer`);
