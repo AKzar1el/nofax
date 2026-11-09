@@ -44,6 +44,11 @@ export function resolveNofaxHome({ home, env = process.env } = {}) {
 }
 
 export function normalizeServer(input) {
+  // URL parsing silently strips embedded CR/LF/TAB, which could disguise the
+  // actual destination for notification capabilities and approval callbacks.
+  if (typeof input === 'string' && /[\x00-\x1f\x7f]/.test(input)) {
+    throw new Error('NOFAX_SERVER_INVALID');
+  }
   let url;
   try {
     url = new URL(input);

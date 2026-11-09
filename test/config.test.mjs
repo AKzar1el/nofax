@@ -104,6 +104,15 @@ test('normalizes server and rejects credentials/query fragments', () => {
   assert.throws(() => normalizeServer('https://ntfy.sh/?x=1'), /NOFAX_SERVER_PATH/);
 });
 
+test('rejects embedded control characters before parsing a notification server URL', () => {
+  // WHATWG URL parsing strips these characters, potentially changing the host
+  // that receives private notification topics and approval callback URLs.
+  for (const control of ['\r', '\n', '\t']) {
+    assert.throws(() => normalizeServer(`https://ntfy.sh${control}.attacker.invalid`), /NOFAX_SERVER_INVALID/);
+    assert.throws(() => normalizeServer(`https://ntfy.sh/${control}`), /NOFAX_SERVER_INVALID/);
+  }
+});
+
 test('requires HTTPS for non-loopback ntfy servers but preserves local development', () => {
   for (const server of ['http://localhost:8080/', 'http://127.0.0.1:8080', 'http://127.2.3.4:8080', 'http://[::1]:8080']) {
     assert.equal(normalizeServer(server), server.endsWith('/') ? server.slice(0, -1) : server);
