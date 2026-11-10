@@ -286,6 +286,45 @@ test('redacts credential keys obscured by invisible Unicode format marks', () =>
   assert.doesNotMatch(buildAgentSummary({ toolInput: input }), new RegExp(marker));
 });
 
+test('redacts literal invisible Unicode secret keys in command text and approval previews', () => {
+  const marker = 'NOFAX_SYNTHETIC_INVISIBLE_TEXT_KEY_CANARY_67890';
+  const examples = [
+    [`api\u200b_key=${marker} mode=safe`, 'api\\u200b_key', 'mode=safe'],
+    [`to\u200dken="${marker}" mode=safe`, 'to\\u200dken', 'mode=safe'],
+    [`pass\u00adword='${marker}' mode=safe`, 'pass\\u00adword', 'mode=safe'],
+    [`auth\u200bHeader: Bearer ${marker} mode=safe`, 'auth\\u200bHeader', 'mode=safe'],
+    [`{"api\u2060Key":"${marker}","note":"safe detail"}`, 'api\\u2060Key', 'safe detail']
+  ];
+  for (const [input, visibleKey, safeDetail] of examples) {
+    for (const output of [redactAndBound(input), buildAgentSummary({ toolInput: { command: input } })]) {
+      assert.equal(output.includes(marker), false, 'invisible secret-key marks must not bypass text redaction');
+      assert.ok(
+        output.includes(visibleKey) || output.includes(visibleKey.replaceAll('\\', '\\\\')),
+        'display must still expose the obfuscating mark, including JSON-string escapes'
+      );
+      assert.ok(output.includes(safeDetail), 'unrelated approval context must remain visible');
+    }
+  }
+  const benign = 'secretary\u200bName=visible mode=safe Developer 👩\u200d💻';
+  const output = redactAndBound(benign);
+  assert.ok(output.includes('secretary\\u200bName=visible'));
+  assert.ok(output.includes('mode=safe'));
+  assert.ok(output.includes('Developer 👩\u200d💻'));
+});
+
+test('redacts invisible secret-key marks in nested escaped JSON commands', () => {
+  const marker = 'NOFAX_SYNTHETIC_NESTED_INVISIBLE_KEY_CANARY_67890';
+  const payload = JSON.stringify({ 'api\u200b_key': marker, note: 'safe detail' });
+  for (const input of [payload, JSON.stringify(payload), JSON.stringify(JSON.stringify(payload))]) {
+    const bounded = redactAndBound(input);
+    const summary = buildAgentSummary({ toolInput: { command: input } });
+    for (const output of [bounded, summary]) {
+      assert.equal(output.includes(marker), false, 'nested serialized approval context must hide the secret');
+      assert.match(output, /safe detail/, 'safe sibling JSON fields remain readable');
+    }
+  }
+});
+
 test('redacts hosted Git personal access tokens without hiding adjacent metadata', () => {
   const marker = 'NOFAX_SYNTHETIC_PAT_CREDENTIAL';
   const input = {

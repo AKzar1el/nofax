@@ -84,8 +84,26 @@ function normalizeUnicodeEscapedSecretKeys(text) {
   );
 }
 
+function redactInvisibleSecretKeyText(text) {
+  const invisible = /[\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufe0e-\ufe0f\ufeff]/u;
+  if (!invisible.test(text)) return text;
+
+  // Classify the original key before escaping its invisible marks for display.
+  // Preserve that evidence while hiding the value in quoted and plain assignments.
+  return text.replace(
+    /(["']?)([A-Za-z][A-Za-z0-9_.\/ \-\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufe0e-\ufe0f\ufeff]{0,63})\1([ \t]*[:=][ \t]*)(?:(?:bearer|basic)[ \t]+(?:"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|[^\s`,;&}\]]+)|"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|[^\s`,;&}\]]+)/giu,
+    (match, keyQuote, key, separator) => {
+      if (!invisible.test(key) || !isSecretKey(key)) return match;
+      const prefix = `${keyQuote}${key}${keyQuote}${separator}`;
+      const value = match.slice(prefix.length);
+      const valueQuote = value[0] === '"' || value[0] === "'" ? value[0] : '';
+      return `${prefix}${valueQuote}[REDACTED]${valueQuote}`;
+    }
+  );
+}
+
 function redactSecretText(value) {
-  let redacted = normalizeUnicodeEscapedSecretKeys(value);
+  let redacted = redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(value));
 
   redacted = redacted.replace(
     /-----BEGIN ([A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?)-----[\s\S]*?(?:-----END \1-----|$)/g,
@@ -113,7 +131,7 @@ function redactSecretText(value) {
   // Commands may embed a JSON string containing another serialized JSON object,
   // such as \"api_key\":\"value\". Redact escaped credential fields too.
   redacted = redacted.replace(
-    /(?<!\\)(\\+")([A-Za-z][A-Za-z0-9_./ \\-]{0,63})\1(\s*[:=]\s*)\1[\s\S]*?(?<!\\)\1/g,
+    /(?<!\\)(\\+")([A-Za-z][A-Za-z0-9_./ \\-\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufe0e-\ufe0f\ufeff]{0,63})\1(\s*[:=]\s*)\1[\s\S]*?(?<!\\)\1/g,
     (match, quote, key, separator) => isSecretKey(key)
       ? quote + key + quote + separator + quote + '[REDACTED]' + quote
       : match
