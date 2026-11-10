@@ -35,6 +35,17 @@ test('approval summaries visibly escape hidden format marks but preserve emoji j
   assert.ok(outputs[1].includes(' now\nDeveloper'), 'ordinary line breaks remain readable');
 });
 
+test('approval summaries expose blank filler glyphs and soft hyphens in decision words', () => {
+  for (const codePoint of ['00ad', '115f', '1160', '180e', '2800', '3164', 'ffa0']) {
+    const hidden = String.fromCodePoint(Number.parseInt(codePoint, 16));
+    const message = `ap${hidden}prove`;
+    for (const output of [redactAndBound(message), buildAgentSummary({ message, toolInput: { note: message } })]) {
+      assert.equal(output.includes(hidden), false, `U+${codePoint} must not remain invisible`);
+      assert.ok(output.includes(`ap\\u${codePoint}prove`), `U+${codePoint} must be shown as an escape`);
+    }
+  }
+});
+
 test('approval summaries expose non-emoji joiners without breaking emoji sequences', () => {
   const message = 'A\u200cllow D\u200deny Team 👩🏽\u200d💻';
   for (const output of [
