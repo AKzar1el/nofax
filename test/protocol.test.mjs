@@ -852,8 +852,34 @@ test('redacts URI userinfo passwords inside ordinary string fields', () => {
   assert.equal(result.web, 'https://alice:[REDACTED]@example.test/private');
   assert.equal(result.encoded, 'mongodb+srv://service:[REDACTED]@cluster.example.test/app');
   assert.equal(result.cacheUri, 'redis://:[REDACTED]@cache.example.test:6379/0');
-  assert.equal(result.usernameOnly, 'https://alice@example.test/path');
+  assert.equal(result.usernameOnly, 'https://[REDACTED]@example.test/path');
   assert.equal(result.portOnly, 'https://example.test:8443/path');
+});
+
+test('redacts token-only and repeated-at URI userinfo up to the final authority delimiter', () => {
+  const marker = 'NOFAX_URI_USERINFO_TOKEN_ONLY_CANARY';
+  const inputs = [
+    `https://${marker}@host.example.test/repo?mode=safe#fragment`,
+    `https://PART_A@${marker}@host.example.test/repo?mode=safe#fragment`,
+    `https://PART_A:${marker}@PART_B@host.example.test/repo?mode=safe#fragment`,
+    `git+https://PART_A@${marker}@host.example.test/repo?mode=safe#fragment`
+  ];
+
+  for (const input of inputs) {
+    for (const result of [
+      redactAndBound(input),
+      buildAgentSummary({ toolInput: { command: `git fetch ${input}` } })
+    ]) {
+      assert.doesNotMatch(result, new RegExp(marker), 'URI userinfo must not remain visible');
+      assert.doesNotMatch(result, /PART_A/, 'nested userinfo must not survive redaction');
+      assert.match(result, /\[REDACTED\]@host\.example\.test\/repo\?mode=safe#fragment/);
+    }
+  }
+
+  assert.equal(redactAndBound('https://host.example.test/repo?mode=safe#fragment'),
+    'https://host.example.test/repo?mode=safe#fragment');
+  assert.equal(redactAndBound('https://host.example.test/repo/@visible?mode=@safe#@fragment'),
+    'https://host.example.test/repo/@visible?mode=@safe#@fragment');
 });
 
 test('buildAgentSummary does not expose URI userinfo passwords', () => {
