@@ -182,3 +182,41 @@ test('Gemini BeforeTool adapter forces native confirmation on timeout or transpo
   }), { decision: 'ask' });
   assert.deepEqual(errors, ['offline']);
 });
+
+test('adapter notification titles redact untrusted credential-bearing event fields', async () => {
+  const secret = 'NOFAX_SYNTHETIC_TITLE_SECRET_12345';
+  const toolName = `Bash api_key=${secret}`;
+  const titles = [];
+  const recordApproval = async ({ title }) => {
+    titles.push(title);
+    return { decision: 'deny' };
+  };
+  await handleClaudePermissionRequest({ ...claudeInput, tool_name: toolName }, {
+    config,
+    requestApprovalImpl: recordApproval
+  });
+  await handleCodexPermissionRequest({ ...codexInput, tool_name: toolName }, {
+    config,
+    requestApprovalImpl: recordApproval
+  });
+  await handleGeminiHook({ hook_event_name: 'BeforeTool', tool_name: toolName }, {
+    config,
+    requestApprovalImpl: recordApproval
+  });
+  await handleGeminiNotification({
+    hook_event_name: 'Notification',
+    notification_type: `ToolPermission token=${secret}`,
+    message: 'Synthetic notification'
+  }, {
+    config,
+    sendNotificationImpl: async ({ title }) => { titles.push(title); }
+  });
+
+  assert.equal(titles.length, 4);
+  for (const title of titles) {
+    assert.equal(title.includes(secret), false, 'a phone title must never expose a credential');
+    assert.match(title, /\[REDACTED\]/);
+  }
+  assert.ok(titles[0].includes('Bash'));
+  assert.ok(titles[3].includes('ToolPermission'));
+});
