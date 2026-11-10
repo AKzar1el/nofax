@@ -14,7 +14,7 @@ function safeDiagnostic(error) {
   // Untrusted transport errors may contain line controls or invisible marks
   // that disguise decision words. Render both explicitly in terminal logs.
   return String(error?.message ?? error).replace(
-    /[\x00-\x1f\x7f-\x9f\u00ad\u034f\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/gu,
+    /[\x00-\x1f\x7f-\x9f\u00ad\u034f\u061c\u115f-\u1160\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\u2800\u3164\ufe0e-\ufe0f\ufeff\uffa0]/gu,
     (character) => '\\u' + character.codePointAt(0).toString(16).padStart(4, '0')
   );
 }
