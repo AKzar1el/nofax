@@ -1,4 +1,4 @@
-import { loadConfig } from './config.mjs';
+import { loadConfig, validateTopic } from './config.mjs';
 import {
   createRemoteRequest,
   pollRemoteResponse,
@@ -266,6 +266,9 @@ export function createMcpToolHandlers(overrides = {}) {
       const current = request.server && request.topic
         ? { server: request.server, topic: request.topic }
         : await config();
+      // Historical records remain readable, but a weak saved topic must never
+      // become a live approval-response transport after topic rules tighten.
+      validateTopic(current.topic);
       const deadline = deps.elapsedNowImpl() + seconds * 1000;
       while (true) {
         const remainingBeforePoll = deadline - deps.elapsedNowImpl();
