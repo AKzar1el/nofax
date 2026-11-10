@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { initConfig, loadConfig } from './config.mjs';
+import { initConfig, isLegacyRepeatedTopic, loadConfig } from './config.mjs';
 import { requestApproval, requestRefinement, sendNotification } from './ntfy.mjs';
 import { handleClaudePermissionRequest } from './adapters/claude.mjs';
 import { handleCodexPermissionRequest } from './adapters/codex.mjs';
@@ -173,6 +173,15 @@ export async function runCli(args, overrides = {}) {
       await runMcpServer();
     })
   };
+  const rawLoadConfig = deps.loadConfigImpl;
+  deps.loadConfigImpl = async (...options) => {
+    const config = await rawLoadConfig(...options);
+    // Do not let old guessable topics reach notification or approval handlers.
+    if (isLegacyRepeatedTopic(config?.topic)) {
+      throw new Error('NOFAX_LEGACY_TOPIC_ROTATION_REQUIRED: run nofax init --force');
+    }
+    return config;
+  };
 
   try {
     if (args.length === 0 || args[0] === '--help' || args[0] === '-h' || args[0] === 'help') {
@@ -197,6 +206,9 @@ export async function runCli(args, overrides = {}) {
         ...(timeoutSeconds === undefined ? {} : { timeoutSeconds }),
         force: flags.force === true
       });
+      if (isLegacyRepeatedTopic(config?.topic)) {
+        throw new Error('NOFAX_LEGACY_TOPIC_ROTATION_REQUIRED: run nofax init --force');
+      }
       deps.stdout.write('Nofax ready.\n');
       deps.stdout.write(`Subscribe your ntfy app to: ${config.server}/${config.topic}\n`);
       deps.stdout.write('Then run: nofax test\n');
@@ -205,8 +217,13 @@ export async function runCli(args, overrides = {}) {
 
     if (command === 'config') {
       rejectUnexpectedArgs(args.slice(1));
-      const config = await deps.loadConfigImpl({ env: deps.env });
-      deps.stdout.write(`${JSON.stringify(config, null, 2)}\n`);
+      const config = await rawLoadConfig({ env: deps.env });
+      if (isLegacyRepeatedTopic(config?.topic)) {
+        deps.stderr.write('nofax: legacy topic requires rotation; run nofax init --force.\n');
+        deps.stdout.write(`${JSON.stringify({ ...config, topic: '[ROTATION_REQUIRED]' }, null, 2)}\n`);
+      } else {
+        deps.stdout.write(`${JSON.stringify(config, null, 2)}\n`);
+      }
       return 0;
     }
 
