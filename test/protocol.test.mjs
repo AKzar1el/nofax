@@ -352,6 +352,27 @@ test('redacts invisible secret-key marks in nested escaped JSON commands', () =>
   }
 });
 
+test('redacts blank-filler credential keys in nested escaped JSON strings', () => {
+  const marker = 'NOFAX_SYNTHETIC_NESTED_BLANK_FILLER_CANARY_7359';
+  for (const codePoint of ['115f', '1160', '2800', '3164', 'ffa0']) {
+    const filler = String.fromCodePoint(Number.parseInt(codePoint, 16));
+    const key = `api${filler}_key`;
+    let serialized = JSON.stringify({ [key]: marker, note: 'safe detail' });
+    for (let depth = 1; depth <= 2; depth += 1) {
+      serialized = JSON.stringify(serialized);
+      for (const output of [
+        redactAndBound(serialized),
+        buildAgentSummary({ toolInput: { command: serialized } })
+      ]) {
+        assert.equal(output.includes(marker), false, `nested U+${codePoint} credential value leaked at depth ${depth}`);
+        assert.match(output, /safe detail/, 'unrelated context should remain visible');
+      }
+    }
+    const safe = JSON.stringify(JSON.stringify({ [`category${filler}Name`]: 'visible detail' }));
+    assert.match(redactAndBound(safe), /visible detail/, 'unrelated nested keys remain readable');
+  }
+});
+
 test('redacts hosted Git personal access tokens without hiding adjacent metadata', () => {
   const marker = 'NOFAX_SYNTHETIC_PAT_CREDENTIAL';
   const input = {
