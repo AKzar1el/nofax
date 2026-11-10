@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMcpToolHandlers, WAIT_REQUIRED } from '../src/mcp-tools.mjs';
@@ -241,6 +241,73 @@ test('durable wait stays bound to the server and topic used when the request was
   assert.equal(confirmationConfig.server, originalConfig.server);
   assert.equal(confirmationConfig.topic, originalConfig.topic);
   assert.equal(configLoads, 1);
+});
+
+test('saved weak legacy request topic cannot be polled or converted to approval', async (t) => {
+  const home = await makeHome(t);
+  const requestId = 'nfx_abcdefghijklmnopqrstuv88';
+  const weakTopic = 'abcdefgh'.repeat(4);
+  await mkdir(join(home, 'requests'), { recursive: true });
+  await writeFile(join(home, 'requests', `${requestId}.json`), JSON.stringify({
+    version: 1,
+    requestId,
+    kind: 'approval',
+    responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz1288',
+    allowed: ['allow', 'deny'],
+    server: config.server,
+    topic: weakTopic,
+    status: 'pending',
+    createdAt: '2026-01-01T00:00:00.000Z'
+  }));
+  assert.equal((await loadRequest({ home, requestId })).topic, weakTopic);
+
+  let polls = 0;
+  let confirmations = 0;
+  const handlers = createMcpToolHandlers({
+    home,
+    loadConfigImpl: async () => { throw new Error('MUST_USE_SAVED_TRANSPORT'); },
+    pollRemoteResponseImpl: async () => { polls += 1; return { decision: 'allow' }; },
+    sendResponseConfirmationImpl: async () => { confirmations += 1; }
+  });
+  await assert.rejects(
+    () => handlers.waitForResponse({ requestId, waitSeconds: 1 }),
+    (error) => error.message === 'NOFAX_TOPIC_INVALID' && !error.message.includes(weakTopic)
+  );
+  assert.equal(polls, 0);
+  assert.equal(confirmations, 0);
+  assert.equal((await loadRequest({ home, requestId })).status, 'pending');
+
+  // A separately persisted human denial remains authoritative even if its
+  // original transport topic is no longer safe to poll.
+  await resolveRequest({ home, requestId, response: { decision: 'deny' } });
+  const result = await handlers.waitForResponse({ requestId, waitSeconds: 1 });
+  assert.equal(result.status, 'resolved');
+  assert.equal(result.decision, 'deny');
+  assert.equal(polls, 0);
+});
+
+test('legacy configured topic cannot poll an older pending request without saved transport', async () => {
+  const weakTopic = 'abcdefgh'.repeat(4);
+  const requestId = 'nfx_abcdefghijklmnopqrstuv87';
+  let polls = 0;
+  const handlers = createMcpToolHandlers({
+    loadRequestImpl: async () => ({
+      requestId,
+      kind: 'approval',
+      responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz1287',
+      allowed: ['allow', 'deny'],
+      status: 'pending'
+    }),
+    loadConfigImpl: async () => ({ ...config, topic: weakTopic }),
+    pollRemoteResponseImpl: async () => { polls += 1; return null; },
+    elapsedNowImpl: (() => { let elapsed = 0; return () => (elapsed += 250); })(),
+    sleepImpl: async () => {}
+  });
+  await assert.rejects(
+    () => handlers.waitForResponse({ requestId, waitSeconds: 1 }),
+    (error) => error.message === 'NOFAX_TOPIC_INVALID' && !error.message.includes(weakTopic)
+  );
+  assert.equal(polls, 0);
 });
 
 test('approval marks truncated title and message before remote publication', async (t) => {
