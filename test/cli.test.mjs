@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from '../src/cli.mjs';
@@ -21,6 +21,73 @@ test('init creates config and prints a subscription URL', async (t) => {
   const config = await loadConfig({ home });
   assert.match(stdout.read(), new RegExp(`https://ntfy.sh/${config.topic}`));
   assert.equal(stderr.read(), '');
+});
+
+test('legacy repeating topic warns without leaking a subscription capability or sending remotely', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-cli-legacy-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const topic = 'M9_aBcD2'.repeat(4);
+  await writeFile(join(home, 'config.json'), JSON.stringify({
+    version: 1, server: 'https://ntfy.sh', topic, timeoutSeconds: 300
+  }));
+  const initOut = capture();
+  const initErr = capture();
+  assert.equal(await runCli(['init'], { env: { NOFAX_HOME: home }, stdout: initOut, stderr: initErr }), 1);
+  assert.equal(initOut.read(), '');
+  assert.match(initErr.read(), /init --force/);
+  assert.doesNotMatch(initErr.read(), new RegExp(topic));
+
+  const configOut = capture();
+  const configErr = capture();
+  assert.equal(await runCli(['config'], { env: { NOFAX_HOME: home }, stdout: configOut, stderr: configErr }), 0);
+  assert.equal(JSON.parse(configOut.read()).topic, '[ROTATION_REQUIRED]');
+  assert.match(configErr.read(), /init --force/);
+  assert.doesNotMatch(configErr.read(), new RegExp(topic));
+
+  let sent = false;
+  const notifyOut = capture();
+  const notifyErr = capture();
+  assert.equal(await runCli(['notify', 'hello'], {
+    env: { NOFAX_HOME: home }, stdout: notifyOut, stderr: notifyErr,
+    sendNotificationImpl: async () => { sent = true; }
+  }), 1);
+  assert.equal(sent, false);
+  assert.equal(notifyOut.read(), '');
+  assert.match(notifyErr.read(), /init --force/);
+  assert.doesNotMatch(notifyErr.read(), new RegExp(topic));
+
+  const rotateOut = capture();
+  const rotateErr = capture();
+  assert.equal(await runCli(['init', '--force'], {
+    env: { NOFAX_HOME: home }, stdout: rotateOut, stderr: rotateErr
+  }), 0);
+  assert.notEqual((await loadConfig({ home })).topic, topic);
+  assert.equal(rotateErr.read(), '');
+});
+
+test('legacy topic leaves agent hooks on native approval without remote action', async () => {
+  const topic = 'M9_aBcD2'.repeat(4);
+  const config = { version: 1, server: 'https://ntfy.sh', topic, timeoutSeconds: 300 };
+  for (const adapter of ['claude', 'codex', 'gemini']) {
+    let remoteCalls = 0;
+    const stdout = capture();
+    const stderr = capture();
+    const code = await runCli(['hook', adapter], {
+      stdinText: JSON.stringify({
+        hook_event_name: adapter === 'gemini' ? 'BeforeTool' : 'PermissionRequest',
+        tool_name: 'Bash', tool_input: { command: 'npm test' }
+      }),
+      stdout, stderr,
+      loadConfigImpl: async () => config,
+      requestApprovalImpl: async () => { remoteCalls += 1; return { decision: 'allow' }; },
+      sendNotificationImpl: async () => { remoteCalls += 1; }
+    });
+    assert.equal(code, 0);
+    assert.equal(remoteCalls, 0);
+    assert.equal(stdout.read(), adapter === 'gemini' ? '{"decision":"ask"}\n' : '');
+    assert.match(stderr.read(), /init --force/);
+    assert.doesNotMatch(stderr.read(), new RegExp(topic));
+  }
 });
 
 test('generic approve prints stable machine-readable JSON', async () => {

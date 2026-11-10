@@ -79,12 +79,20 @@ function hasRepeatedTopicPattern(topic) {
   return false;
 }
 
+function hasValidTopicShape(topic) {
+  return typeof topic === 'string' && topic.length >= 24 && topic.length <= 64 &&
+    /^[A-Za-z0-9_-]+$/.test(topic) && new Set(topic).size >= 8;
+}
+
+export function isLegacyRepeatedTopic(topic) {
+  // Only persisted topics matching the former character/length rules qualify.
+  return hasValidTopicShape(topic) && hasRepeatedTopicPattern(topic);
+}
+
 export function validateTopic(topic) {
   // The phone topic grants access to notification content and embedded response
   // actions. Reject obviously guessable values, as the remote Worker does.
-  if (typeof topic !== 'string' || topic.length < 24 || topic.length > 64 ||
-      !/^[A-Za-z0-9_-]+$/.test(topic) || new Set(topic).size < 8 ||
-      hasRepeatedTopicPattern(topic)) {
+  if (!hasValidTopicShape(topic) || hasRepeatedTopicPattern(topic)) {
     throw new Error('NOFAX_TOPIC_INVALID');
   }
   return topic;
@@ -95,21 +103,28 @@ function validateTimeout(value) {
   return value;
 }
 
-export function validateConfig(input) {
+function validateConfigInternal(input, allowSavedLegacyTopic) {
   if (!input || input.version !== 1) throw new Error('NOFAX_CONFIG_VERSION');
   return {
     version: 1,
     server: normalizeServer(input.server),
-    topic: validateTopic(input.topic),
+    topic: allowSavedLegacyTopic && isLegacyRepeatedTopic(input.topic)
+      ? input.topic : validateTopic(input.topic),
     timeoutSeconds: validateTimeout(input.timeoutSeconds)
   };
+}
+
+export function validateConfig(input) {
+  return validateConfigInternal(input, false);
 }
 
 export async function loadConfig({ home, env } = {}) {
   const root = resolveNofaxHome({ home, env });
   try {
     const parsed = await readConfigJson(join(root, 'config.json'));
-    return validateConfig(parsed);
+    // Read existing repeated topics so users can inspect and rotate them;
+    // newly supplied topics and notification transports remain strict.
+    return validateConfigInternal(parsed, true);
   } catch (error) {
     if (error?.code === 'ENOENT') throw new Error('NOFAX_NOT_INITIALIZED');
     if (error instanceof SyntaxError) throw new Error('NOFAX_CONFIG_INVALID_JSON');

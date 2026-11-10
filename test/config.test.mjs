@@ -144,3 +144,24 @@ test('rejects predictable phone topics that disclose notification capabilities',
   const nonPeriodic = 'abcdefgh'.repeat(3) + 'Z';
   assert.equal(validateConfig({ ...config, topic: nonPeriodic }).topic, nonPeriodic);
 });
+
+test('only persisted legacy repeating topics remain readable for explicit rotation', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-legacy-topic-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const legacyTopic = 'M9_aBcD2'.repeat(4);
+  const oldConfig = { version: 1, server: 'https://ntfy.sh', topic: legacyTopic, timeoutSeconds: 300 };
+  const path = join(home, 'config.json');
+  await writeFile(path, JSON.stringify(oldConfig));
+
+  assert.deepEqual(await loadConfig({ home }), oldConfig);
+  await assert.rejects(initConfig({ home, topic: legacyTopic, force: true }), /NOFAX_TOPIC_INVALID/);
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), oldConfig);
+  for (const invalidTopic of ['a'.repeat(32), 'abcd'.repeat(7), 'M9_aBcD2!'.repeat(3)]) {
+    await writeFile(path, JSON.stringify({ ...oldConfig, topic: invalidTopic }));
+    await assert.rejects(loadConfig({ home }), /NOFAX_TOPIC_INVALID/);
+  }
+
+  const rotated = await initConfig({ home, force: true });
+  assert.notEqual(rotated.topic, legacyTopic);
+  assert.deepEqual(await loadConfig({ home }), rotated);
+});
