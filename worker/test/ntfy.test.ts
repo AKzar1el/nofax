@@ -231,6 +231,24 @@ describe("remote ntfy publisher", () => {
     expect(payload?.message).toBe("Review\\u180enow");
   });
 
+  it("exposes blank filler glyphs in phone notices", async () => {
+    let payload: { title: string; message: string } | undefined;
+    const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      payload = JSON.parse(String(init?.body));
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+
+    await publishNotification({
+      env: env(),
+      title: "Al\u3164low",
+      message: "De\u2800ny \u115f\u1160\uffa0",
+      fetchImpl
+    });
+
+    expect(payload?.title).toBe("Al\\u3164low");
+    expect(payload?.message).toBe("De\\u2800ny \\u115f\\u1160\\uffa0");
+  });
+
   it("bounds notification payloads after expanding unsafe display controls", async () => {
     let payload: { title: string; message: string } | undefined;
     const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
