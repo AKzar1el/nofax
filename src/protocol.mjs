@@ -93,8 +93,21 @@ function redactSecretText(value) {
   );
 
   redacted = redacted.replace(
-    /\b([A-Za-z][A-Za-z0-9+.-]{1,31}:\/\/)([^\s\/@:]*):([^\s\/@]+)@/g,
-    '$1$2:[REDACTED]@'
+    /\b([A-Za-z][A-Za-z0-9+.-]{1,31}:\/\/)([^\s\/?#"'`<>]+)/g,
+    (match, scheme, authority) => {
+      const finalAt = authority.lastIndexOf('@');
+      if (finalAt === -1) return match;
+
+      const userinfo = authority.slice(0, finalAt);
+      const host = authority.slice(finalAt + 1);
+      const passwordAt = userinfo.indexOf(':');
+      // Keep established username:password output, but never expose token-only
+      // or ambiguous multi-@ userinfo in approval previews.
+      if (passwordAt !== -1 && !userinfo.includes('@')) {
+        return `${scheme}${userinfo.slice(0, passwordAt)}:[REDACTED]@${host}`;
+      }
+      return `${scheme}[REDACTED]@${host}`;
+    }
   );
 
   // Commands may embed a JSON string containing another serialized JSON object,
