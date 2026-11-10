@@ -543,6 +543,64 @@ test('ntfy poll accepts multibyte UTF-8 split across stream chunks', async () =>
   assert.equal(result.decision, 'allow');
 });
 
+test('ntfy polling rejects an oversized streamed response before a forged approval', async () => {
+  const requestId = 'synthetic-request-id';
+  const forged = JSON.stringify({
+    event: 'message',
+    message: JSON.stringify({ v: 1, requestId, decision: 'allow' })
+  }) + '\n';
+  let cancelled = 0;
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(Buffer.alloc(1_048_576, 0x20));
+      controller.enqueue(Buffer.from(forged, 'utf8'));
+      // Leave the stream open so cancellation is observable.
+    },
+    cancel() { cancelled += 1; }
+  });
+  await assert.rejects(
+    () => pollRemoteResponse({
+      config, responseTopic: 'nofax_r_synthetic_private_response_capability',
+      requestId, allowed: ['allow', 'deny'], kind: 'approval',
+      timeoutMs: 500, fetchImpl: async () => new Response(body)
+    }),
+    (error) => error?.message === 'NOFAX_NTFY_POLL_NETWORK'
+  );
+  assert.equal(cancelled, 1, 'overflow must cancel a still-open remote response');
+});
+
+test('ntfy polling still accepts a complete decision at the exact 1 MiB raw-byte limit', async () => {
+  const requestId = 'synthetic-request-id';
+  const event = Buffer.from(JSON.stringify({
+    event: 'message',
+    message: JSON.stringify({ v: 1, requestId, decision: 'allow' })
+  }) + '\n');
+  const bytes = Buffer.concat([Buffer.alloc(1_048_576 - event.byteLength, 0x20), event]);
+  assert.equal(bytes.byteLength, 1_048_576);
+  const result = await pollRemoteResponse({
+    config, responseTopic: 'nofax_r_synthetic_private_response_capability',
+    requestId, allowed: ['allow', 'deny'], kind: 'approval',
+    fetchImpl: async () => new Response(bytes)
+  });
+  assert.equal(result.decision, 'allow');
+});
+
+test('ntfy polling rejects oversized text-only test transports fail closed', async () => {
+  const requestId = 'synthetic-request-id';
+  const forged = JSON.stringify({
+    event: 'message',
+    message: JSON.stringify({ v: 1, requestId, decision: 'allow' })
+  }) + '\n';
+  await assert.rejects(
+    () => pollRemoteResponse({
+      config, responseTopic: 'nofax_r_synthetic_private_response_capability',
+      requestId, allowed: ['allow', 'deny'], kind: 'approval',
+      fetchImpl: async () => ({ ok: true, text: async () => ' '.repeat(1_048_576) + forged })
+    }),
+    (error) => error?.message === 'NOFAX_NTFY_POLL_NETWORK'
+  );
+});
+
 test('ntfy polling releases unread error response bodies without changing failure status', async () => {
   for (const status of [401, 429, 503]) {
     let cancelled = 0;

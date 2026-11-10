@@ -4,6 +4,7 @@ import { normalizeServer, validateTopic } from './config.mjs';
 const MAX_TITLE = 120;
 const MAX_MESSAGE = 2200;
 const MAX_NTFY_MESSAGE_BYTES = 4096;
+const MAX_NTFY_POLL_RESPONSE_BYTES = 1_048_576;
 const DEFAULT_REFINE_SHORTCUT = 'Nofax Refine';
 const POLL_TIMEOUT = Symbol('NOFAX_POLL_TIMEOUT');
 const PUBLISH_TIMEOUT = Symbol('NOFAX_PUBLISH_TIMEOUT');
@@ -361,7 +362,14 @@ function parseNtfyPoll(text, requestId, allowed, kind) {
 async function readPollText(response, signal) {
   // Response.text() hides its reader, making cancellation impossible if a
   // transport ignores abort while the response body remains open.
-  if (typeof response.body?.getReader !== 'function') return response.text();
+  // A streamless response can only be size-checked after text() has completed.
+  if (typeof response.body?.getReader !== 'function') {
+    const text = await response.text();
+    if (Buffer.byteLength(text, 'utf8') > MAX_NTFY_POLL_RESPONSE_BYTES) {
+      throw new Error('NOFAX_NTFY_POLL_BODY_TOO_LARGE');
+    }
+    return text;
+  }
   const reader = response.body.getReader();
   const cancel = () => {
     try {
@@ -374,10 +382,17 @@ async function readPollText(response, signal) {
   if (signal?.aborted) cancel();
   const decoder = new TextDecoder('utf-8', { fatal: true });
   let text = '';
+  let totalBytes = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) return text + decoder.decode();
+      // Bound raw transport bytes before decoding or parsing untrusted NDJSON.
+      if (!ArrayBuffer.isView(value) || value.byteLength > MAX_NTFY_POLL_RESPONSE_BYTES - totalBytes) {
+        cancel();
+        throw new Error('NOFAX_NTFY_POLL_BODY_TOO_LARGE');
+      }
+      totalBytes += value.byteLength;
       text += decoder.decode(value, { stream: true });
     }
   } finally {
