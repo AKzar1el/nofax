@@ -312,6 +312,33 @@ test('redacts literal invisible Unicode secret keys in command text and approval
   assert.ok(output.includes('Developer 👩\u200d💻'));
 });
 
+test('redacts blank-filler credential key assignments in text and approval previews', () => {
+  const marker = 'NOFAX_SYNTHETIC_BLANK_FILLER_CREDENTIAL_CANARY';
+  for (const codePoint of ['115f', '1160', '2800', '3164', 'ffa0']) {
+    const filler = String.fromCodePoint(Number.parseInt(codePoint, 16));
+    for (const [before, after] of [['api', '_key'], ['to', 'ken'], ['pass', 'word']]) {
+      const key = `${before}${filler}${after}`;
+      const escapedKey = `${before}\\u${codePoint}${after}`;
+      assert.equal(redactAndBound({ [key]: marker })[key], '[REDACTED]');
+      for (const input of [
+        `${key}=${marker} mode=safe`,
+        `${key}="${marker}" mode=safe`,
+        `{"${key}":"${marker}","note":"safe detail"}`
+      ]) {
+        for (const output of [redactAndBound(input), buildAgentSummary({ toolInput: { command: input } })]) {
+          assert.equal(output.includes(marker), false, `U+${codePoint} must not bypass credential redaction`);
+          assert.ok(
+            output.includes(escapedKey) || output.includes(escapedKey.replaceAll('\\', '\\\\')),
+            `U+${codePoint} should remain visible as an escape`
+          );
+          assert.match(output, /safe detail|mode=safe/, 'nonsecret context should remain');
+        }
+      }
+    }
+    assert.ok(redactAndBound(`category${filler}Name=visible mode=safe`).includes('visible'));
+  }
+});
+
 test('redacts invisible secret-key marks in nested escaped JSON commands', () => {
   const marker = 'NOFAX_SYNTHETIC_NESTED_INVISIBLE_KEY_CANARY_67890';
   const payload = JSON.stringify({ 'api\u200b_key': marker, note: 'safe detail' });

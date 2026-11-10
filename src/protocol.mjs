@@ -13,9 +13,9 @@ const TRUNCATION_MARKER = '…[truncated]';
 function normalizeSecretKeyName(key) {
   let normalized = '';
 
-  // Invisible format marks can split a credential field name without changing
-  // its appearance. Ignore them for classification, not for display.
-  const comparisonKey = key.replace(/[\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufe0e-\ufe0f\ufeff]/gu, '');
+  // Invisible format marks and blank fillers can split a credential field
+  // name without changing its appearance. Ignore them only for classification.
+  const comparisonKey = key.replace(/[\u00ad\u034f\u061c\u115f\u1160\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u2800\u3164\ufe0e-\ufe0f\ufeff\uffa0]/gu, '');
 
   for (let index = 0; index < comparisonKey.length; index += 1) {
     const char = comparisonKey[index];
@@ -85,13 +85,13 @@ function normalizeUnicodeEscapedSecretKeys(text) {
 }
 
 function redactInvisibleSecretKeyText(text) {
-  const invisible = /[\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufe0e-\ufe0f\ufeff]/u;
+  const invisible = /[\u00ad\u034f\u061c\u115f\u1160\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u2800\u3164\ufe0e-\ufe0f\ufeff\uffa0]/u;
   if (!invisible.test(text)) return text;
 
   // Classify the original key before escaping its invisible marks for display.
   // Preserve that evidence while hiding the value in quoted and plain assignments.
   return text.replace(
-    /(["']?)([A-Za-z][A-Za-z0-9_.\/ \-\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufe0e-\ufe0f\ufeff]{0,63})\1([ \t]*[:=][ \t]*)(?:(?:bearer|basic)[ \t]+(?:"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|[^\s`,;&}\]]+)|"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|[^\s`,;&}\]]+)/giu,
+    /(["']?)([A-Za-z][A-Za-z0-9_.\/ \-\u00ad\u034f\u061c\u115f\u1160\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u2800\u3164\ufe0e-\ufe0f\ufeff\uffa0]{0,63})\1([ \t]*[:=][ \t]*)(?:(?:bearer|basic)[ \t]+(?:"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|[^\s`,;&}\]]+)|"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|[^\s`,;&}\]]+)/giu,
     (match, keyQuote, key, separator) => {
       if (!invisible.test(key) || !isSecretKey(key)) return match;
       const prefix = `${keyQuote}${key}${keyQuote}${separator}`;
