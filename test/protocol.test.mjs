@@ -35,6 +35,17 @@ test('approval summaries visibly escape hidden format marks but preserve emoji j
   assert.ok(outputs[1].includes(' now\nDeveloper'), 'ordinary line breaks remain readable');
 });
 
+test('approval summaries expose blank filler glyphs and soft hyphens in decision words', () => {
+  for (const codePoint of ['00ad', '115f', '1160', '180e', '2800', '3164', 'ffa0']) {
+    const hidden = String.fromCodePoint(Number.parseInt(codePoint, 16));
+    const message = `ap${hidden}prove`;
+    for (const output of [redactAndBound(message), buildAgentSummary({ message, toolInput: { note: message } })]) {
+      assert.equal(output.includes(hidden), false, `U+${codePoint} must not remain invisible`);
+      assert.ok(output.includes(`ap\\u${codePoint}prove`), `U+${codePoint} must be shown as an escape`);
+    }
+  }
+});
+
 test('approval summaries expose non-emoji joiners without breaking emoji sequences', () => {
   const message = 'A\u200cllow D\u200deny Team 👩🏽\u200d💻';
   for (const output of [
@@ -620,6 +631,29 @@ test('redacts secret values embedded inside ordinary string fields', () => {
   assert.equal(result.benign, 'secretaryName=alice safeTokenizedValue=visible apiKeynote=keep');
 });
 
+test('redacts session identifiers used as credentials in commands and approval summaries', () => {
+  const marker = 'NOFAX_SESSION_CREDENTIAL_CANARY_7H8';
+  const command = `curl --session-id ${marker} "https://example.test/api?session_id=${marker}&mode=safe"`;
+  const input = {
+    sessionId: marker,
+    headers: { 'X-Session-Id': marker },
+    command,
+    safeSessionCount: 2
+  };
+  const redacted = redactAndBound(input);
+  const summary = buildAgentSummary({
+    source: 'Claude Code', toolName: 'Bash', toolInput: input
+  });
+
+  assert.equal(redacted.sessionId, '[REDACTED]');
+  assert.equal(redacted.headers['X-Session-Id'], '[REDACTED]');
+  assert.match(redacted.command, /--session-id \[REDACTED\]/);
+  assert.match(redacted.command, /session_id=\[REDACTED\]/);
+  assert.match(redacted.command, /mode=safe/);
+  assert.equal(redacted.safeSessionCount, 2);
+  assert.doesNotMatch(summary, new RegExp(marker));
+});
+
 test('redacts secret values in URL fragment parameters', () => {
   const marker = 'NOFAX_FRAGMENT_SECRET_CANARY_XYZ';
   const access = redactAndBound(`https://example.test/callback#access_token=${marker}&token_type=bearer`);
@@ -818,8 +852,34 @@ test('redacts URI userinfo passwords inside ordinary string fields', () => {
   assert.equal(result.web, 'https://alice:[REDACTED]@example.test/private');
   assert.equal(result.encoded, 'mongodb+srv://service:[REDACTED]@cluster.example.test/app');
   assert.equal(result.cacheUri, 'redis://:[REDACTED]@cache.example.test:6379/0');
-  assert.equal(result.usernameOnly, 'https://alice@example.test/path');
+  assert.equal(result.usernameOnly, 'https://[REDACTED]@example.test/path');
   assert.equal(result.portOnly, 'https://example.test:8443/path');
+});
+
+test('redacts token-only and repeated-at URI userinfo up to the final authority delimiter', () => {
+  const marker = 'NOFAX_URI_USERINFO_TOKEN_ONLY_CANARY';
+  const inputs = [
+    `https://${marker}@host.example.test/repo?mode=safe#fragment`,
+    `https://PART_A@${marker}@host.example.test/repo?mode=safe#fragment`,
+    `https://PART_A:${marker}@PART_B@host.example.test/repo?mode=safe#fragment`,
+    `git+https://PART_A@${marker}@host.example.test/repo?mode=safe#fragment`
+  ];
+
+  for (const input of inputs) {
+    for (const result of [
+      redactAndBound(input),
+      buildAgentSummary({ toolInput: { command: `git fetch ${input}` } })
+    ]) {
+      assert.doesNotMatch(result, new RegExp(marker), 'URI userinfo must not remain visible');
+      assert.doesNotMatch(result, /PART_A/, 'nested userinfo must not survive redaction');
+      assert.match(result, /\[REDACTED\]@host\.example\.test\/repo\?mode=safe#fragment/);
+    }
+  }
+
+  assert.equal(redactAndBound('https://host.example.test/repo?mode=safe#fragment'),
+    'https://host.example.test/repo?mode=safe#fragment');
+  assert.equal(redactAndBound('https://host.example.test/repo/@visible?mode=@safe#@fragment'),
+    'https://host.example.test/repo/@visible?mode=@safe#@fragment');
 });
 
 test('buildAgentSummary does not expose URI userinfo passwords', () => {

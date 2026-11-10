@@ -561,6 +561,30 @@ test('choice handlers reject duplicate normalized decision values before transpo
   assert.equal(transportCalls, 0);
 });
 
+test('choice handlers reject malformed Unicode options before transport', async () => {
+  let transportCalls = 0;
+  const handlers = createMcpToolHandlers({
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: async () => {
+      transportCalls += 1;
+      throw new Error('transport must not receive malformed choice text');
+    }
+  });
+
+  for (const options of [
+    ['ship\uD800'],
+    [{ value: 'ship\uD800', label: 'Ship' }],
+    [{ value: 'ship', label: 'Ship\uDC00' }]
+  ]) {
+    await assert.rejects(() => handlers.requestChoice({
+      title: 'Pick one',
+      message: 'Choose an explicit option',
+      options
+    }), /NOFAX_CHOICE_INVALID/);
+  }
+  assert.equal(transportCalls, 0);
+});
+
 test('choice handlers reject options that collapse to the same visible label before transport', async () => {
   let transportCalls = 0;
   const handlers = createMcpToolHandlers({

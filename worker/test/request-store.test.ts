@@ -86,6 +86,27 @@ describe("NofaxRequestStore", () => {
     });
   });
 
+  it("rejects ill-formed Unicode in choice values before persistence and when reading legacy rows", async () => {
+    const raw = rawStore("choice-invalid-unicode");
+    const input = pending({ kind: "choice", allowed: ["ship", "hold"] });
+    await runInDurableObject(raw, async (instance, state) => {
+      await expect(instance.createRequest(pending({
+        kind: "choice", allowed: ["ship", "bad" + String.fromCharCode(0xd800) + "value"]
+      }))).rejects.toThrow("NOFAX_REQUEST_ALLOWED_INVALID");
+      expect(instance.getRequest(input.requestId)).toBeNull();
+
+      await instance.createRequest(input);
+      state.storage.sql.exec(
+        "UPDATE requests SET allowed_json = ? WHERE request_id = ?",
+        JSON.stringify(["ship", "bad" + String.fromCharCode(0xd800) + "value"]), input.requestId
+      );
+      expect(() => instance.getRequest(input.requestId)).toThrow("NOFAX_REQUEST_ALLOWED_INVALID");
+      expect(() => instance.resolveByCallbackHash({
+        callbackHash: input.callbackHash, decision: "ship", nowMs: 2_000
+      })).toThrow("NOFAX_REQUEST_ALLOWED_INVALID");
+    });
+  });
+
   it("refuses corrupt legacy approval allow-lists before inspection or callback resolution", async () => {
     const raw = rawStore("legacy-kind-allowed-invariant");
     const stub = raw as unknown as RequestStoreStub;
@@ -337,6 +358,23 @@ describe("NofaxRequestStore", () => {
       nowMs: 2_000
     });
     expect(result?.request.text?.length).toBe(2_000);
+  });
+
+  it("rejects malformed Unicode refinement text before persisting a human decision", async () => {
+    const raw = rawStore("refine-invalid-unicode");
+    const input = pending({ kind: "refinement", allowed: ["refine"] });
+    await runInDurableObject(raw, async (instance) => {
+      await instance.createRequest(input);
+      for (const invalid of [String.fromCharCode(0xd800), String.fromCharCode(0xdc00)]) {
+        expect(() => instance.resolveByCallbackHash({
+          callbackHash: input.callbackHash,
+          decision: "refine",
+          text: `change ${invalid} please`,
+          nowMs: 2_000
+        })).toThrow("NOFAX_REQUEST_TEXT_INVALID");
+        expect(instance.getRequest(input.requestId)?.status).toBe("pending");
+      }
+    });
   });
 
   it("does not split a Unicode surrogate pair at the refinement text limit", async () => {

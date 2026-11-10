@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-const SECRET_KEY = /(?:^|[_-])(token|password|passwd|secret|api[_-]?key|authorization|cookie|credential|private[_-]?key)(?:$|[_-])/i;
+const SECRET_KEY = /(?:^|[_-])(token|password|passwd|secret|api[_-]?key|authorization|cookie|session[_-]?(?:id|key)|credential|private[_-]?key)(?:$|[_-])/i;
 const MAX_STRING = 500;
 const MAX_REDACTION_INPUT = 16 * 1024;
 const MAX_DEPTH = 5;
@@ -93,8 +93,21 @@ function redactSecretText(value) {
   );
 
   redacted = redacted.replace(
-    /\b([A-Za-z][A-Za-z0-9+.-]{1,31}:\/\/)([^\s\/@:]*):([^\s\/@]+)@/g,
-    '$1$2:[REDACTED]@'
+    /\b([A-Za-z][A-Za-z0-9+.-]{1,31}:\/\/)([^\s\/?#"'`<>]+)/g,
+    (match, scheme, authority) => {
+      const finalAt = authority.lastIndexOf('@');
+      if (finalAt === -1) return match;
+
+      const userinfo = authority.slice(0, finalAt);
+      const host = authority.slice(finalAt + 1);
+      const passwordAt = userinfo.indexOf(':');
+      // Keep established username:password output, but never expose token-only
+      // or ambiguous multi-@ userinfo in approval previews.
+      if (passwordAt !== -1 && !userinfo.includes('@')) {
+        return `${scheme}${userinfo.slice(0, passwordAt)}:[REDACTED]@${host}`;
+      }
+      return `${scheme}[REDACTED]@${host}`;
+    }
   );
 
   // Commands may embed a JSON string containing another serialized JSON object,
@@ -241,7 +254,7 @@ function escapeDisplayControls(text) {
       }
       return `\\u${character.codePointAt(0).toString(16).padStart(4, '0')}`;
     }
-    return character.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u034f\u061c\u200b\u200e-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/gu,
+    return character.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u00ad\u034f\u061c\u115f-\u1160\u180e\u200b\u200e-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\u2800\u3164\uffa0\ufeff]/gu,
       (control) => `\\u${control.codePointAt(0).toString(16).padStart(4, '0')}`);
   }).join('');
 }

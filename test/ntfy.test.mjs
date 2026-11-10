@@ -30,6 +30,22 @@ test('sendNotification publishes bounded JSON to the configured phone topic', as
   assert.equal(calls[0].init.headers.authorization, undefined);
 });
 
+test('direct ntfy notifications reject malformed Unicode before contacting the provider', async () => {
+  for (const invalid of ['\ud800', '\udc00']) {
+    for (const field of ['title', 'message']) {
+      let fetchCalls = 0;
+      await assert.rejects(() => sendNotification({
+        config,
+        title: 'Build done',
+        message: 'All tests pass',
+        [field]: `Human ${invalid} decision`,
+        fetchImpl: async () => { fetchCalls += 1; return jsonResponse({ id: 'unexpected' }); }
+      }), new RegExp(`NOFAX_${field.toUpperCase()}_INVALID_UTF8`));
+      assert.equal(fetchCalls, 0, 'malformed text must not be delivered to ntfy');
+    }
+  }
+});
+
 test('local ntfy notifications visibly escape terminal and bidi controls', async () => {
   let payload;
   const fetchImpl = async (_url, init) => {
@@ -104,6 +120,40 @@ test('local ntfy visibly escapes hidden format marks in messages and choice labe
   }
   assert.equal(payload.actions[0].label, 'Allow\\u200f');
   assert.ok(payload.message.includes('\nDeveloper 👩\u200d💻'));
+});
+
+test('local ntfy exposes blank filler glyphs in titles, messages and approval labels', async () => {
+  let payload;
+  await createRemoteRequest({
+    config,
+    title: 'Al\u3164low',
+    message: 'De\u2800ny \u115f\u1160\uffa0',
+    options: [{ value: 'allow', label: 'Al\u3164low' }, { value: 'deny', label: 'Deny' }],
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.equal(payload.title, 'Al\\u3164low');
+  assert.equal(payload.message, 'De\\u2800ny \\u115f\\u1160\\uffa0');
+  assert.equal(payload.actions[0].label, 'Al\\u3164low');
+});
+
+test('local ntfy keeps emoji joiners intact beside escaped blank fillers', async () => {
+  let payload;
+  await createRemoteRequest({
+    config,
+    title: 'Approve 👩\u200d💻\u3164',
+    message: 'Review👩\u200d💻\u2800now',
+    options: [{ value: 'allow', label: 'Approve 👩\u200d💻\u3164' }, { value: 'deny', label: 'Deny' }],
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.equal(payload.title, 'Approve 👩\u200d💻\\u3164');
+  assert.equal(payload.message, 'Review👩\u200d💻\\u2800now');
+  assert.equal(payload.actions[0].label, 'Approve 👩\u200d💻\\u3164');
 });
 
 test('local ntfy action labels expose zero-width joiners while preserving message emoji', async () => {

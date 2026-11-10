@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
-import { boundText } from "./protocol";
+import { boundText, isWellFormedText } from "./protocol";
 
 const REQUEST_ID = /^nfx_[A-Za-z0-9_-]{20,80}$/;
 const CALLBACK_HASH = /^[a-f0-9]{64}$/;
@@ -86,7 +86,9 @@ function validateTimestamp(value: unknown, name: string): number {
 function validateAllowed(value: unknown): string[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > 3) throw new Error("NOFAX_REQUEST_ALLOWED_INVALID");
   const allowed = value.map((item) => {
-    if (typeof item !== "string" || !item.trim() || item.length > 80) throw new Error("NOFAX_REQUEST_ALLOWED_INVALID");
+    if (typeof item !== "string" || !item.trim() || item.length > 80 || !isWellFormedText(item)) {
+      throw new Error("NOFAX_REQUEST_ALLOWED_INVALID");
+    }
     return item.trim();
   });
   if (new Set(allowed).size !== allowed.length) throw new Error("NOFAX_REQUEST_ALLOWED_INVALID");
@@ -136,7 +138,8 @@ function parseAllowed(value: string): string[] {
 }
 
 function validStoredText(value: unknown, maxLength: number): value is string {
-  return typeof value === "string" && value.trim().length > 0 && value.length <= maxLength;
+  return typeof value === "string" && value.trim().length > 0 &&
+    value.length <= maxLength && isWellFormedText(value);
 }
 
 function rowToRequest(row: RequestRow): StoredRequest {
@@ -319,6 +322,8 @@ export class NofaxRequestStore extends DurableObject<Env> {
     if (input.decision === "refine" && current.kind !== "choice") {
       if (typeof input.text !== "string" || !input.text.trim()) throw new Error("NOFAX_REQUEST_TEXT_INVALID");
       const trimmed = input.text.trim();
+      // Reject lone UTF-16 surrogates before writing a terminal human decision.
+      if (!isWellFormedText(trimmed)) throw new Error("NOFAX_REQUEST_TEXT_INVALID");
       const last = trimmed.charCodeAt(1_999);
       // Do not split a supplementary Unicode character across the UTF-16 limit.
       const end = trimmed.length > 2_000 && last >= 0xd800 && last <= 0xdbff ? 1_999 : 2_000;
