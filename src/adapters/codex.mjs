@@ -1,4 +1,4 @@
-import { buildAgentSummary } from '../protocol.mjs';
+import { buildAgentSummary, redactAndBound } from '../protocol.mjs';
 import { requestApproval } from '../ntfy.mjs';
 
 function assertCodexPermissionRequest(input) {
@@ -15,7 +15,7 @@ export async function handleCodexPermissionRequest(input, {
   try {
     const result = await requestApprovalImpl({
       config,
-      title: `Codex needs approval: ${input.tool_name}`,
+      title: `Codex needs approval: ${redactAndBound(input.tool_name)}`,
       message: buildAgentSummary({
         source: 'Codex',
         toolName: input.tool_name,

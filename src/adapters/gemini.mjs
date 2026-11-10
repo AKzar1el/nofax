@@ -1,4 +1,4 @@
-import { buildAgentSummary } from '../protocol.mjs';
+import { buildAgentSummary, redactAndBound } from '../protocol.mjs';
 import { requestApproval, sendNotification } from '../ntfy.mjs';
 
 export async function handleGeminiNotification(input, {
@@ -11,7 +11,7 @@ export async function handleGeminiNotification(input, {
     : 'Notification';
   await sendNotificationImpl({
     config,
-    title: `Gemini CLI: ${type}`,
+    title: `Gemini CLI: ${redactAndBound(type)}`,
     message: buildAgentSummary({
       source: 'Gemini CLI',
       message: typeof input.message === 'string' ? input.message : 'Gemini CLI needs attention.',
@@ -42,7 +42,7 @@ export async function handleGeminiHook(input, {
   try {
     const result = await requestApprovalImpl({
       config,
-      title: `Gemini CLI needs approval: ${input.tool_name}`,
+      title: `Gemini CLI needs approval: ${redactAndBound(input.tool_name)}`,
       message: buildAgentSummary({
         source: 'Gemini CLI',
         toolName: input.tool_name,

@@ -1,4 +1,4 @@
-import { buildAgentSummary } from '../protocol.mjs';
+import { buildAgentSummary, redactAndBound } from '../protocol.mjs';
 import { requestApproval } from '../ntfy.mjs';
 
 function assertClaudePermissionRequest(input) {
@@ -15,7 +15,7 @@ export async function handleClaudePermissionRequest(input, {
   try {
     const result = await requestApprovalImpl({
       config,
-      title: `Claude Code needs approval: ${input.tool_name}`,
+      title: `Claude Code needs approval: ${redactAndBound(input.tool_name)}`,
       message: buildAgentSummary({
         source: 'Claude Code',
         toolName: input.tool_name,
