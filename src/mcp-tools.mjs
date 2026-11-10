@@ -127,13 +127,15 @@ function validateChoiceOptions(options) {
   const normalized = options.map((option) => {
     if (typeof option === 'string') {
       const value = option.trim();
-      if (!value || value.length > 80) throw new Error('NOFAX_CHOICE_INVALID');
+      if (!value || value.length > 80 || !value.isWellFormed()) throw new Error('NOFAX_CHOICE_INVALID');
       return { value, label: boundChoiceLabel(value) };
     }
     if (!option || typeof option.value !== 'string' || typeof option.label !== 'string') throw new Error('NOFAX_CHOICE_INVALID');
     const value = option.value.trim();
     const label = option.label.trim();
-    if (!value || !label || value.length > 80) throw new Error('NOFAX_CHOICE_INVALID');
+    if (!value || !label || value.length > 80 || !value.isWellFormed() || !label.isWellFormed()) {
+      throw new Error('NOFAX_CHOICE_INVALID');
+    }
     return { value, label: boundChoiceLabel(label) };
   });
   if (new Set(normalized.map((option) => option.value)).size !== normalized.length) {
