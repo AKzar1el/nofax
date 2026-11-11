@@ -67,6 +67,12 @@ Nofax creates `~/.nofax/config.json` and generates a high-entropy notification t
 nofax test
 ```
 
+To inspect local outstanding approval requests without sending a notification or
+granting a decision, run `nofax pending` (or `nofax pending --limit 10`). It
+prints only request IDs, kinds, statuses, and creation times as JSON; it does
+not print request prompts or the ntfy subscription topic. This is a read-only
+local diagnostic, not an approval interface.
+
 ### 4. Use it
 
 ```bash

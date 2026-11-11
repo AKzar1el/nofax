@@ -5,11 +5,111 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from '../src/cli.mjs';
 import { loadConfig } from '../src/config.mjs';
+import { savePendingRequest, resolveRequest } from '../src/requests.mjs';
 
 function capture() {
   let text = '';
   return { write: (chunk) => { text += String(chunk); }, read: () => text };
 }
+
+test('pending lists only local public request metadata with a bounded limit', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  let calls = 0;
+  const code = await runCli(['pending', '--limit', '1'], {
+    stdout, stderr,
+    loadConfigImpl: async () => { throw new Error('PENDING_MUST_NOT_READ_NOTIFICATION_CONFIG'); },
+    sendNotificationImpl: async () => { throw new Error('PENDING_MUST_NOT_NOTIFY'); },
+    requestApprovalImpl: async () => { throw new Error('PENDING_MUST_NOT_APPROVE'); },
+    listPendingRequestsImpl: async ({ limit }) => {
+      calls += 1;
+      assert.equal(limit, 1);
+      return [{
+        requestId: 'req_pending_example', kind: 'approval', status: 'pending',
+        createdAt: '2026-11-11T02:00:00.000Z',
+        title: 'SECRET_TITLE', message: 'SECRET_MESSAGE', topic: 'SECRET_TOPIC',
+        text: 'SECRET_DECISION_TEXT'
+      }];
+    }
+  });
+  assert.equal(code, 0);
+  assert.equal(calls, 1);
+  assert.deepEqual(JSON.parse(stdout.read()), { requests: [{
+    requestId: 'req_pending_example', kind: 'approval', status: 'pending',
+    createdAt: '2026-11-11T02:00:00.000Z'
+  }] });
+  assert.equal(stderr.read(), '');
+  assert.doesNotMatch(stdout.read(), /SECRET_/);
+});
+
+test('pending reads real local records and excludes a human-denied terminal request', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-cli-pending-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const record = {
+    version: 1, requestId: 'nfx_abcdefghijklmnopqrstuvwx', kind: 'approval',
+    responseTopic: 'nofax_r_private_response_capability', allowed: ['allow', 'deny'],
+    status: 'pending', createdAt: '2026-11-11T02:00:00.000Z'
+  };
+  await savePendingRequest({ home, request: record });
+  await savePendingRequest({ home, request: {
+    ...record, requestId: 'nfx_abcdefghijklmnopqrstuvw0',
+    createdAt: '2026-11-11T02:01:00.000Z'
+  } });
+  await resolveRequest({
+    home, requestId: record.requestId, response: { decision: 'deny' },
+    resolvedAt: '2026-11-11T02:02:00.000Z'
+  });
+  const stdout = capture();
+  const stderr = capture();
+  assert.equal(await runCli(['pending'], {
+    env: { NOFAX_HOME: home }, stdout, stderr
+  }), 0);
+  assert.deepEqual(JSON.parse(stdout.read()), { requests: [{
+    requestId: 'nfx_abcdefghijklmnopqrstuvw0', kind: 'approval',
+    status: 'pending', createdAt: '2026-11-11T02:01:00.000Z'
+  }] });
+  assert.equal(stderr.read(), '');
+  assert.doesNotMatch(stdout.read(), /private_response_capability|deny/);
+});
+
+test('pending defaults to twenty and rejects invalid limits before scanning', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  let calls = 0;
+  assert.equal(await runCli(['pending'], {
+    stdout, stderr,
+    listPendingRequestsImpl: async ({ limit }) => {
+      calls += 1;
+      assert.equal(limit, 20);
+      return [];
+    }
+  }), 0);
+  assert.deepEqual(JSON.parse(stdout.read()), { requests: [] });
+  assert.equal(stderr.read(), '');
+  assert.equal(calls, 1);
+
+  for (const value of ['0', '101', '1.5', 'NaN']) {
+    const out = capture();
+    const err = capture();
+    assert.equal(await runCli(['pending', '--limit', value], {
+      stdout: out, stderr: err,
+      listPendingRequestsImpl: async () => { throw new Error('MUST_NOT_SCAN'); }
+    }), 1);
+    assert.equal(out.read(), '');
+    assert.match(err.read(), /NOFAX_REQUEST_LIMIT_INVALID/);
+  }
+});
+
+test('pending fails closed when local request records are corrupt', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  assert.equal(await runCli(['pending'], {
+    stdout, stderr,
+    listPendingRequestsImpl: async () => { throw new Error('NOFAX_REQUEST_INVALID_JSON'); }
+  }), 1);
+  assert.equal(stdout.read(), '');
+  assert.match(stderr.read(), /NOFAX_REQUEST_INVALID_JSON/);
+});
 
 test('init creates config and prints a subscription URL', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'nofax-cli-'));
