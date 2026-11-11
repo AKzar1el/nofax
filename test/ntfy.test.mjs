@@ -800,6 +800,73 @@ test('a null optional signal cannot disable the direct notification deadline', a
   assert.equal(observedSignal.aborted, true);
 });
 
+test('an explicit direct notification timeout still applies with a caller signal', async () => {
+  const caller = new AbortController();
+  let resolveFetch;
+  let observedSignal;
+  const pendingFetch = new Promise((resolve) => { resolveFetch = resolve; });
+  const publication = sendNotification({
+    config,
+    title: 'Build done',
+    message: 'All tests pass',
+    signal: caller.signal,
+    timeoutMs: 20,
+    fetchImpl: (_url, init) => {
+      observedSignal = init.signal;
+      return pendingFetch;
+    }
+  });
+
+  const result = await Promise.race([
+    publication.then(() => 'sent', (error) => `${error.message}:${error.deliveryState}`),
+    new Promise((resolve) => setTimeout(() => resolve('stalled'), 100))
+  ]);
+  resolveFetch(jsonResponse({ id: 'synthetic' }));
+  await publication.catch(() => {});
+
+  assert.equal(result, 'NOFAX_NTFY_PUBLISH_TIMEOUT:ambiguous');
+  assert.equal(observedSignal.aborted, true);
+  assert.equal(caller.signal.aborted, false, 'an internal deadline must not abort the caller');
+});
+
+test('an explicit publish deadline forwards caller cancellation to the request', async () => {
+  const caller = new AbortController();
+  let observedSignal;
+  const publication = sendNotification({
+    config,
+    title: 'Build done',
+    message: 'All tests pass',
+    signal: caller.signal,
+    timeoutMs: 1000,
+    fetchImpl: (_url, init) => {
+      observedSignal = init.signal;
+      return new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(new Error('synthetic cancellation')), { once: true });
+      });
+    }
+  });
+  caller.abort();
+  await assert.rejects(publication,
+    (error) => error?.message === 'NOFAX_NTFY_PUBLISH_NETWORK' && error.deliveryState === 'ambiguous');
+  assert.equal(observedSignal.aborted, true);
+});
+
+test('a caller-managed notification signal remains unchanged without an explicit deadline', async () => {
+  const caller = new AbortController();
+  let observedSignal;
+  await sendNotification({
+    config,
+    title: 'Build done',
+    message: 'All tests pass',
+    signal: caller.signal,
+    fetchImpl: async (_url, init) => {
+      observedSignal = init.signal;
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.equal(observedSignal, caller.signal);
+});
+
 test('sendNotification releases a publish body that arrives after its timeout', async () => {
   let resolveRequest;
   let signal;
