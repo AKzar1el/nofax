@@ -8,6 +8,7 @@ const MAX_NTFY_POLL_RESPONSE_BYTES = 1_048_576;
 const DEFAULT_REFINE_SHORTCUT = 'Nofax Refine';
 const POLL_TIMEOUT = Symbol('NOFAX_POLL_TIMEOUT');
 const PUBLISH_TIMEOUT = Symbol('NOFAX_PUBLISH_TIMEOUT');
+const PUBLISH_CANCELLED = Symbol('NOFAX_PUBLISH_CANCELLED');
 const DEFAULT_PUBLISH_TIMEOUT_MS = 15_000;
 const MAX_TIMER_TIMEOUT_MS = 2_147_483_647;
 // ntfy rejects invalid, unauthorized, oversized, and rate-limited requests
@@ -207,15 +208,25 @@ export async function sendNotification({ config, title, message, actions, priori
   const ownsTimeout = signal == null || timeoutMs !== undefined;
   const deadlineMs = timeoutMs === undefined ? DEFAULT_PUBLISH_TIMEOUT_MS : timeoutMs;
   if (ownsTimeout) validateTimeoutMs(deadlineMs, 'NOFAX_PUBLISH_TIMEOUT_INVALID');
+  // An already-cancelled caller cannot authorize even attempting publication.
+  if (signal?.aborted) {
+    throw publishError('NOFAX_NTFY_PUBLISH_NETWORK', 'not_applied');
+  }
   const controller = ownsTimeout ? new AbortController() : null;
-  const forwardAbort = controller !== null && signal != null ? () => controller.abort() : null;
   let timeoutId;
+  let resolveDeadline;
   const timeout = controller === null ? null : new Promise((resolve) => {
+    resolveDeadline = resolve;
     timeoutId = setTimeout(() => {
       resolve(PUBLISH_TIMEOUT);
       controller.abort();
     }, deadlineMs);
   });
+  const forwardAbort = controller !== null && signal != null ? () => {
+    controller.abort();
+    // A custom fetch can ignore abort: caller cancellation still settles promptly.
+    resolveDeadline(PUBLISH_CANCELLED);
+  } : null;
   let response;
   let request;
   try {
@@ -243,10 +254,11 @@ export async function sendNotification({ config, title, message, actions, priori
     if (timeoutId !== undefined) clearTimeout(timeoutId);
     if (forwardAbort !== null) signal.removeEventListener('abort', forwardAbort);
   }
-  if (response === PUBLISH_TIMEOUT) {
-    // Some fetch implementations ignore abort and return a body after the deadline.
+  if (response === PUBLISH_TIMEOUT || response === PUBLISH_CANCELLED) {
+    // Some fetch implementations ignore abort and return a body after cancellation or timeout.
     void Promise.resolve(request).then(releaseResponseBody, () => {});
-    throw publishError('NOFAX_NTFY_PUBLISH_TIMEOUT', 'ambiguous');
+    throw publishError(response === PUBLISH_TIMEOUT
+      ? 'NOFAX_NTFY_PUBLISH_TIMEOUT' : 'NOFAX_NTFY_PUBLISH_NETWORK', 'ambiguous');
   }
   releaseResponseBody(response);
   if (!response?.ok) {

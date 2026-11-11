@@ -851,6 +851,54 @@ test('an explicit publish deadline forwards caller cancellation to the request',
   assert.equal(observedSignal.aborted, true);
 });
 
+test('caller cancellation settles a direct publish even when fetch ignores abort', async () => {
+  const caller = new AbortController();
+  let resolveFetch;
+  let observedSignal;
+  const pendingFetch = new Promise((resolve) => { resolveFetch = resolve; });
+  const publication = sendNotification({
+    config,
+    title: 'Build done',
+    message: 'All tests pass',
+    signal: caller.signal,
+    timeoutMs: 2000,
+    fetchImpl: (_url, init) => {
+      observedSignal = init.signal;
+      return pendingFetch;
+    }
+  });
+
+  caller.abort();
+  const outcome = await Promise.race([
+    publication.then(() => 'sent', (error) => `${error.message}:${error.deliveryState}`),
+    new Promise((resolve) => setTimeout(() => resolve('stalled'), 100))
+  ]);
+  resolveFetch(jsonResponse({ id: 'late-response' }));
+  await publication.catch(() => {});
+
+  assert.equal(outcome, 'NOFAX_NTFY_PUBLISH_NETWORK:ambiguous');
+  assert.equal(observedSignal.aborted, true);
+  assert.equal(caller.signal.aborted, true);
+});
+
+test('an already-aborted caller cannot receive a successful publish result', async () => {
+  const caller = new AbortController();
+  caller.abort();
+  let published = 0;
+  await assert.rejects(() => sendNotification({
+    config,
+    title: 'Build done',
+    message: 'All tests pass',
+    signal: caller.signal,
+    timeoutMs: 2000,
+    fetchImpl: async () => {
+      published += 1;
+      return jsonResponse({ id: 'unexpected' });
+    }
+  }), (error) => error?.message === 'NOFAX_NTFY_PUBLISH_NETWORK' && error.deliveryState === 'not_applied');
+  assert.equal(published, 0, 'cancellation before fetch must never publish');
+});
+
 test('a caller-managed notification signal remains unchanged without an explicit deadline', async () => {
   const caller = new AbortController();
   let observedSignal;
