@@ -189,7 +189,7 @@ function releaseResponseBody(response) {
   }
 }
 
-export async function sendNotification({ config, title, message, actions, priority = 4, tags = ['bell'], signal, fetchImpl = fetch, timeoutMs = DEFAULT_PUBLISH_TIMEOUT_MS, authToken = process.env.NOFAX_NTFY_TOKEN }) {
+export async function sendNotification({ config, title, message, actions, priority = 4, tags = ['bell'], signal, fetchImpl = fetch, timeoutMs, authToken = process.env.NOFAX_NTFY_TOKEN }) {
   const server = normalizeServer(config.server);
   const topic = validateTopic(config.topic);
   const authorization = publishAuthorization(config, authToken);
@@ -202,21 +202,27 @@ export async function sendNotification({ config, title, message, actions, priori
   };
   if (actions?.length) payload.actions = actions;
 
-  // Caller-managed approval publication and confirmation already have a deadline.
-  // A direct notification needs its own bounded transport when no signal is supplied.
-  const ownsTimeout = signal == null;
-  if (ownsTimeout) validateTimeoutMs(timeoutMs, 'NOFAX_PUBLISH_TIMEOUT_INVALID');
+  // Approval and confirmation callers manage their own deadline when they pass
+  // only a signal. An explicit timeout must still bound a direct caller's POST.
+  const ownsTimeout = signal == null || timeoutMs !== undefined;
+  const deadlineMs = timeoutMs === undefined ? DEFAULT_PUBLISH_TIMEOUT_MS : timeoutMs;
+  if (ownsTimeout) validateTimeoutMs(deadlineMs, 'NOFAX_PUBLISH_TIMEOUT_INVALID');
   const controller = ownsTimeout ? new AbortController() : null;
+  const forwardAbort = controller !== null && signal != null ? () => controller.abort() : null;
   let timeoutId;
   const timeout = controller === null ? null : new Promise((resolve) => {
     timeoutId = setTimeout(() => {
       resolve(PUBLISH_TIMEOUT);
       controller.abort();
-    }, timeoutMs);
+    }, deadlineMs);
   });
   let response;
   let request;
   try {
+    if (forwardAbort !== null) {
+      if (signal.aborted) forwardAbort();
+      else signal.addEventListener('abort', forwardAbort, { once: true });
+    }
     request = fetchImpl(`${server}/`, {
       method: 'POST',
       headers: {
@@ -235,6 +241,7 @@ export async function sendNotification({ config, title, message, actions, priori
     throw publishError('NOFAX_NTFY_PUBLISH_NETWORK', 'ambiguous');
   } finally {
     if (timeoutId !== undefined) clearTimeout(timeoutId);
+    if (forwardAbort !== null) signal.removeEventListener('abort', forwardAbort);
   }
   if (response === PUBLISH_TIMEOUT) {
     // Some fetch implementations ignore abort and return a body after the deadline.
