@@ -53,7 +53,28 @@ jobs:
           if npm view "nofax@${VERSION}" version --json >/dev/null 2>&1; then
             echo "nofax@${VERSION} is already public; skipping npm publish."
           else
-            npm publish --access public
+            # A transient Sigstore transparency-log 409 can occur after a
+            # successful create-entry request. Keep provenance enabled; only
+            # recover this exact failure, and check the immutable npm version
+            # before one bounded retry.
+            publish_log="${RUNNER_TEMP}/nofax-npm-publish.log"
+            if npm publish --access public >"${publish_log}" 2>&1; then
+              cat "${publish_log}"
+            elif grep -Fq 'TLOG_CREATE_ENTRY_ERROR' "${publish_log}" &&
+                 grep -Fq 'an equivalent entry already exists in the transparency log' "${publish_log}"; then
+              echo "::warning::Transient npm provenance transparency-log conflict; checking registry before a single retry."
+              for attempt in 1 2 3; do
+                if npm view "nofax@${VERSION}" version --json >/dev/null 2>&1; then
+                  echo "nofax@${VERSION} is now public; refusing a duplicate publish."
+                  exit 0
+                fi
+                sleep 10
+              done
+              npm publish --access public
+            else
+              cat "${publish_log}"
+              exit 1
+            fi
           fi
 
       - name: Install pinned MCP publisher
