@@ -1,11 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { initConfig, isLegacyRepeatedTopic, loadConfig } from './config.mjs';
 import { requestApproval, requestRefinement, sendNotification } from './ntfy.mjs';
+import { listPendingRequests } from './requests.mjs';
 import { handleClaudePermissionRequest } from './adapters/claude.mjs';
 import { handleCodexPermissionRequest } from './adapters/codex.mjs';
 import { handleGeminiHook } from './adapters/gemini.mjs';
 
-const HELP = `nofax - remote approvals and notifications for coding agents\n\nUsage:\n  nofax --version\n  nofax init [--server URL] [--topic TOPIC] [--timeout SECONDS] [--force]\n  nofax test\n  nofax notify [--title TITLE] MESSAGE...\n  nofax approve [--title TITLE] MESSAGE...\n  nofax refine [--title TITLE] MESSAGE...\n  nofax mcp\n  nofax config\n  nofax hook claude\n  nofax hook codex\n  nofax hook gemini\n\nEnvironment:\n  NOFAX_HOME   Override ~/.nofax\n`;
+const HELP = `nofax - remote approvals and notifications for coding agents\n\nUsage:\n  nofax --version\n  nofax init [--server URL] [--topic TOPIC] [--timeout SECONDS] [--force]\n  nofax test\n  nofax pending [--limit N]\n  nofax notify [--title TITLE] MESSAGE...\n  nofax approve [--title TITLE] MESSAGE...\n  nofax refine [--title TITLE] MESSAGE...\n  nofax mcp\n  nofax config\n  nofax hook claude\n  nofax hook codex\n  nofax hook gemini\n\nEnvironment:\n  NOFAX_HOME   Override ~/.nofax\n`;
 
 const PACKAGE_JSON_URL = new URL('../package.json', import.meta.url);
 const MAX_HOOK_STDIN_BYTES = 1024 * 1024;
@@ -37,7 +38,7 @@ function parseArgs(args, allowedFlags = []) {
       flags.force = true;
       continue;
     }
-    if (['--title', '--server', '--topic', '--timeout'].includes(value)) {
+    if (['--title', '--server', '--topic', '--timeout', '--limit'].includes(value)) {
       if (!allowedFlags.includes(value)) throw new Error(`NOFAX_UNKNOWN_FLAG:${value}`);
       const next = args[index + 1];
       if (next === undefined || next.startsWith('--')) throw new Error(`NOFAX_FLAG_VALUE:${value}`);
@@ -168,6 +169,7 @@ export async function runCli(args, overrides = {}) {
     requestApprovalImpl: overrides.requestApprovalImpl ?? requestApproval,
     requestRefinementImpl: overrides.requestRefinementImpl ?? requestRefinement,
     sendNotificationImpl: overrides.sendNotificationImpl ?? sendNotification,
+    listPendingRequestsImpl: overrides.listPendingRequestsImpl ?? listPendingRequests,
     runMcpServerImpl: overrides.runMcpServerImpl ?? (async () => {
       const { runMcpServer } = await import('./mcp-server.mjs');
       await runMcpServer();
@@ -227,6 +229,20 @@ export async function runCli(args, overrides = {}) {
       return 0;
     }
 
+    if (command === 'pending') {
+      const { flags, positionals } = parseArgs(args.slice(1), ['--limit']);
+      rejectUnexpectedArgs(positionals);
+      const limit = flags.limit === undefined ? 20 : Number(flags.limit);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+        throw new Error('NOFAX_REQUEST_LIMIT_INVALID');
+      }
+      const requests = await deps.listPendingRequestsImpl({ env: deps.env, limit });
+      // Local diagnostics expose request metadata only, never prompts or decisions.
+      deps.stdout.write(`${JSON.stringify({ requests: requests.map(({ requestId, kind, status, createdAt }) => ({
+        requestId, kind, status, createdAt
+      })) })}\n`);
+      return 0;
+    }
     if (command === 'test') {
       rejectUnexpectedArgs(args.slice(1));
       const config = await deps.loadConfigImpl({ env: deps.env });
