@@ -344,11 +344,11 @@ export function redactAndBound(value, options = {}) {
   }
 
   const entries = Object.entries(value);
-  const entryName = entries.find(([key, child]) => (
+  const redactEntryValue = entries.some(([key, child]) => (
     typeof child === 'string'
     && (key.toLowerCase() === 'name' || key.toLowerCase() === 'key' || key.toLowerCase() === 'header')
-  ))?.[1] ?? null;
-  const redactEntryValue = entryName !== null && isSecretKey(entryName);
+    && isSecretKey(child)
+  ));
 
   const out = {};
   for (const [key, child] of entries.slice(0, MAX_OBJECT_KEYS)) {

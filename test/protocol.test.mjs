@@ -695,6 +695,28 @@ test('redacts secret values in header/value entry objects', () => {
   assert.doesNotMatch(summary, new RegExp(marker));
 });
 
+test('redacts entry values when any mixed metadata label names a secret', () => {
+  const marker = 'NOFAX_MIXED_ENTRY_SECRET_CANARY_XYZ';
+  const inputs = [
+    { name: 'display', header: 'Authorization', value: marker, note: 'safe' },
+    { header: 'Accept', key: 'api_key', values: [marker], note: 'safe' },
+    { key: 'mode', Name: 'Cookie', Value: marker, note: 'safe' },
+    { Header: 'X-Api-Key', name: 'display', Values: [marker], note: 'safe' }
+  ];
+
+  for (const input of inputs) {
+    const result = redactAndBound(input);
+    const field = Object.keys(input).find((key) => key.toLowerCase() === 'value' || key.toLowerCase() === 'values');
+    assert.equal(result[field], '[REDACTED]');
+    assert.equal(result.note, 'safe');
+    assert.doesNotMatch(buildAgentSummary({ toolInput: input }), new RegExp(marker));
+  }
+
+  const benign = { name: 'display', key: 'mode', header: 'Accept', value: 'application/json', note: 'safe' };
+  assert.deepEqual(redactAndBound(benign), benign);
+  assert.match(buildAgentSummary({ toolInput: benign }), /application\/json/);
+});
+
 test('redacts secret values embedded inside ordinary string fields', () => {
   const marker = 'NOFAX_EMBEDDED_SECRET_CANARY_XYZ';
   const result = redactAndBound({
