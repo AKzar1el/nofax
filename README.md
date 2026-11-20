@@ -426,8 +426,10 @@ without printing the saved notification topic. Use `nofax config --show-topic`
 privately if you need to resubscribe an existing phone.
 When a configuration already exists, supplying `--server`, `--topic`, or
 `--timeout` requires `--force`; otherwise Nofax stops instead of silently
-ignoring the requested change. `--force` replaces the configuration and may
-rotate the phone topic, so confirm the displayed subscription in your ntfy app.
+ignoring the requested change. `--force` rotates the phone topic while keeping
+the existing valid server and timeout unless you override them. If the saved
+configuration is invalid, `--force` recovers using safe defaults. Confirm the
+new displayed subscription in your ntfy app after each rotation.
 
 Notification content and one-time response-topic callbacks can carry sensitive
 capabilities. Custom servers require HTTPS; HTTP is supported only for local

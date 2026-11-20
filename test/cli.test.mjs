@@ -186,6 +186,27 @@ test('init shows the subscription capability only when created or explicitly rot
   assert.match(rotated.read(), new RegExp(changed.topic));
 });
 
+test('init --force rotates the topic without silently switching an existing custom server', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-cli-force-preserve-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const env = { NOFAX_HOME: home };
+  const firstOutput = capture();
+  assert.equal(await runCli(['init', '--server', 'https://private.example.invalid', '--timeout', '725'], {
+    env, stdout: firstOutput, stderr: capture()
+  }), 0);
+  const first = await loadConfig({ home });
+
+  const rotatedOutput = capture();
+  assert.equal(await runCli(['init', '--force'], {
+    env, stdout: rotatedOutput, stderr: capture()
+  }), 0);
+  const rotated = await loadConfig({ home });
+  assert.notEqual(rotated.topic, first.topic);
+  assert.equal(rotated.server, first.server);
+  assert.equal(rotated.timeoutSeconds, first.timeoutSeconds);
+  assert.match(rotatedOutput.read(), new RegExp(`${rotated.server}/${rotated.topic}`));
+});
+
 test('concurrent initializers disclose only the winning new subscription topic', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'nofax-cli-init-race-'));
   t.after(() => rm(home, { recursive: true, force: true }));

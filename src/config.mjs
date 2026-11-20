@@ -7,6 +7,13 @@ import { createPhoneTopic } from './protocol.mjs';
 export const DEFAULT_SERVER = 'https://ntfy.sh';
 export const DEFAULT_TIMEOUT_SECONDS = 300;
 const MAX_CONFIG_BYTES = 64 * 1024;
+const RECOVERABLE_SAVED_CONFIG_ERRORS = new Set([
+  'NOFAX_NOT_INITIALIZED', 'NOFAX_CONFIG_VERSION', 'NOFAX_CONFIG_INVALID_JSON',
+  'NOFAX_CONFIG_INVALID_UTF8', 'NOFAX_CONFIG_TOO_LARGE',
+  'NOFAX_SERVER_INVALID', 'NOFAX_SERVER_PROTOCOL', 'NOFAX_SERVER_CREDENTIALS',
+  'NOFAX_SERVER_PATH', 'NOFAX_SERVER_INSECURE_HTTP', 'NOFAX_TOPIC_INVALID',
+  'NOFAX_TIMEOUT_INVALID'
+]);
 
 async function readConfigJson(path) {
   const file = await open(path, 'r');
@@ -132,8 +139,9 @@ export async function loadConfig({ home, env } = {}) {
   }
 }
 
-export async function initConfig({ home, env, server = DEFAULT_SERVER, topic, timeoutSeconds = DEFAULT_TIMEOUT_SECONDS, force = false, rejectExisting = false, onCreated } = {}) {
+export async function initConfig({ home, env, server, topic, timeoutSeconds, force = false, rejectExisting = false, onCreated } = {}) {
   const root = resolveNofaxHome({ home, env });
+  let savedConfig;
   if (!force) {
     try {
       const existing = await loadConfig({ home: root });
@@ -144,13 +152,20 @@ export async function initConfig({ home, env, server = DEFAULT_SERVER, topic, ti
     } catch (error) {
       if (error.message !== 'NOFAX_NOT_INITIALIZED') throw error;
     }
+  } else {
+    try {
+      savedConfig = await loadConfig({ home: root });
+    } catch (error) {
+      // Explicit force can repair invalid saved data, but must not hide I/O failures.
+      if (!RECOVERABLE_SAVED_CONFIG_ERRORS.has(error?.message)) throw error;
+    }
   }
 
   const config = validateConfig({
     version: 1,
-    server,
+    server: server ?? savedConfig?.server ?? DEFAULT_SERVER,
     topic: topic ?? createPhoneTopic(),
-    timeoutSeconds
+    timeoutSeconds: timeoutSeconds ?? savedConfig?.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS
   });
   await mkdir(root, { recursive: true, mode: 0o700 });
   const path = join(root, 'config.json');

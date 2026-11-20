@@ -58,6 +58,23 @@ test('force reinitialization replaces config without modifying another hard link
   assert.deepEqual((await readdir(home)).sort(), ['config.json', 'original.json']);
 });
 
+test('forced topic rotation retains a valid saved server and timeout unless explicitly overridden', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-force-preserve-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const first = await initConfig({ home, server: 'https://private.example.invalid', timeoutSeconds: 725 });
+
+  const rotated = await initConfig({ home, force: true });
+  assert.notEqual(rotated.topic, first.topic);
+  assert.equal(rotated.server, first.server);
+  assert.equal(rotated.timeoutSeconds, first.timeoutSeconds);
+
+  const changed = await initConfig({ home, force: true, timeoutSeconds: 420 });
+  assert.notEqual(changed.topic, rotated.topic);
+  assert.equal(changed.server, first.server);
+  assert.equal(changed.timeoutSeconds, 420);
+  assert.deepEqual(await loadConfig({ home }), changed);
+});
+
 test('failed config replacement removes private temporary files', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'nofax-config-failure-'));
   t.after(() => rm(home, { recursive: true, force: true }));
@@ -178,5 +195,20 @@ test('only persisted legacy repeating topics remain readable for explicit rotati
 
   const rotated = await initConfig({ home, force: true });
   assert.notEqual(rotated.topic, legacyTopic);
+  assert.deepEqual(await loadConfig({ home }), rotated);
+});
+
+test('legacy topic recovery preserves an otherwise valid self-hosted configuration', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-legacy-force-preserve-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const oldConfig = {
+    version: 1, server: 'https://self-hosted.example.invalid',
+    topic: 'M9_aBcD2'.repeat(4), timeoutSeconds: 925
+  };
+  await writeFile(join(home, 'config.json'), JSON.stringify(oldConfig));
+  const rotated = await initConfig({ home, force: true });
+  assert.notEqual(rotated.topic, oldConfig.topic);
+  assert.equal(rotated.server, oldConfig.server);
+  assert.equal(rotated.timeoutSeconds, oldConfig.timeoutSeconds);
   assert.deepEqual(await loadConfig({ home }), rotated);
 });
