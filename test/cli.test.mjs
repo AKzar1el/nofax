@@ -163,6 +163,50 @@ test('init creates config and prints a subscription URL', async (t) => {
   assert.equal(stderr.read(), '');
 });
 
+test('init shows the subscription capability only when created or explicitly rotated', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-cli-init-repeat-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const env = { NOFAX_HOME: home };
+  const first = capture();
+  assert.equal(await runCli(['init'], { env, stdout: first, stderr: capture() }), 0);
+  const original = await loadConfig({ home });
+  assert.match(first.read(), new RegExp(original.topic));
+
+  const repeat = capture();
+  assert.equal(await runCli(['init'], { env, stdout: repeat, stderr: capture() }), 0);
+  assert.match(repeat.read(), /already initialized/);
+  assert.match(repeat.read(), /config --show-topic/);
+  assert.doesNotMatch(repeat.read(), new RegExp(original.topic));
+  assert.deepEqual(await loadConfig({ home }), original);
+
+  const rotated = capture();
+  assert.equal(await runCli(['init', '--force'], { env, stdout: rotated, stderr: capture() }), 0);
+  const changed = await loadConfig({ home });
+  assert.notEqual(changed.topic, original.topic);
+  assert.match(rotated.read(), new RegExp(changed.topic));
+});
+
+test('concurrent initializers disclose only the winning new subscription topic', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-cli-init-race-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const results = await Promise.all(Array.from({ length: 4 }, async () => {
+    const stdout = capture();
+    const stderr = capture();
+    const code = await runCli(['init'], { env: { NOFAX_HOME: home }, stdout, stderr });
+    return { code, stdout: stdout.read(), stderr: stderr.read() };
+  }));
+  const { topic } = await loadConfig({ home });
+  assert.equal(results.filter(({ stdout }) => stdout.includes(topic)).length, 1);
+  for (const { code, stdout, stderr } of results) {
+    assert.equal(code, 0);
+    assert.equal(stderr, '');
+    if (!stdout.includes(topic)) {
+      assert.match(stdout, /already initialized/);
+      assert.match(stdout, /config --show-topic/);
+    }
+  }
+});
+
 test('init rejects ignored overrides for an existing config without leaking the phone topic', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'nofax-cli-init-overrides-'));
   t.after(() => rm(home, { recursive: true, force: true }));

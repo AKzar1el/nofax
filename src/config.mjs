@@ -132,7 +132,7 @@ export async function loadConfig({ home, env } = {}) {
   }
 }
 
-export async function initConfig({ home, env, server = DEFAULT_SERVER, topic, timeoutSeconds = DEFAULT_TIMEOUT_SECONDS, force = false, rejectExisting = false } = {}) {
+export async function initConfig({ home, env, server = DEFAULT_SERVER, topic, timeoutSeconds = DEFAULT_TIMEOUT_SECONDS, force = false, rejectExisting = false, onCreated } = {}) {
   const root = resolveNofaxHome({ home, env });
   if (!force) {
     try {
@@ -198,5 +198,8 @@ export async function initConfig({ home, env, server = DEFAULT_SERVER, topic, ti
       }
     }
   }
+  // A reused config (including a concurrent initializer's winning write) must
+  // not trigger a fresh subscription-capability disclosure in CLI output.
+  onCreated?.();
   return config;
 }

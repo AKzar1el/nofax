@@ -412,8 +412,8 @@ access to notification content and may be captured in terminal or agent logs.
 Use `nofax config --show-topic` only when you deliberately need to view or copy
 the topic locally, and keep that output private. A legacy repeated topic is
 always shown as `[ROTATION_REQUIRED]`, even with `--show-topic`.
-The one-time `nofax init` setup output still prints the subscription URL needed
-to connect your phone.
+The initial `nofax init` and explicit `nofax init --force` setup outputs still
+print the subscription URL needed to connect your phone.
 
 Use another ntfy-compatible server with:
 
@@ -421,7 +421,9 @@ Use another ntfy-compatible server with:
 nofax init --server https://ntfy.example.com --force
 ```
 
-Running `nofax init` again without options reuses the existing configuration.
+Running `nofax init` again without options reuses the existing configuration
+without printing the saved notification topic. Use `nofax config --show-topic`
+privately if you need to resubscribe an existing phone.
 When a configuration already exists, supplying `--server`, `--topic`, or
 `--timeout` requires `--force`; otherwise Nofax stops instead of silently
 ignoring the requested change. `--force` replaces the configuration and may

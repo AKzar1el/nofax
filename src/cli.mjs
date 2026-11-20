@@ -206,6 +206,7 @@ export async function runCli(args, overrides = {}) {
       const { flags, positionals } = parseArgs(args.slice(1), ['--server', '--topic', '--timeout', '--force']);
       rejectUnexpectedArgs(positionals);
       const timeoutSeconds = flags.timeout === undefined ? undefined : Number(flags.timeout);
+      let created = false;
       const config = await deps.initConfigImpl({
         env: deps.env,
         ...(flags.server === undefined ? {} : { server: flags.server }),
@@ -213,14 +214,20 @@ export async function runCli(args, overrides = {}) {
         ...(timeoutSeconds === undefined ? {} : { timeoutSeconds }),
         force: flags.force === true,
         rejectExisting: flags.force !== true &&
-          (flags.server !== undefined || flags.topic !== undefined || flags.timeout !== undefined)
+          (flags.server !== undefined || flags.topic !== undefined || flags.timeout !== undefined),
+        onCreated: () => { created = true; }
       });
       if (isLegacyRepeatedTopic(config?.topic)) {
         throw new Error('NOFAX_LEGACY_TOPIC_ROTATION_REQUIRED: run nofax init --force');
       }
-      deps.stdout.write('Nofax ready.\n');
-      deps.stdout.write(`Subscribe your ntfy app to: ${config.server}/${config.topic}\n`);
-      deps.stdout.write('Then run: nofax test\n');
+      if (created) {
+        deps.stdout.write('Nofax ready.\n');
+        deps.stdout.write(`Subscribe your ntfy app to: ${config.server}/${config.topic}\n`);
+        deps.stdout.write('Then run: nofax test\n');
+      } else {
+        deps.stdout.write('Nofax ready (already initialized).\n');
+        deps.stdout.write('To view your existing subscription topic, run nofax config --show-topic privately.\n');
+      }
       return 0;
     }
 
