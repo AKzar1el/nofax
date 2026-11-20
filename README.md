@@ -407,6 +407,14 @@ Override the home directory with `NOFAX_HOME`:
 NOFAX_HOME=/path/to/nofax-home nofax config
 ```
 
+`nofax config` masks the notification topic by default because the topic grants
+access to notification content and may be captured in terminal or agent logs.
+Use `nofax config --show-topic` only when you deliberately need to view or copy
+the topic locally, and keep that output private. A legacy repeated topic is
+always shown as `[ROTATION_REQUIRED]`, even with `--show-topic`.
+The one-time `nofax init` setup output still prints the subscription URL needed
+to connect your phone.
+
 Use another ntfy-compatible server with:
 
 ```bash

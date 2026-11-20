@@ -6,7 +6,7 @@ import { handleClaudePermissionRequest } from './adapters/claude.mjs';
 import { handleCodexPermissionRequest } from './adapters/codex.mjs';
 import { handleGeminiHook } from './adapters/gemini.mjs';
 
-const HELP = `nofax - remote approvals and notifications for coding agents\n\nUsage:\n  nofax --version\n  nofax init [--server URL] [--topic TOPIC] [--timeout SECONDS] [--force]\n  nofax test\n  nofax pending [--limit N]\n  nofax notify [--title TITLE] MESSAGE...\n  nofax approve [--title TITLE] MESSAGE...\n  nofax refine [--title TITLE] MESSAGE...\n  nofax mcp\n  nofax config\n  nofax hook claude\n  nofax hook codex\n  nofax hook gemini\n\nEnvironment:\n  NOFAX_HOME   Override ~/.nofax\n`;
+const HELP = `nofax - remote approvals and notifications for coding agents\n\nUsage:\n  nofax --version\n  nofax init [--server URL] [--topic TOPIC] [--timeout SECONDS] [--force]\n  nofax test\n  nofax pending [--limit N]\n  nofax notify [--title TITLE] MESSAGE...\n  nofax approve [--title TITLE] MESSAGE...\n  nofax refine [--title TITLE] MESSAGE...\n  nofax mcp\n  nofax config [--show-topic]\n  nofax hook claude\n  nofax hook codex\n  nofax hook gemini\n\nEnvironment:\n  NOFAX_HOME   Override ~/.nofax\n`;
 
 const PACKAGE_JSON_URL = new URL('../package.json', import.meta.url);
 const MAX_HOOK_STDIN_BYTES = 1024 * 1024;
@@ -36,6 +36,11 @@ function parseArgs(args, allowedFlags = []) {
     if (value === '--force') {
       if (!allowedFlags.includes(value)) throw new Error(`NOFAX_UNKNOWN_FLAG:${value}`);
       flags.force = true;
+      continue;
+    }
+    if (value === '--show-topic') {
+      if (!allowedFlags.includes(value)) throw new Error(`NOFAX_UNKNOWN_FLAG:${value}`);
+      flags.showTopic = true;
       continue;
     }
     if (['--title', '--server', '--topic', '--timeout', '--limit'].includes(value)) {
@@ -220,13 +225,14 @@ export async function runCli(args, overrides = {}) {
     }
 
     if (command === 'config') {
-      rejectUnexpectedArgs(args.slice(1));
+      const { flags, positionals } = parseArgs(args.slice(1), ['--show-topic']);
+      rejectUnexpectedArgs(positionals);
       const config = await rawLoadConfig({ env: deps.env });
       if (isLegacyRepeatedTopic(config?.topic)) {
         deps.stderr.write('nofax: legacy topic requires rotation; run nofax init --force.\n');
         deps.stdout.write(`${JSON.stringify({ ...config, topic: '[ROTATION_REQUIRED]' }, null, 2)}\n`);
       } else {
-        deps.stdout.write(`${JSON.stringify(config, null, 2)}\n`);
+        deps.stdout.write(`${JSON.stringify(flags.showTopic ? config : { ...config, topic: '[REDACTED]' }, null, 2)}\n`);
       }
       return 0;
     }

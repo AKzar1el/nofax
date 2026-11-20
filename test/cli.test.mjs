@@ -12,6 +12,46 @@ function capture() {
   return { write: (chunk) => { text += String(chunk); }, read: () => text };
 }
 
+test('config masks its notification capability by default and reveals it only on request', async () => {
+  const topic = 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF';
+  const config = { version: 1, server: 'https://ntfy.example.invalid', topic, timeoutSeconds: 725 };
+  const sideEffect = async () => { throw new Error('CONFIG_MUST_NOT_CONTACT_PHONE'); };
+  for (const [args, expectedTopic] of [
+    [['config'], '[REDACTED]'],
+    [['config', '--show-topic'], topic]
+  ]) {
+    const stdout = capture();
+    const stderr = capture();
+    const code = await runCli(args, {
+      stdout, stderr,
+      loadConfigImpl: async () => config,
+      initConfigImpl: sideEffect,
+      sendNotificationImpl: sideEffect,
+      requestApprovalImpl: sideEffect
+    });
+    assert.equal(code, 0);
+    assert.deepEqual(JSON.parse(stdout.read()), { ...config, topic: expectedTopic });
+    assert.equal(stderr.read(), '');
+    if (expectedTopic !== topic) assert.doesNotMatch(stdout.read(), new RegExp(topic));
+  }
+});
+
+test('config never reveals a legacy repeated topic even with an explicit reveal flag', async () => {
+  const topic = 'M9_aBcD2'.repeat(4);
+  const config = { version: 1, server: 'https://ntfy.sh', topic, timeoutSeconds: 300 };
+  for (const args of [['config'], ['config', '--show-topic']]) {
+    const stdout = capture();
+    const stderr = capture();
+    assert.equal(await runCli(args, {
+      stdout, stderr, loadConfigImpl: async () => config,
+      sendNotificationImpl: async () => { throw new Error('MUST_NOT_SEND'); }
+    }), 0);
+    assert.deepEqual(JSON.parse(stdout.read()), { ...config, topic: '[ROTATION_REQUIRED]' });
+    assert.match(stderr.read(), /init --force/);
+    assert.doesNotMatch(stdout.read() + stderr.read(), new RegExp(topic));
+  }
+});
+
 test('pending lists only local public request metadata with a bounded limit', async () => {
   const stdout = capture();
   const stderr = capture();
@@ -733,6 +773,7 @@ test('help is concise and lists supported commands', async () => {
   assert.match(stdout.read(), /nofax hook codex/);
   assert.match(stdout.read(), /nofax hook gemini/);
   assert.match(stdout.read(), /nofax --version/);
+  assert.match(stdout.read(), /nofax config \[--show-topic\]/);
 });
 
 test('version flags print the installed package version without config access', async () => {
