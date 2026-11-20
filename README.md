@@ -413,6 +413,12 @@ Use another ntfy-compatible server with:
 nofax init --server https://ntfy.example.com --force
 ```
 
+Running `nofax init` again without options reuses the existing configuration.
+When a configuration already exists, supplying `--server`, `--topic`, or
+`--timeout` requires `--force`; otherwise Nofax stops instead of silently
+ignoring the requested change. `--force` replaces the configuration and may
+rotate the phone topic, so confirm the displayed subscription in your ntfy app.
+
 Notification content and one-time response-topic callbacks can carry sensitive
 capabilities. Custom servers require HTTPS; HTTP is supported only for local
 development on `localhost`, IPv4 loopback (`127.0.0.0/8`) or `[::1]`.

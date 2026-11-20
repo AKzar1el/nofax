@@ -206,7 +206,9 @@ export async function runCli(args, overrides = {}) {
         ...(flags.server === undefined ? {} : { server: flags.server }),
         ...(flags.topic === undefined ? {} : { topic: flags.topic }),
         ...(timeoutSeconds === undefined ? {} : { timeoutSeconds }),
-        force: flags.force === true
+        force: flags.force === true,
+        rejectExisting: flags.force !== true &&
+          (flags.server !== undefined || flags.topic !== undefined || flags.timeout !== undefined)
       });
       if (isLegacyRepeatedTopic(config?.topic)) {
         throw new Error('NOFAX_LEGACY_TOPIC_ROTATION_REQUIRED: run nofax init --force');

@@ -132,11 +132,15 @@ export async function loadConfig({ home, env } = {}) {
   }
 }
 
-export async function initConfig({ home, env, server = DEFAULT_SERVER, topic, timeoutSeconds = DEFAULT_TIMEOUT_SECONDS, force = false } = {}) {
+export async function initConfig({ home, env, server = DEFAULT_SERVER, topic, timeoutSeconds = DEFAULT_TIMEOUT_SECONDS, force = false, rejectExisting = false } = {}) {
   const root = resolveNofaxHome({ home, env });
   if (!force) {
     try {
-      return await loadConfig({ home: root });
+      const existing = await loadConfig({ home: root });
+      if (rejectExisting) {
+        throw new Error('NOFAX_INIT_OPTIONS_REQUIRE_FORCE: existing configuration; run nofax init --force to replace it');
+      }
+      return existing;
     } catch (error) {
       if (error.message !== 'NOFAX_NOT_INITIALIZED') throw error;
     }
@@ -179,6 +183,9 @@ export async function initConfig({ home, env, server = DEFAULT_SERVER, topic, ti
         await link(temporaryPath, path);
       } catch (error) {
         if (error?.code !== 'EEXIST') throw error;
+        if (rejectExisting) {
+          throw new Error('NOFAX_INIT_OPTIONS_REQUIRE_FORCE: existing configuration; run nofax init --force to replace it');
+        }
         return await loadConfig({ home: root });
       }
     }
