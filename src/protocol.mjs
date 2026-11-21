@@ -158,6 +158,62 @@ function redactYamlCredentialAliases(text) {
   return parts.join('');
 }
 
+function redactShellCredentialBlocks(text) {
+  // Decode only whole JSON-string wrappers, not arbitrary shell expressions.
+  let plain = text;
+  let wrappers = 0;
+  while (wrappers < 3 && plain.startsWith('"') && plain.endsWith('"')) {
+    let decoded;
+    try { decoded = JSON.parse(plain); } catch { break; }
+    if (typeof decoded !== 'string') break;
+    plain = decoded;
+    wrappers += 1;
+  }
+
+  const headers = /^([ \t]*(?:export[ \t]+)?(?:\$env:|\$)?)([A-Za-z][A-Za-z0-9_]{0,63})([ \t]*=[ \t]*)(?:\$\([ \t]*cat[ \t]+<<(-?)(['"]?)([A-Za-z_][A-Za-z0-9_]{0,31})\5[^\r\n]*|@(["']))(?=\r?$)/gm;
+  let output = '';
+  let cursor = 0;
+  let changed = false;
+  for (const match of plain.matchAll(headers)) {
+    if (match.index < cursor || !isSecretKey(match[2])) continue;
+    const headerEnd = match.index + match[0].length;
+    const firstBreak = plain.indexOf('\n', headerEnd);
+    if (firstBreak === -1) continue;
+
+    let nextStart = firstBreak + 1;
+    let blockEnd = plain.length;
+    while (nextStart <= plain.length) {
+      const lineEnd = plain.indexOf('\n', nextStart);
+      const afterLine = lineEnd === -1 ? plain.length : lineEnd + 1;
+      const line = plain.slice(nextStart, lineEnd === -1 ? undefined : lineEnd).replace(/\r$/, '');
+      const openingIndent = match[1].match(/^[ \t]*/)[0];
+      const psClosing = match[7] + '@';
+      const isTerminator = match[7]
+        ? line === psClosing || (openingIndent.length > 0 && line === openingIndent + psClosing)
+        : (match[4] === '-' ? line.replace(/^\t+/, '') : line) === match[6];
+      if (isTerminator) {
+        blockEnd = afterLine;
+        break;
+      }
+      if (lineEnd === -1) break;
+      nextStart = afterLine;
+    }
+
+    output += plain.slice(cursor, match.index);
+    // Quoting the placeholder keeps later assignment matchers from swallowing
+    // escaped newlines and the safe fields after a serialized credential block.
+    output += match[1] + match[2] + match[3] + '"[REDACTED]"';
+    if (blockEnd < plain.length) output += '\n';
+    changed = true;
+    cursor = blockEnd;
+    if (blockEnd === plain.length) break; // An unterminated secret has no safe boundary.
+  }
+  if (!changed) return text;
+  output += plain.slice(cursor);
+  for (let index = 0; index < wrappers; index += 1) output = JSON.stringify(output);
+  return output;
+}
+
 function redactMultilineCredentialAssignments(text) {
   // Only standalone JSON-string wrappers are decoded, so quoted line breaks
   // can be recognized without reinterpreting arbitrary command text.
@@ -211,7 +267,7 @@ function redactMultilineCredentialAssignments(text) {
 
 function redactSecretText(value) {
   let redacted = redactCompatibilitySecretKeyText(
-    redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(redactYamlCredentialAliases(redactMultilineCredentialAssignments(value))))
+    redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(redactYamlCredentialAliases(redactMultilineCredentialAssignments(redactShellCredentialBlocks(value)))))
   );
 
   redacted = redacted.replace(

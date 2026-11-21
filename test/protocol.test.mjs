@@ -108,6 +108,46 @@ test('TOML and dotenv multiline credentials hide their bodies without hiding saf
   }
 });
 
+test('shell heredoc and PowerShell here-string credentials hide bodies but retain safe commands', () => {
+  const marker = 'NOFAX_SHELL_MULTILINE_SYNTHETIC_SECRET_5729';
+  const fixtures = [
+    `export TOKEN=$(cat <<'SECRET_END'\n${marker}\nSECRET_END\n)\nmode=safe`,
+    `API_KEY=$(cat <<-EOF\r\n\tNOT_EOF\r\n\t${marker}\r\n\tEOF\r\n)\r\nmode=safe`,
+    `$env:PRIVATE_KEY = @'\n${marker}\n'@\nmode=safe`,
+    `$password = @"\r\n${marker}\r\n"@\r\nmode=safe`
+  ];
+
+  for (const fixture of fixtures) {
+    for (const input of [fixture, JSON.stringify(fixture), JSON.stringify(JSON.stringify(fixture))]) {
+      for (const output of [redactAndBound(input), buildAgentSummary({ toolInput: { command: input } })]) {
+        assert.equal(output.includes(marker), false, 'credential block contents must be hidden');
+        assert.match(output, /mode=safe/, 'a command after the terminator must stay visible');
+      }
+    }
+  }
+
+  const unclosed = `TOKEN=$(cat <<EOF\n${marker}\nNOT_EOF\nmode=safe`;
+  for (const output of [redactAndBound(unclosed), buildAgentSummary({ message: unclosed })]) {
+    assert.equal(output.includes(marker), false, 'unterminated credential blocks fail closed');
+  }
+
+  const deceptiveClosingLine = "$password = @'\n" + marker + "\n  '@\n" + marker + "\n'@\nmode=safe";
+  const deceptiveHeredoc = 'TOKEN=$(cat <<EOF\n  EOF\n' + marker + '\nEOF\n)\nmode=safe';
+  for (const fixture of [deceptiveClosingLine, deceptiveHeredoc]) {
+    for (const input of [fixture, JSON.stringify(fixture), JSON.stringify(JSON.stringify(fixture))]) {
+      const output = buildAgentSummary({ toolInput: { command: input } });
+      assert.equal(output.includes(marker), false, 'an indented false terminator must not expose remaining secrets');
+      assert.match(output, /mode=safe/);
+    }
+  }
+
+  const benign = `notes=$(cat <<'END'\n${marker}\nEND\n)\nmode=safe`;
+  for (const input of [benign, JSON.stringify(benign), JSON.stringify(JSON.stringify(benign))]) {
+    assert.match(redactAndBound(input), new RegExp(marker), 'nonsecret heredocs remain readable');
+    assert.match(redactAndBound(input), /mode=safe/);
+  }
+});
+
 test('redacts credentials from escaped and double-escaped JSON in agent summaries', () => {
   const marker = 'NOFAX_SYNTHETIC_ESCAPED_JSON_SECRET_CANARY_12345';
   const object = JSON.stringify({ api_key: marker, accessToken: marker, note: 'run tests' });
