@@ -19,6 +19,33 @@ test('approval summaries expose display-control characters literally instead of 
   assert.match(summary, /api_key=\[REDACTED\]/);
 });
 
+test('control-interrupted credential labels cannot expose values in serialized approval previews', () => {
+  const marker = 'NOFAX_SYNTHETIC_CONTROL_KEY_SECRET_20261122';
+  for (const key of ['api\u001b[0m_key', 'to\u001b[0mken', 'api\u0000_key']) {
+    const object = { [key]: marker, note: 'safe detail' };
+    assert.equal(redactAndBound(object)[key], '[REDACTED]', 'structured credential keys must be classified');
+    assert.equal(redactAndBound({ name: key, value: marker }).value, '[REDACTED]');
+    for (const fixture of [`${key}=${marker} mode=safe`, JSON.stringify(object), `echo ${JSON.stringify(object)}`]) {
+      for (const input of [fixture, JSON.stringify(fixture), JSON.stringify(JSON.stringify(fixture))]) {
+        for (const output of [redactAndBound(input), buildAgentSummary({ toolInput: { command: input } })]) {
+          assert.equal(output.includes(marker), false, 'control-interrupted key must mask its value');
+          assert.match(output, /safe/, 'benign approval context must survive');
+        }
+      }
+    }
+  }
+
+  const benign = `no\u001b[0mte=${marker} mode=safe`;
+  for (const input of [benign, JSON.stringify(benign), JSON.stringify(JSON.stringify(benign))]) {
+    assert.match(redactAndBound(input), new RegExp(marker), 'nonsecret control-interrupted keys remain readable');
+  }
+
+  const malformed = `echo {"api\\u001b[0m_key":${marker},"note":"safe detail"}`;
+  for (const output of [redactAndBound(malformed), buildAgentSummary({ toolInput: { command: malformed } })]) {
+    assert.equal(output.includes(marker), false, 'malformed encoded control-key context must fail closed');
+  }
+});
+
 test('approval summaries visibly escape hidden format marks but preserve emoji joiners', () => {
   const message = 'Allow\u034f\u061c\u200b\u200e\u200f\u2060\u2061\u2062\u2063\u2064\ufeff now\nDeveloper 👩\u200d💻';
   const outputs = [
