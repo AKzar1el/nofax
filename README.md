@@ -61,6 +61,14 @@ nofax init
 
 Nofax creates `~/.nofax/config.json` and generates a high-entropy notification topic. With the default transport, subscribe to the displayed topic in the ntfy mobile app.
 
+To check local setup without contacting ntfy or exposing the private topic,
+run `nofax doctor`. It reports whether the saved configuration is valid,
+missing, invalid, or requires legacy topic rotation. Exit code `0` means
+**local configuration only** is valid; `1` means it needs attention. Its JSON
+output never includes the topic or private server URL. A successful local
+check does **not** prove the phone receives notifications or that anyone has
+approved a request; use the next step to test delivery explicitly.
+
 ### 3. Test
 
 ```bash

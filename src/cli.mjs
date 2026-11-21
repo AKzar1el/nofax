@@ -6,7 +6,7 @@ import { handleClaudePermissionRequest } from './adapters/claude.mjs';
 import { handleCodexPermissionRequest } from './adapters/codex.mjs';
 import { handleGeminiHook } from './adapters/gemini.mjs';
 
-const HELP = `nofax - remote approvals and notifications for coding agents\n\nUsage:\n  nofax --version\n  nofax init [--server URL] [--topic TOPIC] [--timeout SECONDS] [--force]\n  nofax test\n  nofax pending [--limit N]\n  nofax notify [--title TITLE] MESSAGE...\n  nofax approve [--title TITLE] MESSAGE...\n  nofax refine [--title TITLE] MESSAGE...\n  nofax mcp\n  nofax config [--show-topic]\n  nofax hook claude\n  nofax hook codex\n  nofax hook gemini\n\nEnvironment:\n  NOFAX_HOME   Override ~/.nofax\n`;
+const HELP = `nofax - remote approvals and notifications for coding agents\n\nUsage:\n  nofax --version\n  nofax init [--server URL] [--topic TOPIC] [--timeout SECONDS] [--force]\n  nofax doctor\n  nofax test\n  nofax pending [--limit N]\n  nofax notify [--title TITLE] MESSAGE...\n  nofax approve [--title TITLE] MESSAGE...\n  nofax refine [--title TITLE] MESSAGE...\n  nofax mcp\n  nofax config [--show-topic]\n  nofax hook claude\n  nofax hook codex\n  nofax hook gemini\n\nEnvironment:\n  NOFAX_HOME   Override ~/.nofax\n`;
 
 const PACKAGE_JSON_URL = new URL('../package.json', import.meta.url);
 const MAX_HOOK_STDIN_BYTES = 1024 * 1024;
@@ -254,6 +254,34 @@ export async function runCli(args, overrides = {}) {
         deps.stdout.write(`${JSON.stringify(flags.showTopic ? config : { ...config, topic: '[REDACTED]' }, null, 2)}\n`);
       }
       return 0;
+    }
+
+    if (command === 'doctor') {
+      rejectUnexpectedArgs(args.slice(1));
+      let localConfig;
+      let nextStep;
+      let errorCode;
+      try {
+        const config = await rawLoadConfig({ env: deps.env });
+        localConfig = isLegacyRepeatedTopic(config.topic) ? 'legacy_topic' : 'valid';
+        nextStep = localConfig === 'valid' ? 'nofax test' : 'nofax init --force';
+      } catch (error) {
+        localConfig = error?.message === 'NOFAX_NOT_INITIALIZED' ? 'not_initialized' : 'invalid';
+        nextStep = localConfig === 'not_initialized' ? 'nofax init' : 'review local configuration';
+        if (localConfig === 'invalid') {
+          // Never echo untrusted filesystem errors, paths, or credential contents.
+          errorCode = /^NOFAX_[A-Z0-9_]+$/.test(error?.message ?? '')
+            ? error.message : 'NOFAX_CONFIG_UNAVAILABLE';
+        }
+      }
+      writeJson(deps.stdout, {
+        localConfig,
+        ...(errorCode === undefined ? {} : { errorCode }),
+        notificationDelivery: 'not_tested',
+        humanApproval: 'not_tested',
+        nextStep
+      });
+      return localConfig === 'valid' ? 0 : 1;
     }
 
     if (command === 'pending') {
