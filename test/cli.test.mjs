@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from '../src/cli.mjs';
@@ -11,6 +11,96 @@ function capture() {
   let text = '';
   return { write: (chunk) => { text += String(chunk); }, read: () => text };
 }
+
+test('doctor checks local setup without exposing capabilities or sending notifications', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  const topic = 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF';
+  const server = 'https://private-notification.example.invalid';
+  const noEffect = async () => { throw new Error('DOCTOR_MUST_BE_READ_ONLY'); };
+  assert.equal(await runCli(['doctor'], {
+    stdout, stderr,
+    loadConfigImpl: async () => ({ version: 1, server, topic, timeoutSeconds: 725 }),
+    initConfigImpl: noEffect, sendNotificationImpl: noEffect,
+    requestApprovalImpl: noEffect, requestRefinementImpl: noEffect,
+    listPendingRequestsImpl: noEffect
+  }), 0);
+  assert.deepEqual(JSON.parse(stdout.read()), {
+    localConfig: 'valid', notificationDelivery: 'not_tested',
+    humanApproval: 'not_tested', nextStep: 'nofax test'
+  });
+  assert.equal(stderr.read(), '');
+  assert.doesNotMatch(stdout.read(), new RegExp(topic));
+  assert.doesNotMatch(stdout.read(), /private-notification/);
+});
+
+test('doctor reports uninitialized local setup without creating any files', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-doctor-missing-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const stdout = capture();
+  const stderr = capture();
+  const before = await readdir(home);
+  assert.equal(await runCli(['doctor'], { env: { NOFAX_HOME: home }, stdout, stderr }), 1);
+  assert.deepEqual(JSON.parse(stdout.read()), {
+    localConfig: 'not_initialized', notificationDelivery: 'not_tested',
+    humanApproval: 'not_tested', nextStep: 'nofax init'
+  });
+  assert.deepEqual(await readdir(home), before);
+  assert.equal(stderr.read(), '');
+});
+
+test('doctor treats legacy topics as rotation-required without disclosing the topic', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  const topic = 'M9_aBcD2'.repeat(4);
+  assert.equal(await runCli(['doctor'], {
+    stdout, stderr,
+    loadConfigImpl: async () => ({
+      version: 1, server: 'https://ntfy.sh', topic, timeoutSeconds: 300
+    }),
+    sendNotificationImpl: async () => { throw new Error('MUST_NOT_SEND'); }
+  }), 1);
+  assert.deepEqual(JSON.parse(stdout.read()), {
+    localConfig: 'legacy_topic', notificationDelivery: 'not_tested',
+    humanApproval: 'not_tested', nextStep: 'nofax init --force'
+  });
+  assert.doesNotMatch(stdout.read() + stderr.read(), new RegExp(topic));
+});
+
+test('doctor reports malformed local data without overwriting or echoing its contents', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-doctor-corrupt-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const original = '{"secret":"SYNTHETIC_PRIVATE_MARKER", broken';
+  await writeFile(join(home, 'config.json'), original);
+  const stdout = capture();
+  const stderr = capture();
+  assert.equal(await runCli(['doctor'], { env: { NOFAX_HOME: home }, stdout, stderr }), 1);
+  assert.deepEqual(JSON.parse(stdout.read()), {
+    localConfig: 'invalid', errorCode: 'NOFAX_CONFIG_INVALID_JSON',
+    notificationDelivery: 'not_tested', humanApproval: 'not_tested',
+    nextStep: 'review local configuration'
+  });
+  assert.equal(await readFile(join(home, 'config.json'), 'utf8'), original);
+  assert.doesNotMatch(stdout.read() + stderr.read(), /SYNTHETIC_PRIVATE_MARKER/);
+});
+
+test('doctor does not echo arbitrary filesystem errors or attempt a recovery write', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  const noEffect = async () => { throw new Error('UNAUTHORIZED_RECOVERY'); };
+  assert.equal(await runCli(['doctor'], {
+    stdout, stderr,
+    loadConfigImpl: async () => { throw new Error('SYNTHETIC_SENSITIVE_PATH_WITH_TOKEN'); },
+    initConfigImpl: noEffect, sendNotificationImpl: noEffect
+  }), 1);
+  assert.deepEqual(JSON.parse(stdout.read()), {
+    localConfig: 'invalid', errorCode: 'NOFAX_CONFIG_UNAVAILABLE',
+    notificationDelivery: 'not_tested', humanApproval: 'not_tested',
+    nextStep: 'review local configuration'
+  });
+  assert.equal(stderr.read(), '');
+  assert.doesNotMatch(stdout.read(), /SYNTHETIC_SENSITIVE|UNAUTHORIZED_RECOVERY/);
+});
 
 test('config masks its notification capability by default and reveals it only on request', async () => {
   const topic = 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF';
