@@ -123,6 +123,47 @@ test('init creates config and prints a subscription URL', async (t) => {
   assert.equal(stderr.read(), '');
 });
 
+test('init rejects ignored overrides for an existing config without leaking the phone topic', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-cli-init-overrides-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const originalOut = capture();
+  assert.equal(await runCli(['init', '--server', 'https://original.example.invalid', '--timeout', '725'], {
+    env: { NOFAX_HOME: home }, stdout: originalOut, stderr: capture()
+  }), 0);
+  const original = await loadConfig({ home });
+
+  for (const options of [
+    ['--server', 'https://new.example.invalid'],
+    ['--timeout', '180'],
+    ['--topic', 'validDistinctPhoneTopic_abcDEF12345'],
+    ['--timeout', 'NaN']
+  ]) {
+    const stdout = capture();
+    const stderr = capture();
+    const code = await runCli(['init', ...options], {
+      env: { NOFAX_HOME: home }, stdout, stderr,
+      sendNotificationImpl: async () => { throw new Error('UNEXPECTED_NOTIFICATION'); }
+    });
+    assert.equal(code, 1, options.join(' '));
+    assert.equal(stdout.read(), '');
+    assert.match(stderr.read(), /NOFAX_INIT_OPTIONS_REQUIRE_FORCE.*init --force/);
+    assert.doesNotMatch(stderr.read(), new RegExp(original.topic));
+    assert.deepEqual(await loadConfig({ home }), original);
+  }
+
+  const again = capture();
+  assert.equal(await runCli(['init'], {
+    env: { NOFAX_HOME: home }, stdout: again, stderr: capture()
+  }), 0);
+  assert.match(again.read(), /Nofax ready/);
+
+  const changed = capture();
+  assert.equal(await runCli(['init', '--force', '--timeout', '180'], {
+    env: { NOFAX_HOME: home }, stdout: changed, stderr: capture()
+  }), 0);
+  assert.equal((await loadConfig({ home })).timeoutSeconds, 180);
+});
+
 test('legacy repeating topic warns without leaking a subscription capability or sending remotely', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'nofax-cli-legacy-'));
   t.after(() => rm(home, { recursive: true, force: true }));
@@ -707,6 +748,42 @@ test('version flags print the installed package version without config access', 
     });
     assert.equal(code, 0);
     assert.equal(stdout.read(), `${metadata.version}\n`);
+    assert.equal(stderr.read(), '');
+  }
+});
+
+test('help and version commands reject unexpected trailing arguments', async () => {
+  for (const command of ['--help', '-h', 'help', '--version', '-v']) {
+    for (const [trailing, diagnostic] of [
+      [['extra'], 'NOFAX_UNEXPECTED_ARGUMENT:extra'],
+      [['--unknown'], 'NOFAX_UNKNOWN_FLAG:--unknown'],
+      [['--', '--literal'], 'NOFAX_UNEXPECTED_ARGUMENT:--literal']
+    ]) {
+      const stdout = capture();
+      const stderr = capture();
+      const code = await runCli([command, ...trailing], { stdout, stderr });
+      assert.equal(code, 1, command);
+      assert.equal(stdout.read(), '', command);
+      assert.ok(stderr.read().includes(diagnostic), command);
+    }
+  }
+});
+
+test('message commands preserve leading double-dash words after the option separator', async () => {
+  for (const command of ['notify', 'approve', 'refine']) {
+    const stderr = capture();
+    let observed;
+    const recordMessage = ({ title, message }) => { observed = { title, message }; };
+    const code = await runCli([command, '--title', 'Check', '--', '--flag', '--title'], {
+      stdout: capture(),
+      stderr,
+      loadConfigImpl: async () => ({}),
+      sendNotificationImpl: async (options) => { recordMessage(options); },
+      requestApprovalImpl: async (options) => { recordMessage(options); return { decision: 'allow' }; },
+      requestRefinementImpl: async (options) => { recordMessage(options); return { decision: 'refine', text: 'ok' }; }
+    });
+    assert.equal(code, 0, command);
+    assert.deepEqual(observed, { title: 'Check', message: '--flag --title' });
     assert.equal(stderr.read(), '');
   }
 });

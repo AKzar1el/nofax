@@ -33,6 +33,10 @@ function parseArgs(args, allowedFlags = []) {
   const positionals = [];
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
+    if (value === '--') {
+      positionals.push(...args.slice(index + 1));
+      break;
+    }
     if (value === '--force') {
       if (!allowedFlags.includes(value)) throw new Error(`NOFAX_UNKNOWN_FLAG:${value}`);
       flags.force = true;
@@ -187,11 +191,17 @@ export async function runCli(args, overrides = {}) {
 
   try {
     if (args.length === 0 || args[0] === '--help' || args[0] === '-h' || args[0] === 'help') {
+      if (args.length > 0) {
+        const { positionals } = parseArgs(args.slice(1));
+        rejectUnexpectedArgs(positionals);
+      }
       deps.stdout.write(HELP);
       return 0;
     }
 
     if (args[0] === '--version' || args[0] === '-v') {
+      const { positionals } = parseArgs(args.slice(1));
+      rejectUnexpectedArgs(positionals);
       deps.stdout.write(`${await readPackageVersion()}\n`);
       return 0;
     }
@@ -206,7 +216,9 @@ export async function runCli(args, overrides = {}) {
         ...(flags.server === undefined ? {} : { server: flags.server }),
         ...(flags.topic === undefined ? {} : { topic: flags.topic }),
         ...(timeoutSeconds === undefined ? {} : { timeoutSeconds }),
-        force: flags.force === true
+        force: flags.force === true,
+        rejectExisting: flags.force !== true &&
+          (flags.server !== undefined || flags.topic !== undefined || flags.timeout !== undefined)
       });
       if (isLegacyRepeatedTopic(config?.topic)) {
         throw new Error('NOFAX_LEGACY_TOPIC_ROTATION_REQUIRED: run nofax init --force');

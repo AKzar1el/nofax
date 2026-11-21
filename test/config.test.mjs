@@ -29,6 +29,21 @@ test('simultaneous first-time initializations return the same durable phone topi
   assert.deepEqual(await readdir(home), ['config.json']);
 });
 
+test('explicit no-reuse mode rejects simultaneous competing initializers without changing the winner', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-no-reuse-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const results = await Promise.allSettled([
+    initConfig({ home, server: 'https://first.example.invalid', rejectExisting: true }),
+    initConfig({ home, server: 'https://second.example.invalid', rejectExisting: true })
+  ]);
+  assert.equal(results.filter(({ status }) => status === 'fulfilled').length, 1);
+  assert.equal(results.filter(({ status }) => status === 'rejected').length, 1);
+  assert.match(results.find(({ status }) => status === 'rejected').reason.message,
+    /NOFAX_INIT_OPTIONS_REQUIRE_FORCE/);
+  assert.deepEqual(await loadConfig({ home }), results.find(({ status }) => status === 'fulfilled').value);
+  assert.deepEqual(await readdir(home), ['config.json']);
+});
+
 test('force reinitialization replaces config without modifying another hard link', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'nofax-config-force-'));
   t.after(() => rm(home, { recursive: true, force: true }));
