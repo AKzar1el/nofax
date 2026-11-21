@@ -96,6 +96,50 @@ test('redacts credentials whose JSON property names use Unicode escapes', () => 
   assert.match(redactAndBound(benign), /safe detail/, 'unrelated Unicode escapes remain visible');
 });
 
+test('redacts compatibility-width credential labels without changing benign approval context', () => {
+  const marker = 'NOFAX_SYNTHETIC_NFKC_CREDENTIAL_CANARY_20261121';
+  const keys = ['ａｐｉ＿ｋｅｙ', 'ａｃｃｅｓｓＴｏｋｅｎ', 'ｐａｓｓｗｏｒｄ', 'ａｕｔｈｏｒｉｚａｔｉｏｎ'];
+  for (const key of keys) {
+    const object = { [key]: marker, notes: 'safe detail' };
+    const boundedObject = redactAndBound(object);
+    const objectSummary = buildAgentSummary({ source: 'Codex', toolInput: object });
+    assert.equal(boundedObject[key], '[REDACTED]', `structured key ${key} must be classified`);
+    assert.doesNotMatch(objectSummary, new RegExp(marker));
+    assert.match(objectSummary, /safe detail/);
+    assert.equal(redactAndBound({ name: key, value: marker, notes: 'safe detail' }).value, '[REDACTED]');
+
+    const encoded = JSON.stringify(object);
+    const samples = [
+      `${key}=${marker} mode=safe`,
+      encoded,
+      JSON.stringify(encoded),
+      JSON.stringify(JSON.stringify(encoded))
+    ];
+    for (const sample of samples) {
+      const outputs = [
+        redactAndBound(sample),
+        buildAgentSummary({ source: 'Claude Code', toolName: 'Bash', toolInput: { command: sample } })
+      ];
+      for (const output of outputs) {
+        assert.equal(output.includes(marker), false, `preview must redact compatibility key ${key}`);
+        assert.match(output, /safe/, 'nonsecret context must remain visible');
+      }
+    }
+
+    const quoted = JSON.stringify({ [key]: `prefix\\"${marker}\\"suffix`, notes: 'safe detail' });
+    for (const sample of [quoted, JSON.stringify(quoted), JSON.stringify(JSON.stringify(quoted))]) {
+      assert.equal(redactAndBound(sample).includes(marker), false, 'nested quoted credential stays redacted');
+      assert.equal(buildAgentSummary({ toolInput: { command: sample } }).includes(marker), false);
+    }
+  }
+
+  const benign = { 'ｎｏｔｅｓ': marker, mode: 'safe' };
+  const benignText = JSON.stringify(benign);
+  assert.equal(redactAndBound(benign)['ｎｏｔｅｓ'], marker);
+  assert.match(redactAndBound(benignText), new RegExp(marker), 'benign compatibility label remains readable');
+  assert.match(buildAgentSummary({ toolInput: benign }), new RegExp(marker));
+});
+
 test('redacts credentials hidden by percent-encoded query parameter names', () => {
   const marker = 'NOFAX_SYNTHETIC_ENCODED_QUERY_SECRET_12345';
   for (const key of ['api_key', 'api%5Fkey', 'tok%65n', '%74oken', 'api+key', 'access+token', '%61pi+key']) {

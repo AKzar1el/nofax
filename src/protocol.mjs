@@ -15,7 +15,7 @@ function normalizeSecretKeyName(key) {
 
   // Invisible format marks and blank fillers can split a credential field
   // name without changing its appearance. Ignore them only for classification.
-  const comparisonKey = key.replace(/[\u00ad\u034f\u061c\u115f\u1160\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u2800\u3164\ufe0e-\ufe0f\ufeff\uffa0]/gu, '');
+  const comparisonKey = key.normalize('NFKC').replace(/[\u00ad\u034f\u061c\u115f\u1160\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u2800\u3164\ufe0e-\ufe0f\ufeff\uffa0]/gu, '');
 
   for (let index = 0; index < comparisonKey.length; index += 1) {
     const char = comparisonKey[index];
@@ -102,8 +102,31 @@ function redactInvisibleSecretKeyText(text) {
   );
 }
 
+function redactCompatibilitySecretKeyText(text) {
+  if (!/[^\x00-\x7f]/u.test(text)) return text;
+  const isCompatibilitySecret = (key) => key.normalize('NFKC') !== key && isSecretKey(key);
+
+  // Keep the original suspicious spelling visible while redacting its value.
+  // Quoted keys/values may also be nested in once- or twice-serialized JSON.
+  let redacted = text.replace(
+    /(?<![\p{L}\p{N}\p{Pc}])(\\*["'])([\p{L}\p{N}\p{Pc}_.\/ \-]{1,64})\1([ \t]*[:=][ \t]*)(\\*["'])(?:\\.|(?!(?<!\\)\4)[^\r\n])*?(?<!\\)\4/gu,
+    (match, keyQuote, key, separator, valueQuote) => isCompatibilitySecret(key)
+      ? `${keyQuote}${key}${keyQuote}${separator}${valueQuote}[REDACTED]${valueQuote}`
+      : match
+  );
+  redacted = redacted.replace(
+    /(?<![\p{L}\p{N}\p{Pc}])(\\*["']?)([\p{L}\p{N}\p{Pc}_.\/ \-]{1,64})\1([ \t]*[:=][ \t]*)(?!\\*["'])([^\s"'\x60,;&}\]]+)/gu,
+    (match, keyQuote, key, separator) => isCompatibilitySecret(key)
+      ? `${keyQuote}${key}${keyQuote}${separator}[REDACTED]`
+      : match
+  );
+  return redacted;
+}
+
 function redactSecretText(value) {
-  let redacted = redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(value));
+  let redacted = redactCompatibilitySecretKeyText(
+    redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(value))
+  );
 
   redacted = redacted.replace(
     /-----BEGIN ([A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?)-----[\s\S]*?(?:-----END \1-----|$)/g,
