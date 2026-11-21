@@ -51,14 +51,16 @@ function parseArgs(args, allowedFlags = []) {
       index += 1;
       continue;
     }
-    if (value.startsWith('--')) throw new Error(`NOFAX_UNKNOWN_FLAG:${value}`);
+    // Unknown arguments may carry credentials (--token=...), so do not echo
+    // their caller-controlled text into logs or captured approval output.
+    if (value.startsWith('--')) throw new Error('NOFAX_UNKNOWN_FLAG');
     positionals.push(value);
   }
   return { flags, positionals };
 }
 
 function rejectUnexpectedArgs(positionals) {
-  if (positionals.length > 0) throw new Error(`NOFAX_UNEXPECTED_ARGUMENT:${positionals[0]}`);
+  if (positionals.length > 0) throw new Error('NOFAX_UNEXPECTED_ARGUMENT');
 }
 
 async function readStdin(stdinText, stdinStream = process.stdin) {
@@ -151,7 +153,7 @@ async function runHook(adapter, deps) {
       onError
     });
   } else {
-    throw new Error(`NOFAX_HOOK_UNSUPPORTED:${adapter}`);
+    throw new Error('NOFAX_HOOK_UNSUPPORTED');
   }
 
   if (output === null) {
@@ -347,7 +349,7 @@ export async function runCli(args, overrides = {}) {
       }
     }
 
-    throw new Error(`NOFAX_UNKNOWN_COMMAND:${command}`);
+    throw new Error('NOFAX_UNKNOWN_COMMAND');
   } catch (error) {
     deps.stderr.write(`nofax: ${safeDiagnostic(error)}\n`);
     return 1;

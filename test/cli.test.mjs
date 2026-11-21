@@ -991,6 +991,35 @@ test('commands without positional arguments reject trailing input before side ef
     assert.equal(code, 1);
     assert.equal(sideEffects, 0);
     assert.equal(stdout.read(), '');
-    assert.match(stderr.read(), /NOFAX_UNEXPECTED_ARGUMENT:unexpected/);
+    assert.match(stderr.read(), /NOFAX_UNEXPECTED_ARGUMENT/);
+    assert.doesNotMatch(stderr.read(), /unexpected/);
+  }
+});
+
+test('CLI diagnostics never echo unrecognized argument values or tokens', async () => {
+  const marker = 'SYNTHETIC_PRIVATE_FLAG_VALUE_20261121';
+  for (const [args, errorCode] of [
+    [['config', `--token=${marker}`], 'NOFAX_UNKNOWN_FLAG'],
+    [['config', marker], 'NOFAX_UNEXPECTED_ARGUMENT'],
+    [[`--token=${marker}`], 'NOFAX_UNKNOWN_COMMAND'],
+    [['hook', marker], 'NOFAX_HOOK_UNSUPPORTED']
+  ]) {
+    const stdout = capture();
+    const stderr = capture();
+    let sideEffects = 0;
+    const exitCode = await runCli(args, {
+      stdout, stderr, stdinText: '{}',
+      loadConfigImpl: async () => {
+        sideEffects += 1;
+        return { version: 1, server: 'https://ntfy.sh', topic: 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF', timeoutSeconds: 300 };
+      },
+      sendNotificationImpl: async () => { sideEffects += 1; },
+      runMcpServerImpl: async () => { sideEffects += 1; }
+    });
+    assert.equal(exitCode, 1);
+    assert.match(stderr.read(), new RegExp(errorCode));
+    assert.doesNotMatch(stderr.read(), new RegExp(marker));
+    assert.equal(stdout.read(), '');
+    assert.equal(sideEffects, args[0] === 'hook' ? 1 : 0);
   }
 });
