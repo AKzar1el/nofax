@@ -75,6 +75,20 @@ test('forced topic rotation retains a valid saved server and timeout unless expl
   assert.deepEqual(await loadConfig({ home }), changed);
 });
 
+test('force repairs an invalid saved topic without changing valid self-hosted transport settings', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-invalid-topic-force-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await writeFile(join(home, 'config.json'), JSON.stringify({
+    version: 1, server: 'https://private.example.invalid', topic: 'too-short', timeoutSeconds: 725
+  }));
+
+  const repaired = await initConfig({ home, force: true });
+  assert.match(repaired.topic, /^nofax_[A-Za-z0-9_-]{32}$/);
+  assert.equal(repaired.server, 'https://private.example.invalid');
+  assert.equal(repaired.timeoutSeconds, 725);
+  assert.deepEqual(await loadConfig({ home }), repaired);
+});
+
 test('failed config replacement removes private temporary files', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'nofax-config-failure-'));
   t.after(() => rm(home, { recursive: true, force: true }));
