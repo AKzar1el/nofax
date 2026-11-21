@@ -123,9 +123,44 @@ function redactCompatibilitySecretKeyText(text) {
   return redacted;
 }
 
+function redactYamlCredentialAliases(text) {
+  // Approval previews can contain YAML directly or inside nested JSON strings.
+  // Split only line separators, retaining their original escaping for display.
+  const parts = text.split(/(\r\n|\n|(?:\\{1,4}r)?\\{1,4}n)/g);
+  const credentialAnchors = new Set();
+  for (let index = 0; index < parts.length; index += 2) {
+    const alias = parts[index].match(/^\s*(?:-\s*)?([A-Za-z][A-Za-z0-9_. -]{0,63})\s*:\s*\*([A-Za-z0-9_-]{1,64})(?=\s|$|\\|["'])/);
+    if (alias && isSecretKey(alias[1])) credentialAnchors.add(alias[2]);
+  }
+  if (credentialAnchors.size === 0) return text;
+
+  let blockIndent = null;
+  for (let index = 0; index < parts.length; index += 2) {
+    const line = parts[index];
+    const indent = line.match(/^[ \t]*/)[0].length;
+    if (blockIndent !== null && line.trim() && indent <= blockIndent) blockIndent = null;
+    if (blockIndent !== null && indent > blockIndent) {
+      if (line.trim()) parts[index] = `${line.slice(0, indent)}[REDACTED]`;
+      continue;
+    }
+
+    const anchors = /(^|[ \t:=])&([A-Za-z0-9_-]{1,64})(?=\s|$|\\|["'])/g;
+    for (const match of line.matchAll(anchors)) {
+      if (!credentialAnchors.has(match[2])) continue;
+      const end = match.index + match[0].length;
+      const tail = line.slice(end);
+      const isBlock = /^\s*(?:[|>][-+0-9]*)?\s*$/.test(tail);
+      parts[index] = `${line.slice(0, end)} [REDACTED]`;
+      if (isBlock) blockIndent = indent;
+      break;
+    }
+  }
+  return parts.join('');
+}
+
 function redactSecretText(value) {
   let redacted = redactCompatibilitySecretKeyText(
-    redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(value))
+    redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(redactYamlCredentialAliases(value)))
   );
 
   redacted = redacted.replace(
