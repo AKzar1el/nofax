@@ -12,6 +12,46 @@ function capture() {
   return { write: (chunk) => { text += String(chunk); }, read: () => text };
 }
 
+test('config masks its notification capability by default and reveals it only on request', async () => {
+  const topic = 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF';
+  const config = { version: 1, server: 'https://ntfy.example.invalid', topic, timeoutSeconds: 725 };
+  const sideEffect = async () => { throw new Error('CONFIG_MUST_NOT_CONTACT_PHONE'); };
+  for (const [args, expectedTopic] of [
+    [['config'], '[REDACTED]'],
+    [['config', '--show-topic'], topic]
+  ]) {
+    const stdout = capture();
+    const stderr = capture();
+    const code = await runCli(args, {
+      stdout, stderr,
+      loadConfigImpl: async () => config,
+      initConfigImpl: sideEffect,
+      sendNotificationImpl: sideEffect,
+      requestApprovalImpl: sideEffect
+    });
+    assert.equal(code, 0);
+    assert.deepEqual(JSON.parse(stdout.read()), { ...config, topic: expectedTopic });
+    assert.equal(stderr.read(), '');
+    if (expectedTopic !== topic) assert.doesNotMatch(stdout.read(), new RegExp(topic));
+  }
+});
+
+test('config never reveals a legacy repeated topic even with an explicit reveal flag', async () => {
+  const topic = 'M9_aBcD2'.repeat(4);
+  const config = { version: 1, server: 'https://ntfy.sh', topic, timeoutSeconds: 300 };
+  for (const args of [['config'], ['config', '--show-topic']]) {
+    const stdout = capture();
+    const stderr = capture();
+    assert.equal(await runCli(args, {
+      stdout, stderr, loadConfigImpl: async () => config,
+      sendNotificationImpl: async () => { throw new Error('MUST_NOT_SEND'); }
+    }), 0);
+    assert.deepEqual(JSON.parse(stdout.read()), { ...config, topic: '[ROTATION_REQUIRED]' });
+    assert.match(stderr.read(), /init --force/);
+    assert.doesNotMatch(stdout.read() + stderr.read(), new RegExp(topic));
+  }
+});
+
 test('pending lists only local public request metadata with a bounded limit', async () => {
   const stdout = capture();
   const stderr = capture();
@@ -121,6 +161,130 @@ test('init creates config and prints a subscription URL', async (t) => {
   const config = await loadConfig({ home });
   assert.match(stdout.read(), new RegExp(`https://ntfy.sh/${config.topic}`));
   assert.equal(stderr.read(), '');
+});
+
+test('init shows the subscription capability only when created or explicitly rotated', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-cli-init-repeat-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const env = { NOFAX_HOME: home };
+  const first = capture();
+  assert.equal(await runCli(['init'], { env, stdout: first, stderr: capture() }), 0);
+  const original = await loadConfig({ home });
+  assert.match(first.read(), new RegExp(original.topic));
+
+  const repeat = capture();
+  assert.equal(await runCli(['init'], { env, stdout: repeat, stderr: capture() }), 0);
+  assert.match(repeat.read(), /already initialized/);
+  assert.match(repeat.read(), /config --show-topic/);
+  assert.doesNotMatch(repeat.read(), new RegExp(original.topic));
+  assert.deepEqual(await loadConfig({ home }), original);
+
+  const rotated = capture();
+  assert.equal(await runCli(['init', '--force'], { env, stdout: rotated, stderr: capture() }), 0);
+  const changed = await loadConfig({ home });
+  assert.notEqual(changed.topic, original.topic);
+  assert.match(rotated.read(), new RegExp(changed.topic));
+});
+
+test('init --force rotates the topic without silently switching an existing custom server', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-cli-force-preserve-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const env = { NOFAX_HOME: home };
+  const firstOutput = capture();
+  assert.equal(await runCli(['init', '--server', 'https://private.example.invalid', '--timeout', '725'], {
+    env, stdout: firstOutput, stderr: capture()
+  }), 0);
+  const first = await loadConfig({ home });
+
+  const rotatedOutput = capture();
+  assert.equal(await runCli(['init', '--force'], {
+    env, stdout: rotatedOutput, stderr: capture()
+  }), 0);
+  const rotated = await loadConfig({ home });
+  assert.notEqual(rotated.topic, first.topic);
+  assert.equal(rotated.server, first.server);
+  assert.equal(rotated.timeoutSeconds, first.timeoutSeconds);
+  assert.match(rotatedOutput.read(), new RegExp(`${rotated.server}/${rotated.topic}`));
+});
+
+test('init --force requires a new server when the saved private endpoint is malformed', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-cli-force-invalid-server-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const env = { NOFAX_HOME: home };
+  assert.equal(await runCli(['init', '--server', 'https://private.example.invalid'], {
+    env, stdout: capture(), stderr: capture()
+  }), 0);
+  const first = await loadConfig({ home });
+  const path = join(home, 'config.json');
+  const malformed = JSON.stringify({ ...first, server: 'https://private.example.invalid/unexpected' });
+  await writeFile(path, malformed);
+
+  const failedOutput = capture();
+  const failedError = capture();
+  assert.equal(await runCli(['init', '--force'], {
+    env, stdout: failedOutput, stderr: failedError
+  }), 1);
+  assert.equal(failedOutput.read(), '');
+  assert.match(failedError.read(), /NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT.*--server.*--force/);
+  assert.doesNotMatch(failedError.read(), /private\.example|nofax_[A-Za-z0-9_-]+/);
+  assert.equal(await readFile(path, 'utf8'), malformed);
+
+  const recoveredOutput = capture();
+  assert.equal(await runCli(['init', '--force', '--server', 'https://replacement.example.invalid'], {
+    env, stdout: recoveredOutput, stderr: capture()
+  }), 0);
+  const recovered = await loadConfig({ home });
+  assert.equal(recovered.server, 'https://replacement.example.invalid');
+  assert.notEqual(recovered.topic, first.topic);
+  assert.match(recoveredOutput.read(), new RegExp(recovered.topic));
+});
+
+test('init --force never discloses or silently replaces an unreadable private config', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-cli-force-corrupt-private-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const env = { NOFAX_HOME: home };
+  const path = join(home, 'config.json');
+  const malformed = '{"server":"https://private.example.invalid","topic":"sensitive-topic","version":';
+  await writeFile(path, malformed);
+
+  const failedOutput = capture();
+  const failedError = capture();
+  assert.equal(await runCli(['init', '--force'], {
+    env, stdout: failedOutput, stderr: failedError
+  }), 1);
+  assert.equal(failedOutput.read(), '');
+  assert.match(failedError.read(), /NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT.*--server.*--force/);
+  assert.doesNotMatch(failedError.read(), /private\.example|sensitive-topic/);
+  assert.equal(await readFile(path, 'utf8'), malformed);
+
+  const recoveredOutput = capture();
+  assert.equal(await runCli(['init', '--force', '--server', 'https://private.example.invalid'], {
+    env, stdout: recoveredOutput, stderr: capture()
+  }), 0);
+  const recovered = await loadConfig({ home });
+  assert.equal(recovered.server, 'https://private.example.invalid');
+  assert.match(recoveredOutput.read(), new RegExp(recovered.topic));
+});
+
+test('concurrent initializers disclose only the winning new subscription topic', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-cli-init-race-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const results = await Promise.all(Array.from({ length: 4 }, async () => {
+    const stdout = capture();
+    const stderr = capture();
+    const code = await runCli(['init'], { env: { NOFAX_HOME: home }, stdout, stderr });
+    return { code, stdout: stdout.read(), stderr: stderr.read() };
+  }));
+  const { topic } = await loadConfig({ home });
+  assert.equal(results.filter(({ stdout }) => stdout.includes(topic)).length, 1);
+  for (const { code, stdout, stderr } of results) {
+    assert.equal(code, 0);
+    assert.equal(stderr, '');
+    if (!stdout.includes(topic)) {
+      assert.match(stdout, /already initialized/);
+      assert.match(stdout, /config --show-topic/);
+    }
+  }
 });
 
 test('init rejects ignored overrides for an existing config without leaking the phone topic', async (t) => {
@@ -733,6 +897,7 @@ test('help is concise and lists supported commands', async () => {
   assert.match(stdout.read(), /nofax hook codex/);
   assert.match(stdout.read(), /nofax hook gemini/);
   assert.match(stdout.read(), /nofax --version/);
+  assert.match(stdout.read(), /nofax config \[--show-topic\]/);
 });
 
 test('version flags print the installed package version without config access', async () => {
@@ -755,9 +920,9 @@ test('version flags print the installed package version without config access', 
 test('help and version commands reject unexpected trailing arguments', async () => {
   for (const command of ['--help', '-h', 'help', '--version', '-v']) {
     for (const [trailing, diagnostic] of [
-      [['extra'], 'NOFAX_UNEXPECTED_ARGUMENT:extra'],
-      [['--unknown'], 'NOFAX_UNKNOWN_FLAG:--unknown'],
-      [['--', '--literal'], 'NOFAX_UNEXPECTED_ARGUMENT:--literal']
+      [['extra'], 'NOFAX_UNEXPECTED_ARGUMENT'],
+      [['--unknown'], 'NOFAX_UNKNOWN_FLAG'],
+      [['--', '--literal'], 'NOFAX_UNEXPECTED_ARGUMENT']
     ]) {
       const stdout = capture();
       const stderr = capture();
@@ -765,6 +930,7 @@ test('help and version commands reject unexpected trailing arguments', async () 
       assert.equal(code, 1, command);
       assert.equal(stdout.read(), '', command);
       assert.ok(stderr.read().includes(diagnostic), command);
+      assert.ok(!stderr.read().includes(trailing.at(-1)), command);
     }
   }
 });
@@ -862,6 +1028,35 @@ test('commands without positional arguments reject trailing input before side ef
     assert.equal(code, 1);
     assert.equal(sideEffects, 0);
     assert.equal(stdout.read(), '');
-    assert.match(stderr.read(), /NOFAX_UNEXPECTED_ARGUMENT:unexpected/);
+    assert.match(stderr.read(), /NOFAX_UNEXPECTED_ARGUMENT/);
+    assert.doesNotMatch(stderr.read(), /unexpected/);
+  }
+});
+
+test('CLI diagnostics never echo unrecognized argument values or tokens', async () => {
+  const marker = 'SYNTHETIC_PRIVATE_FLAG_VALUE_20261121';
+  for (const [args, errorCode] of [
+    [['config', `--token=${marker}`], 'NOFAX_UNKNOWN_FLAG'],
+    [['config', marker], 'NOFAX_UNEXPECTED_ARGUMENT'],
+    [[`--token=${marker}`], 'NOFAX_UNKNOWN_COMMAND'],
+    [['hook', marker], 'NOFAX_HOOK_UNSUPPORTED']
+  ]) {
+    const stdout = capture();
+    const stderr = capture();
+    let sideEffects = 0;
+    const exitCode = await runCli(args, {
+      stdout, stderr, stdinText: '{}',
+      loadConfigImpl: async () => {
+        sideEffects += 1;
+        return { version: 1, server: 'https://ntfy.sh', topic: 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF', timeoutSeconds: 300 };
+      },
+      sendNotificationImpl: async () => { sideEffects += 1; },
+      runMcpServerImpl: async () => { sideEffects += 1; }
+    });
+    assert.equal(exitCode, 1);
+    assert.match(stderr.read(), new RegExp(errorCode));
+    assert.doesNotMatch(stderr.read(), new RegExp(marker));
+    assert.equal(stdout.read(), '');
+    assert.equal(sideEffects, args[0] === 'hook' ? 1 : 0);
   }
 });

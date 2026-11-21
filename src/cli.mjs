@@ -6,7 +6,7 @@ import { handleClaudePermissionRequest } from './adapters/claude.mjs';
 import { handleCodexPermissionRequest } from './adapters/codex.mjs';
 import { handleGeminiHook } from './adapters/gemini.mjs';
 
-const HELP = `nofax - remote approvals and notifications for coding agents\n\nUsage:\n  nofax --version\n  nofax init [--server URL] [--topic TOPIC] [--timeout SECONDS] [--force]\n  nofax test\n  nofax pending [--limit N]\n  nofax notify [--title TITLE] MESSAGE...\n  nofax approve [--title TITLE] MESSAGE...\n  nofax refine [--title TITLE] MESSAGE...\n  nofax mcp\n  nofax config\n  nofax hook claude\n  nofax hook codex\n  nofax hook gemini\n\nEnvironment:\n  NOFAX_HOME   Override ~/.nofax\n`;
+const HELP = `nofax - remote approvals and notifications for coding agents\n\nUsage:\n  nofax --version\n  nofax init [--server URL] [--topic TOPIC] [--timeout SECONDS] [--force]\n  nofax test\n  nofax pending [--limit N]\n  nofax notify [--title TITLE] MESSAGE...\n  nofax approve [--title TITLE] MESSAGE...\n  nofax refine [--title TITLE] MESSAGE...\n  nofax mcp\n  nofax config [--show-topic]\n  nofax hook claude\n  nofax hook codex\n  nofax hook gemini\n\nEnvironment:\n  NOFAX_HOME   Override ~/.nofax\n`;
 
 const PACKAGE_JSON_URL = new URL('../package.json', import.meta.url);
 const MAX_HOOK_STDIN_BYTES = 1024 * 1024;
@@ -42,6 +42,11 @@ function parseArgs(args, allowedFlags = []) {
       flags.force = true;
       continue;
     }
+    if (value === '--show-topic') {
+      if (!allowedFlags.includes(value)) throw new Error(`NOFAX_UNKNOWN_FLAG:${value}`);
+      flags.showTopic = true;
+      continue;
+    }
     if (['--title', '--server', '--topic', '--timeout', '--limit'].includes(value)) {
       if (!allowedFlags.includes(value)) throw new Error(`NOFAX_UNKNOWN_FLAG:${value}`);
       const next = args[index + 1];
@@ -50,14 +55,16 @@ function parseArgs(args, allowedFlags = []) {
       index += 1;
       continue;
     }
-    if (value.startsWith('--')) throw new Error(`NOFAX_UNKNOWN_FLAG:${value}`);
+    // Unknown arguments may carry credentials (--token=...), so do not echo
+    // their caller-controlled text into logs or captured approval output.
+    if (value.startsWith('--')) throw new Error('NOFAX_UNKNOWN_FLAG');
     positionals.push(value);
   }
   return { flags, positionals };
 }
 
 function rejectUnexpectedArgs(positionals) {
-  if (positionals.length > 0) throw new Error(`NOFAX_UNEXPECTED_ARGUMENT:${positionals[0]}`);
+  if (positionals.length > 0) throw new Error('NOFAX_UNEXPECTED_ARGUMENT');
 }
 
 async function readStdin(stdinText, stdinStream = process.stdin) {
@@ -150,7 +157,7 @@ async function runHook(adapter, deps) {
       onError
     });
   } else {
-    throw new Error(`NOFAX_HOOK_UNSUPPORTED:${adapter}`);
+    throw new Error('NOFAX_HOOK_UNSUPPORTED');
   }
 
   if (output === null) {
@@ -211,6 +218,7 @@ export async function runCli(args, overrides = {}) {
       const { flags, positionals } = parseArgs(args.slice(1), ['--server', '--topic', '--timeout', '--force']);
       rejectUnexpectedArgs(positionals);
       const timeoutSeconds = flags.timeout === undefined ? undefined : Number(flags.timeout);
+      let created = false;
       const config = await deps.initConfigImpl({
         env: deps.env,
         ...(flags.server === undefined ? {} : { server: flags.server }),
@@ -218,25 +226,32 @@ export async function runCli(args, overrides = {}) {
         ...(timeoutSeconds === undefined ? {} : { timeoutSeconds }),
         force: flags.force === true,
         rejectExisting: flags.force !== true &&
-          (flags.server !== undefined || flags.topic !== undefined || flags.timeout !== undefined)
+          (flags.server !== undefined || flags.topic !== undefined || flags.timeout !== undefined),
+        onCreated: () => { created = true; }
       });
       if (isLegacyRepeatedTopic(config?.topic)) {
         throw new Error('NOFAX_LEGACY_TOPIC_ROTATION_REQUIRED: run nofax init --force');
       }
-      deps.stdout.write('Nofax ready.\n');
-      deps.stdout.write(`Subscribe your ntfy app to: ${config.server}/${config.topic}\n`);
-      deps.stdout.write('Then run: nofax test\n');
+      if (created) {
+        deps.stdout.write('Nofax ready.\n');
+        deps.stdout.write(`Subscribe your ntfy app to: ${config.server}/${config.topic}\n`);
+        deps.stdout.write('Then run: nofax test\n');
+      } else {
+        deps.stdout.write('Nofax ready (already initialized).\n');
+        deps.stdout.write('To view your existing subscription topic, run nofax config --show-topic privately.\n');
+      }
       return 0;
     }
 
     if (command === 'config') {
-      rejectUnexpectedArgs(args.slice(1));
+      const { flags, positionals } = parseArgs(args.slice(1), ['--show-topic']);
+      rejectUnexpectedArgs(positionals);
       const config = await rawLoadConfig({ env: deps.env });
       if (isLegacyRepeatedTopic(config?.topic)) {
         deps.stderr.write('nofax: legacy topic requires rotation; run nofax init --force.\n');
         deps.stdout.write(`${JSON.stringify({ ...config, topic: '[ROTATION_REQUIRED]' }, null, 2)}\n`);
       } else {
-        deps.stdout.write(`${JSON.stringify(config, null, 2)}\n`);
+        deps.stdout.write(`${JSON.stringify(flags.showTopic ? config : { ...config, topic: '[REDACTED]' }, null, 2)}\n`);
       }
       return 0;
     }
@@ -344,7 +359,7 @@ export async function runCli(args, overrides = {}) {
       }
     }
 
-    throw new Error(`NOFAX_UNKNOWN_COMMAND:${command}`);
+    throw new Error('NOFAX_UNKNOWN_COMMAND');
   } catch (error) {
     deps.stderr.write(`nofax: ${safeDiagnostic(error)}\n`);
     return 1;

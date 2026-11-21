@@ -7,6 +7,17 @@ import { createPhoneTopic } from './protocol.mjs';
 export const DEFAULT_SERVER = 'https://ntfy.sh';
 export const DEFAULT_TIMEOUT_SECONDS = 300;
 const MAX_CONFIG_BYTES = 64 * 1024;
+const RECOVERABLE_SAVED_CONFIG_ERRORS = new Set([
+  'NOFAX_NOT_INITIALIZED', 'NOFAX_CONFIG_VERSION', 'NOFAX_CONFIG_INVALID_JSON',
+  'NOFAX_CONFIG_INVALID_UTF8', 'NOFAX_CONFIG_TOO_LARGE',
+  'NOFAX_SERVER_INVALID', 'NOFAX_SERVER_PROTOCOL', 'NOFAX_SERVER_CREDENTIALS',
+  'NOFAX_SERVER_PATH', 'NOFAX_SERVER_INSECURE_HTTP', 'NOFAX_TOPIC_INVALID',
+  'NOFAX_TIMEOUT_INVALID'
+]);
+const UNREADABLE_SAVED_SERVER_ERRORS = new Set([
+  'NOFAX_CONFIG_VERSION', 'NOFAX_CONFIG_INVALID_JSON',
+  'NOFAX_CONFIG_INVALID_UTF8', 'NOFAX_CONFIG_TOO_LARGE'
+]);
 
 async function readConfigJson(path) {
   const file = await open(path, 'r');
@@ -132,8 +143,9 @@ export async function loadConfig({ home, env } = {}) {
   }
 }
 
-export async function initConfig({ home, env, server = DEFAULT_SERVER, topic, timeoutSeconds = DEFAULT_TIMEOUT_SECONDS, force = false, rejectExisting = false } = {}) {
+export async function initConfig({ home, env, server, topic, timeoutSeconds, force = false, rejectExisting = false, onCreated } = {}) {
   const root = resolveNofaxHome({ home, env });
+  let savedConfig;
   if (!force) {
     try {
       const existing = await loadConfig({ home: root });
@@ -144,13 +156,46 @@ export async function initConfig({ home, env, server = DEFAULT_SERVER, topic, ti
     } catch (error) {
       if (error.message !== 'NOFAX_NOT_INITIALIZED') throw error;
     }
+  } else {
+    try {
+      const saved = await readConfigJson(join(root, 'config.json'));
+      if (!saved || saved.version !== 1) throw new Error('NOFAX_CONFIG_VERSION');
+      // Force always rotates the topic. Recover each transport setting on its
+      // own, so one damaged field cannot silently reset another valid field.
+      savedConfig = {};
+      try {
+        savedConfig.server = normalizeServer(saved.server);
+      } catch (error) {
+        if (!RECOVERABLE_SAVED_CONFIG_ERRORS.has(error?.message)) throw error;
+        // Never silently redirect a previously configured private endpoint to
+        // the public default. Require an explicit destination for recovery.
+        if (server === undefined) {
+          throw new Error('NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT: provide --server URL with --force');
+        }
+      }
+      try {
+        savedConfig.timeoutSeconds = validateTimeout(saved.timeoutSeconds);
+      } catch (error) {
+        if (error?.message !== 'NOFAX_TIMEOUT_INVALID') throw error;
+      }
+    } catch (error) {
+      // Explicit force can repair invalid saved data, but must not hide I/O failures.
+      if (error?.code !== 'ENOENT' && !(error instanceof SyntaxError) &&
+          !RECOVERABLE_SAVED_CONFIG_ERRORS.has(error?.message)) throw error;
+      // If the old file exists but cannot be decoded/validated, its private
+      // server cannot be recovered safely. Require a deliberate destination.
+      if ((error instanceof SyntaxError || UNREADABLE_SAVED_SERVER_ERRORS.has(error?.message)) &&
+          server === undefined) {
+        throw new Error('NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT: provide --server URL with --force');
+      }
+    }
   }
 
   const config = validateConfig({
     version: 1,
-    server,
+    server: server ?? savedConfig?.server ?? DEFAULT_SERVER,
     topic: topic ?? createPhoneTopic(),
-    timeoutSeconds
+    timeoutSeconds: timeoutSeconds ?? savedConfig?.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS
   });
   await mkdir(root, { recursive: true, mode: 0o700 });
   const path = join(root, 'config.json');
@@ -198,5 +243,8 @@ export async function initConfig({ home, env, server = DEFAULT_SERVER, topic, ti
       }
     }
   }
+  // A reused config (including a concurrent initializer's winning write) must
+  // not trigger a fresh subscription-capability disclosure in CLI output.
+  onCreated?.();
   return config;
 }

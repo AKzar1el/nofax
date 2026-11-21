@@ -52,10 +52,121 @@ test('force reinitialization replaces config without modifying another hard link
   await writeFile(original, originalData);
   await link(original, join(home, 'config.json'));
 
-  const config = await initConfig({ home, force: true });
+  const config = await initConfig({ home, force: true, server: 'https://ntfy.sh' });
   assert.equal(await readFile(original, 'utf8'), originalData);
   assert.deepEqual(JSON.parse(await readFile(join(home, 'config.json'), 'utf8')), config);
   assert.deepEqual((await readdir(home)).sort(), ['config.json', 'original.json']);
+});
+
+test('forced topic rotation retains a valid saved server and timeout unless explicitly overridden', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-force-preserve-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const first = await initConfig({ home, server: 'https://private.example.invalid', timeoutSeconds: 725 });
+
+  const rotated = await initConfig({ home, force: true });
+  assert.notEqual(rotated.topic, first.topic);
+  assert.equal(rotated.server, first.server);
+  assert.equal(rotated.timeoutSeconds, first.timeoutSeconds);
+
+  const changed = await initConfig({ home, force: true, timeoutSeconds: 420 });
+  assert.notEqual(changed.topic, rotated.topic);
+  assert.equal(changed.server, first.server);
+  assert.equal(changed.timeoutSeconds, 420);
+  assert.deepEqual(await loadConfig({ home }), changed);
+});
+
+test('force repairs an invalid saved topic without changing valid self-hosted transport settings', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-invalid-topic-force-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await writeFile(join(home, 'config.json'), JSON.stringify({
+    version: 1, server: 'https://private.example.invalid', topic: 'too-short', timeoutSeconds: 725
+  }));
+
+  const repaired = await initConfig({ home, force: true });
+  assert.match(repaired.topic, /^nofax_[A-Za-z0-9_-]{32}$/);
+  assert.equal(repaired.server, 'https://private.example.invalid');
+  assert.equal(repaired.timeoutSeconds, 725);
+  assert.deepEqual(await loadConfig({ home }), repaired);
+});
+
+test('force recovery preserves each valid transport setting when another saved setting is invalid', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-partial-recovery-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const original = await initConfig({ home, server: 'https://private.example.invalid', timeoutSeconds: 725 });
+  const path = join(home, 'config.json');
+
+  await writeFile(path, JSON.stringify({ ...original, timeoutSeconds: 'invalid' }));
+  const repairedTimeout = await initConfig({ home, force: true });
+  assert.equal(repairedTimeout.server, original.server);
+  assert.equal(repairedTimeout.timeoutSeconds, 300);
+  assert.notEqual(repairedTimeout.topic, original.topic);
+  assert.deepEqual(await loadConfig({ home }), repairedTimeout);
+
+  await writeFile(path, JSON.stringify({ ...original, server: 'https://private.example.invalid/unexpected' }));
+  await assert.rejects(() => initConfig({ home, force: true }),
+    /NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT/);
+  const repairedServer = await initConfig({ home, force: true, server: 'https://replacement.example.invalid' });
+  assert.equal(repairedServer.server, 'https://replacement.example.invalid');
+  assert.equal(repairedServer.timeoutSeconds, original.timeoutSeconds);
+  assert.notEqual(repairedServer.topic, original.topic);
+  assert.deepEqual(await loadConfig({ home }), repairedServer);
+});
+
+test('force cannot silently replace a malformed saved private server with the public default', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-force-private-server-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const first = await initConfig({ home, server: 'https://private.example.invalid', timeoutSeconds: 725 });
+  const path = join(home, 'config.json');
+  const malformed = JSON.stringify({ ...first, server: 'https://private.example.invalid/unexpected' });
+  await writeFile(path, malformed);
+
+  await assert.rejects(() => initConfig({ home, force: true }),
+    /NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT/);
+  assert.equal(await readFile(path, 'utf8'), malformed);
+
+  const replaced = await initConfig({ home, force: true, server: 'https://replacement.example.invalid' });
+  assert.equal(replaced.server, 'https://replacement.example.invalid');
+  assert.equal(replaced.timeoutSeconds, 725);
+  assert.notEqual(replaced.topic, first.topic);
+  assert.deepEqual(await loadConfig({ home }), replaced);
+});
+
+test('force recovery of corrupt saved config requires explicit server instead of public fallback', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-corrupt-private-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const first = await initConfig({ home, server: 'https://private.example.invalid', timeoutSeconds: 725 });
+  const path = join(home, 'config.json');
+  const corrupted = `{"version":1,"server":"${first.server}","topic":`;
+  await writeFile(path, corrupted);
+
+  await assert.rejects(() => initConfig({ home, force: true }),
+    /NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT/);
+  assert.equal(await readFile(path, 'utf8'), corrupted);
+  assert.deepEqual(await readdir(home), ['config.json']);
+
+  const recovered = await initConfig({ home, force: true,
+    server: 'https://private.example.invalid', timeoutSeconds: 725 });
+  assert.match(recovered.topic, /^nofax_[A-Za-z0-9_-]{32}$/);
+  assert.equal(recovered.server, first.server);
+  assert.equal(recovered.timeoutSeconds, first.timeoutSeconds);
+  assert.deepEqual(await loadConfig({ home }), recovered);
+});
+
+test('force recovery of unsupported saved config version requires explicit server', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-version-private-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const path = join(home, 'config.json');
+  const incompatible = JSON.stringify({ version: 2, server: 'https://private.example.invalid',
+    topic: 'nofax_abcdefghABCDEFGH01234567_-abcdef', timeoutSeconds: 725 });
+  await writeFile(path, incompatible);
+
+  await assert.rejects(() => initConfig({ home, force: true }),
+    /NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT/);
+  assert.equal(await readFile(path, 'utf8'), incompatible);
+  const recovered = await initConfig({ home, force: true, server: 'https://private.example.invalid' });
+  assert.equal(recovered.server, 'https://private.example.invalid');
+  assert.equal(recovered.timeoutSeconds, 300);
+  assert.deepEqual(await loadConfig({ home }), recovered);
 });
 
 test('failed config replacement removes private temporary files', async (t) => {
@@ -87,7 +198,9 @@ test('config reads enforce a 64 KiB byte limit without blocking explicit recover
   await writeFile(path, `${atLimit} `, 'utf8');
   await assert.rejects(loadConfig({ home }), /NOFAX_CONFIG_TOO_LARGE/);
   await assert.rejects(initConfig({ home }), /NOFAX_CONFIG_TOO_LARGE/);
-  const replaced = await initConfig({ home, force: true });
+  await assert.rejects(initConfig({ home, force: true }),
+    /NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT/);
+  const replaced = await initConfig({ home, force: true, server: original.server });
   assert.deepEqual(await loadConfig({ home }), replaced);
 });
 
@@ -108,7 +221,9 @@ test('config reads accept a UTF-8 BOM but reject malformed UTF-8 without silentl
   await writeFile(path, malformed);
   await assert.rejects(loadConfig({ home }), /NOFAX_CONFIG_INVALID_UTF8/);
   await assert.rejects(initConfig({ home }), /NOFAX_CONFIG_INVALID_UTF8/);
-  const recovered = await initConfig({ home, force: true });
+  await assert.rejects(initConfig({ home, force: true }),
+    /NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT/);
+  const recovered = await initConfig({ home, force: true, server: config.server });
   assert.deepEqual(await loadConfig({ home }), recovered);
 });
 
@@ -178,5 +293,20 @@ test('only persisted legacy repeating topics remain readable for explicit rotati
 
   const rotated = await initConfig({ home, force: true });
   assert.notEqual(rotated.topic, legacyTopic);
+  assert.deepEqual(await loadConfig({ home }), rotated);
+});
+
+test('legacy topic recovery preserves an otherwise valid self-hosted configuration', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-legacy-force-preserve-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const oldConfig = {
+    version: 1, server: 'https://self-hosted.example.invalid',
+    topic: 'M9_aBcD2'.repeat(4), timeoutSeconds: 925
+  };
+  await writeFile(join(home, 'config.json'), JSON.stringify(oldConfig));
+  const rotated = await initConfig({ home, force: true });
+  assert.notEqual(rotated.topic, oldConfig.topic);
+  assert.equal(rotated.server, oldConfig.server);
+  assert.equal(rotated.timeoutSeconds, oldConfig.timeoutSeconds);
   assert.deepEqual(await loadConfig({ home }), rotated);
 });

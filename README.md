@@ -407,17 +407,33 @@ Override the home directory with `NOFAX_HOME`:
 NOFAX_HOME=/path/to/nofax-home nofax config
 ```
 
+`nofax config` masks the notification topic by default because the topic grants
+access to notification content and may be captured in terminal or agent logs.
+Use `nofax config --show-topic` only when you deliberately need to view or copy
+the topic locally, and keep that output private. A legacy repeated topic is
+always shown as `[ROTATION_REQUIRED]`, even with `--show-topic`.
+The initial `nofax init` and explicit `nofax init --force` setup outputs still
+print the subscription URL needed to connect your phone.
+
 Use another ntfy-compatible server with:
 
 ```bash
 nofax init --server https://ntfy.example.com --force
 ```
 
-Running `nofax init` again without options reuses the existing configuration.
+Running `nofax init` again without options reuses the existing configuration
+without printing the saved notification topic. Use `nofax config --show-topic`
+privately if you need to resubscribe an existing phone.
 When a configuration already exists, supplying `--server`, `--topic`, or
 `--timeout` requires `--force`; otherwise Nofax stops instead of silently
-ignoring the requested change. `--force` replaces the configuration and may
-rotate the phone topic, so confirm the displayed subscription in your ntfy app.
+ignoring the requested change. `--force` rotates the phone topic while keeping
+the existing valid server and timeout unless you override them. If the saved
+configuration is invalid, `--force` can recover the phone topic and use safe
+defaults for invalid timeout settings. If the saved server is malformed or the
+saved file is unreadable, oversized, or has an unsupported version, provide an
+explicit `--server URL` with `--force`: Nofax refuses to silently switch a
+possibly private endpoint to public `ntfy.sh`. Confirm the new displayed
+subscription in your ntfy app after each rotation.
 
 Notification content and one-time response-topic callbacks can carry sensitive
 capabilities. Custom servers require HTTPS; HTTP is supported only for local
