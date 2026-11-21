@@ -33,6 +33,10 @@ function parseArgs(args, allowedFlags = []) {
   const positionals = [];
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
+    if (value === '--') {
+      positionals.push(...args.slice(index + 1));
+      break;
+    }
     if (value === '--force') {
       if (!allowedFlags.includes(value)) throw new Error(`NOFAX_UNKNOWN_FLAG:${value}`);
       flags.force = true;
