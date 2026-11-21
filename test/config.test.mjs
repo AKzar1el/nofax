@@ -89,6 +89,27 @@ test('force repairs an invalid saved topic without changing valid self-hosted tr
   assert.deepEqual(await loadConfig({ home }), repaired);
 });
 
+test('force recovery preserves each valid transport setting when another saved setting is invalid', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-partial-recovery-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const original = await initConfig({ home, server: 'https://private.example.invalid', timeoutSeconds: 725 });
+  const path = join(home, 'config.json');
+
+  await writeFile(path, JSON.stringify({ ...original, timeoutSeconds: 'invalid' }));
+  const repairedTimeout = await initConfig({ home, force: true });
+  assert.equal(repairedTimeout.server, original.server);
+  assert.equal(repairedTimeout.timeoutSeconds, 300);
+  assert.notEqual(repairedTimeout.topic, original.topic);
+  assert.deepEqual(await loadConfig({ home }), repairedTimeout);
+
+  await writeFile(path, JSON.stringify({ ...original, server: 'https://private.example.invalid/unexpected' }));
+  const repairedServer = await initConfig({ home, force: true });
+  assert.equal(repairedServer.server, 'https://ntfy.sh');
+  assert.equal(repairedServer.timeoutSeconds, original.timeoutSeconds);
+  assert.notEqual(repairedServer.topic, original.topic);
+  assert.deepEqual(await loadConfig({ home }), repairedServer);
+});
+
 test('failed config replacement removes private temporary files', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'nofax-config-failure-'));
   t.after(() => rm(home, { recursive: true, force: true }));

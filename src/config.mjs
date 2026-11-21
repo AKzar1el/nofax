@@ -156,12 +156,19 @@ export async function initConfig({ home, env, server, topic, timeoutSeconds, for
     try {
       const saved = await readConfigJson(join(root, 'config.json'));
       if (!saved || saved.version !== 1) throw new Error('NOFAX_CONFIG_VERSION');
-      // Force always rotates the topic. Validate transport settings separately
-      // so an invalid old topic cannot silently switch a self-hosted server.
-      savedConfig = {
-        server: normalizeServer(saved.server),
-        timeoutSeconds: validateTimeout(saved.timeoutSeconds)
-      };
+      // Force always rotates the topic. Recover each transport setting on its
+      // own, so one damaged field cannot silently reset another valid field.
+      savedConfig = {};
+      try {
+        savedConfig.server = normalizeServer(saved.server);
+      } catch (error) {
+        if (!RECOVERABLE_SAVED_CONFIG_ERRORS.has(error?.message)) throw error;
+      }
+      try {
+        savedConfig.timeoutSeconds = validateTimeout(saved.timeoutSeconds);
+      } catch (error) {
+        if (error?.message !== 'NOFAX_TIMEOUT_INVALID') throw error;
+      }
     } catch (error) {
       // Explicit force can repair invalid saved data, but must not hide I/O failures.
       if (error?.code !== 'ENOENT' && !(error instanceof SyntaxError) &&
