@@ -33,6 +33,10 @@ function parseArgs(args, allowedFlags = []) {
   const positionals = [];
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
+    if (value === '--') {
+      positionals.push(...args.slice(index + 1));
+      break;
+    }
     if (value === '--force') {
       if (!allowedFlags.includes(value)) throw new Error(`NOFAX_UNKNOWN_FLAG:${value}`);
       flags.force = true;
@@ -194,11 +198,17 @@ export async function runCli(args, overrides = {}) {
 
   try {
     if (args.length === 0 || args[0] === '--help' || args[0] === '-h' || args[0] === 'help') {
+      if (args.length > 0) {
+        const { positionals } = parseArgs(args.slice(1));
+        rejectUnexpectedArgs(positionals);
+      }
       deps.stdout.write(HELP);
       return 0;
     }
 
     if (args[0] === '--version' || args[0] === '-v') {
+      const { positionals } = parseArgs(args.slice(1));
+      rejectUnexpectedArgs(positionals);
       deps.stdout.write(`${await readPackageVersion()}\n`);
       return 0;
     }
