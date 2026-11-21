@@ -63,6 +63,7 @@ Legacy internal mutation methods may remain for schema/backward compatibility, b
 - Cloudflare Workers enabled
 - Wrangler authentication
 - high-entropy `NOFAX_REMOTE_KEY` Worker secret
+- exact `NOFAX_MCP_HOSTNAME` Worker hostname (no scheme or port), required to fail closed on untrusted Host/Origin values
 - `NTFY_TOPIC` Worker secret when using the included ntfy notification transport
 - optional `NOFAX_NTFY_TOKEN` Worker secret for publishing to an access-controlled ntfy topic
 
@@ -87,6 +88,7 @@ From `worker/`:
 npm ci
 npx wrangler login
 npx wrangler secret put NOFAX_REMOTE_KEY
+npx wrangler secret put NOFAX_MCP_HOSTNAME
 npx wrangler secret put NTFY_TOPIC
 npm run check
 npm run deploy
@@ -99,6 +101,12 @@ the ntfy publication POST; it is never an MCP key or a phone-approval token.
 Unset it for public/unprotected topics. An invalid configured token blocks
 publishing, and redirects remain prohibited. This does not authorize remote
 approval or any callback.
+
+Before deploying this update, set `NOFAX_MCP_HOSTNAME` to the exact hostname
+of your Worker endpoint (for example `nofax-remote.example-account.workers.dev`).
+If it is missing or malformed, authenticated MCP requests fail with HTTP 403.
+Present browser Origins must match that same HTTPS origin; originless CLI
+clients remain accepted after their normal bearer authentication.
 
 Keep `NOFAX_REMOTE_KEY`, `NTFY_TOPIC` and `NOFAX_NTFY_TOKEN` out of source,
 `wrangler.jsonc`, `.env`, `.dev.vars`, CI output, screenshots, and issue text.
