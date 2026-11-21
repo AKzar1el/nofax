@@ -15,7 +15,9 @@ function normalizeSecretKeyName(key) {
 
   // Invisible format marks and blank fillers can split a credential field
   // name without changing its appearance. Ignore them only for classification.
-  const comparisonKey = key.normalize('NFKC').replace(/[\u00ad\u034f\u061c\u115f\u1160\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u2800\u3164\ufe0e-\ufe0f\ufeff\uffa0]/gu, '');
+  const comparisonKey = key.normalize('NFKC')
+    .replace(/\x1b\[[0-9;]{0,16}m/gu, '')
+    .replace(/[\u00ad\u034f\u061c\u115f\u1160\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u2800\u3164\ufe0e-\ufe0f\ufeff\uffa0]/gu, '');
 
   for (let index = 0; index < comparisonKey.length; index += 1) {
     const char = comparisonKey[index];
@@ -82,6 +84,69 @@ function normalizeUnicodeEscapedSecretKeys(text) {
       return isSecretKey(decoded) ? `${quote}${decoded}${quote}` : match;
     }
   );
+}
+
+function redactControlInterruptedSecretKeyText(text) {
+  // Inspect only bounded approval text; keep the original key spelling visible.
+  if (!/[\x00\x1b]|\\u00(?:00|1b)/i.test(text)) return text;
+  let plain = text;
+  let wrappers = 0;
+  while (wrappers < 3 && plain.startsWith('"') && plain.endsWith('"')) {
+    let decoded;
+    try { decoded = JSON.parse(plain); } catch { break; }
+    if (typeof decoded !== 'string') break;
+    plain = decoded;
+    wrappers += 1;
+  }
+
+  const hasControl = /[\x00\x1b]/u;
+  let changed = false;
+  const objectStart = plain.indexOf('{');
+  const arrayStart = /^\s*\[/u.test(plain) ? plain.indexOf('[') : -1;
+  const jsonStart = objectStart !== -1 ? objectStart : arrayStart;
+  const jsonEnd = jsonStart === -1 ? -1 : plain.lastIndexOf(jsonStart === arrayStart ? ']' : '}');
+  if (jsonEnd > jsonStart && jsonStart !== -1) {
+    let parsed;
+    try { parsed = JSON.parse(plain.slice(jsonStart, jsonEnd + 1)); } catch { /* Not a complete JSON segment. */ }
+    if (parsed && typeof parsed === 'object') {
+      const pending = [parsed];
+      while (pending.length > 0) {
+        const node = pending.pop();
+        for (const [key, child] of Object.entries(node)) {
+          if (hasControl.test(key) && isSecretKey(key)) {
+            node[key] = '[REDACTED]';
+            changed = true;
+          } else if (child && typeof child === 'object') {
+            pending.push(child);
+          }
+        }
+      }
+      if (changed) plain = `${plain.slice(0, jsonStart)}${JSON.stringify(parsed)}${plain.slice(jsonEnd + 1)}`;
+    }
+  }
+
+  if (!changed) {
+    plain = plain.replace(
+      /(?<![A-Za-z0-9_])(["']?)([A-Za-z](?:[A-Za-z0-9_.\/ -]|\x00|\x1b\[[0-9;]{0,16}m){0,96})\1([ \t]*[:=][ \t]*)(?:(["'])(?:\\.|(?!\4)[^\r\n])*\4|[^\s"'`,;&}\]]+)/gu,
+      (match, quote, key, separator) => {
+        if (!hasControl.test(key) || !isSecretKey(key)) return match;
+        changed = true;
+        return `${quote}${key}${quote}${separator}[REDACTED]`;
+      }
+    );
+  }
+  if (!changed) {
+    // A malformed embedded JSON segment cannot be parsed safely. Suppress the
+    // entire preview only when an encoded or raw control hides a secret key.
+    const unresolvedKeys = /([A-Za-z](?:[A-Za-z0-9_.\/ -]|\x00|\x1b\[[0-9;]{0,16}m|\\+u001b\[[0-9;]{0,16}m|\\+u0000){0,96})(?:\\*["'])?[ \t]*[:=]/giu;
+    for (const match of plain.matchAll(unresolvedKeys)) {
+      const decoded = match[1].replace(/\\+u001b\[[0-9;]{0,16}m|\\+u0000/giu, '');
+      if (decoded !== match[1] && isSecretKey(decoded)) return '[CONTROL_KEY_INPUT_REDACTED]';
+    }
+  }
+  if (!changed) return text;
+  for (let index = 0; index < wrappers; index += 1) plain = JSON.stringify(plain);
+  return plain;
 }
 
 function redactInvisibleSecretKeyText(text) {
@@ -267,7 +332,7 @@ function redactMultilineCredentialAssignments(text) {
 
 function redactSecretText(value) {
   let redacted = redactCompatibilitySecretKeyText(
-    redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(redactYamlCredentialAliases(redactMultilineCredentialAssignments(redactShellCredentialBlocks(value)))))
+    redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(redactYamlCredentialAliases(redactMultilineCredentialAssignments(redactShellCredentialBlocks(redactControlInterruptedSecretKeyText(value))))))
   );
 
   redacted = redacted.replace(
