@@ -57,6 +57,28 @@ test('approval summaries expose non-emoji joiners without breaking emoji sequenc
   }
 });
 
+test('YAML anchors referenced by credential aliases hide their source values in approval previews', () => {
+  const marker = 'NOFAX_YAML_ALIAS_SYNTHETIC_SECRET_8642';
+  const fixtures = [
+    `metadata: &shared ${marker}\napi_key: *shared\nmode: safe`,
+    `config:\n  note: &shared "${marker}"\n  token: *shared\n  mode: safe`,
+    `config:\n  note: &shared |\n    ${marker}\n  password: *shared\n  mode: safe`,
+    `metadata: &shared >\r\n  ${marker}\r\nauthorization: *shared\r\nmode: safe`
+  ];
+  for (const fixture of fixtures) {
+    for (const input of [fixture, JSON.stringify(fixture), JSON.stringify(JSON.stringify(fixture))]) {
+      for (const output of [redactAndBound(input), buildAgentSummary({ toolInput: { command: input } })]) {
+        assert.equal(output.includes(marker), false, 'a credential alias must taint its anchor definition');
+        assert.match(output, /mode: safe/, 'unrelated approval context remains readable');
+      }
+    }
+  }
+  const benign = `metadata: &safe ${marker}\nmode: *safe`;
+  for (const input of [benign, JSON.stringify(benign), JSON.stringify(JSON.stringify(benign))]) {
+    assert.match(redactAndBound(input), new RegExp(marker), 'unreferenced benign anchor remains readable');
+  }
+});
+
 test('redacts credentials from escaped and double-escaped JSON in agent summaries', () => {
   const marker = 'NOFAX_SYNTHETIC_ESCAPED_JSON_SECRET_CANARY_12345';
   const object = JSON.stringify({ api_key: marker, accessToken: marker, note: 'run tests' });
