@@ -14,6 +14,10 @@ const RECOVERABLE_SAVED_CONFIG_ERRORS = new Set([
   'NOFAX_SERVER_PATH', 'NOFAX_SERVER_INSECURE_HTTP', 'NOFAX_TOPIC_INVALID',
   'NOFAX_TIMEOUT_INVALID'
 ]);
+const UNREADABLE_SAVED_SERVER_ERRORS = new Set([
+  'NOFAX_CONFIG_VERSION', 'NOFAX_CONFIG_INVALID_JSON',
+  'NOFAX_CONFIG_INVALID_UTF8', 'NOFAX_CONFIG_TOO_LARGE'
+]);
 
 async function readConfigJson(path) {
   const file = await open(path, 'r');
@@ -178,6 +182,12 @@ export async function initConfig({ home, env, server, topic, timeoutSeconds, for
       // Explicit force can repair invalid saved data, but must not hide I/O failures.
       if (error?.code !== 'ENOENT' && !(error instanceof SyntaxError) &&
           !RECOVERABLE_SAVED_CONFIG_ERRORS.has(error?.message)) throw error;
+      // If the old file exists but cannot be decoded/validated, its private
+      // server cannot be recovered safely. Require a deliberate destination.
+      if ((error instanceof SyntaxError || UNREADABLE_SAVED_SERVER_ERRORS.has(error?.message)) &&
+          server === undefined) {
+        throw new Error('NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT: provide --server URL with --force');
+      }
     }
   }
 

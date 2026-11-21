@@ -239,6 +239,33 @@ test('init --force requires a new server when the saved private endpoint is malf
   assert.match(recoveredOutput.read(), new RegExp(recovered.topic));
 });
 
+test('init --force never discloses or silently replaces an unreadable private config', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-cli-force-corrupt-private-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const env = { NOFAX_HOME: home };
+  const path = join(home, 'config.json');
+  const malformed = '{"server":"https://private.example.invalid","topic":"sensitive-topic","version":';
+  await writeFile(path, malformed);
+
+  const failedOutput = capture();
+  const failedError = capture();
+  assert.equal(await runCli(['init', '--force'], {
+    env, stdout: failedOutput, stderr: failedError
+  }), 1);
+  assert.equal(failedOutput.read(), '');
+  assert.match(failedError.read(), /NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT.*--server.*--force/);
+  assert.doesNotMatch(failedError.read(), /private\.example|sensitive-topic/);
+  assert.equal(await readFile(path, 'utf8'), malformed);
+
+  const recoveredOutput = capture();
+  assert.equal(await runCli(['init', '--force', '--server', 'https://private.example.invalid'], {
+    env, stdout: recoveredOutput, stderr: capture()
+  }), 0);
+  const recovered = await loadConfig({ home });
+  assert.equal(recovered.server, 'https://private.example.invalid');
+  assert.match(recoveredOutput.read(), new RegExp(recovered.topic));
+});
+
 test('concurrent initializers disclose only the winning new subscription topic', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'nofax-cli-init-race-'));
   t.after(() => rm(home, { recursive: true, force: true }));

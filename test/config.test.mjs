@@ -52,7 +52,7 @@ test('force reinitialization replaces config without modifying another hard link
   await writeFile(original, originalData);
   await link(original, join(home, 'config.json'));
 
-  const config = await initConfig({ home, force: true });
+  const config = await initConfig({ home, force: true, server: 'https://ntfy.sh' });
   assert.equal(await readFile(original, 'utf8'), originalData);
   assert.deepEqual(JSON.parse(await readFile(join(home, 'config.json'), 'utf8')), config);
   assert.deepEqual((await readdir(home)).sort(), ['config.json', 'original.json']);
@@ -131,6 +131,44 @@ test('force cannot silently replace a malformed saved private server with the pu
   assert.deepEqual(await loadConfig({ home }), replaced);
 });
 
+test('force recovery of corrupt saved config requires explicit server instead of public fallback', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-corrupt-private-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const first = await initConfig({ home, server: 'https://private.example.invalid', timeoutSeconds: 725 });
+  const path = join(home, 'config.json');
+  const corrupted = `{"version":1,"server":"${first.server}","topic":`;
+  await writeFile(path, corrupted);
+
+  await assert.rejects(() => initConfig({ home, force: true }),
+    /NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT/);
+  assert.equal(await readFile(path, 'utf8'), corrupted);
+  assert.deepEqual(await readdir(home), ['config.json']);
+
+  const recovered = await initConfig({ home, force: true,
+    server: 'https://private.example.invalid', timeoutSeconds: 725 });
+  assert.match(recovered.topic, /^nofax_[A-Za-z0-9_-]{32}$/);
+  assert.equal(recovered.server, first.server);
+  assert.equal(recovered.timeoutSeconds, first.timeoutSeconds);
+  assert.deepEqual(await loadConfig({ home }), recovered);
+});
+
+test('force recovery of unsupported saved config version requires explicit server', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-version-private-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const path = join(home, 'config.json');
+  const incompatible = JSON.stringify({ version: 2, server: 'https://private.example.invalid',
+    topic: 'nofax_abcdefghABCDEFGH01234567_-abcdef', timeoutSeconds: 725 });
+  await writeFile(path, incompatible);
+
+  await assert.rejects(() => initConfig({ home, force: true }),
+    /NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT/);
+  assert.equal(await readFile(path, 'utf8'), incompatible);
+  const recovered = await initConfig({ home, force: true, server: 'https://private.example.invalid' });
+  assert.equal(recovered.server, 'https://private.example.invalid');
+  assert.equal(recovered.timeoutSeconds, 300);
+  assert.deepEqual(await loadConfig({ home }), recovered);
+});
+
 test('failed config replacement removes private temporary files', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'nofax-config-failure-'));
   t.after(() => rm(home, { recursive: true, force: true }));
@@ -160,7 +198,9 @@ test('config reads enforce a 64 KiB byte limit without blocking explicit recover
   await writeFile(path, `${atLimit} `, 'utf8');
   await assert.rejects(loadConfig({ home }), /NOFAX_CONFIG_TOO_LARGE/);
   await assert.rejects(initConfig({ home }), /NOFAX_CONFIG_TOO_LARGE/);
-  const replaced = await initConfig({ home, force: true });
+  await assert.rejects(initConfig({ home, force: true }),
+    /NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT/);
+  const replaced = await initConfig({ home, force: true, server: original.server });
   assert.deepEqual(await loadConfig({ home }), replaced);
 });
 
@@ -181,7 +221,9 @@ test('config reads accept a UTF-8 BOM but reject malformed UTF-8 without silentl
   await writeFile(path, malformed);
   await assert.rejects(loadConfig({ home }), /NOFAX_CONFIG_INVALID_UTF8/);
   await assert.rejects(initConfig({ home }), /NOFAX_CONFIG_INVALID_UTF8/);
-  const recovered = await initConfig({ home, force: true });
+  await assert.rejects(initConfig({ home, force: true }),
+    /NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT/);
+  const recovered = await initConfig({ home, force: true, server: config.server });
   assert.deepEqual(await loadConfig({ home }), recovered);
 });
 
