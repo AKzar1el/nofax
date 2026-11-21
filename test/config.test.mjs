@@ -103,11 +103,32 @@ test('force recovery preserves each valid transport setting when another saved s
   assert.deepEqual(await loadConfig({ home }), repairedTimeout);
 
   await writeFile(path, JSON.stringify({ ...original, server: 'https://private.example.invalid/unexpected' }));
-  const repairedServer = await initConfig({ home, force: true });
-  assert.equal(repairedServer.server, 'https://ntfy.sh');
+  await assert.rejects(() => initConfig({ home, force: true }),
+    /NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT/);
+  const repairedServer = await initConfig({ home, force: true, server: 'https://replacement.example.invalid' });
+  assert.equal(repairedServer.server, 'https://replacement.example.invalid');
   assert.equal(repairedServer.timeoutSeconds, original.timeoutSeconds);
   assert.notEqual(repairedServer.topic, original.topic);
   assert.deepEqual(await loadConfig({ home }), repairedServer);
+});
+
+test('force cannot silently replace a malformed saved private server with the public default', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-force-private-server-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const first = await initConfig({ home, server: 'https://private.example.invalid', timeoutSeconds: 725 });
+  const path = join(home, 'config.json');
+  const malformed = JSON.stringify({ ...first, server: 'https://private.example.invalid/unexpected' });
+  await writeFile(path, malformed);
+
+  await assert.rejects(() => initConfig({ home, force: true }),
+    /NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT/);
+  assert.equal(await readFile(path, 'utf8'), malformed);
+
+  const replaced = await initConfig({ home, force: true, server: 'https://replacement.example.invalid' });
+  assert.equal(replaced.server, 'https://replacement.example.invalid');
+  assert.equal(replaced.timeoutSeconds, 725);
+  assert.notEqual(replaced.topic, first.topic);
+  assert.deepEqual(await loadConfig({ home }), replaced);
 });
 
 test('failed config replacement removes private temporary files', async (t) => {

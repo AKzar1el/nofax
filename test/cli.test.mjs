@@ -207,6 +207,38 @@ test('init --force rotates the topic without silently switching an existing cust
   assert.match(rotatedOutput.read(), new RegExp(`${rotated.server}/${rotated.topic}`));
 });
 
+test('init --force requires a new server when the saved private endpoint is malformed', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-cli-force-invalid-server-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const env = { NOFAX_HOME: home };
+  assert.equal(await runCli(['init', '--server', 'https://private.example.invalid'], {
+    env, stdout: capture(), stderr: capture()
+  }), 0);
+  const first = await loadConfig({ home });
+  const path = join(home, 'config.json');
+  const malformed = JSON.stringify({ ...first, server: 'https://private.example.invalid/unexpected' });
+  await writeFile(path, malformed);
+
+  const failedOutput = capture();
+  const failedError = capture();
+  assert.equal(await runCli(['init', '--force'], {
+    env, stdout: failedOutput, stderr: failedError
+  }), 1);
+  assert.equal(failedOutput.read(), '');
+  assert.match(failedError.read(), /NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT.*--server.*--force/);
+  assert.doesNotMatch(failedError.read(), /private\.example|nofax_[A-Za-z0-9_-]+/);
+  assert.equal(await readFile(path, 'utf8'), malformed);
+
+  const recoveredOutput = capture();
+  assert.equal(await runCli(['init', '--force', '--server', 'https://replacement.example.invalid'], {
+    env, stdout: recoveredOutput, stderr: capture()
+  }), 0);
+  const recovered = await loadConfig({ home });
+  assert.equal(recovered.server, 'https://replacement.example.invalid');
+  assert.notEqual(recovered.topic, first.topic);
+  assert.match(recoveredOutput.read(), new RegExp(recovered.topic));
+});
+
 test('concurrent initializers disclose only the winning new subscription topic', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'nofax-cli-init-race-'));
   t.after(() => rm(home, { recursive: true, force: true }));

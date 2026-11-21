@@ -428,8 +428,11 @@ When a configuration already exists, supplying `--server`, `--topic`, or
 `--timeout` requires `--force`; otherwise Nofax stops instead of silently
 ignoring the requested change. `--force` rotates the phone topic while keeping
 the existing valid server and timeout unless you override them. If the saved
-configuration is invalid, `--force` recovers using safe defaults. Confirm the
-new displayed subscription in your ntfy app after each rotation.
+configuration is invalid, `--force` can recover using safe defaults. If a saved
+server value is malformed, provide an explicit `--server URL` with `--force`:
+Nofax refuses to silently switch a configured private endpoint to public
+`ntfy.sh`. An unparseable or oversized saved config may still use defaults; confirm
+the new displayed subscription in your ntfy app after each rotation.
 
 Notification content and one-time response-topic callbacks can carry sensitive
 capabilities. Custom servers require HTTPS; HTTP is supported only for local

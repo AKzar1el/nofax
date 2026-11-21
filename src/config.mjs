@@ -163,6 +163,11 @@ export async function initConfig({ home, env, server, topic, timeoutSeconds, for
         savedConfig.server = normalizeServer(saved.server);
       } catch (error) {
         if (!RECOVERABLE_SAVED_CONFIG_ERRORS.has(error?.message)) throw error;
+        // Never silently redirect a previously configured private endpoint to
+        // the public default. Require an explicit destination for recovery.
+        if (server === undefined) {
+          throw new Error('NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT: provide --server URL with --force');
+        }
       }
       try {
         savedConfig.timeoutSeconds = validateTimeout(saved.timeoutSeconds);
