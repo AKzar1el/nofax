@@ -191,11 +191,17 @@ export async function runCli(args, overrides = {}) {
 
   try {
     if (args.length === 0 || args[0] === '--help' || args[0] === '-h' || args[0] === 'help') {
+      if (args.length > 0) {
+        const { positionals } = parseArgs(args.slice(1));
+        rejectUnexpectedArgs(positionals);
+      }
       deps.stdout.write(HELP);
       return 0;
     }
 
     if (args[0] === '--version' || args[0] === '-v') {
+      const { positionals } = parseArgs(args.slice(1));
+      rejectUnexpectedArgs(positionals);
       deps.stdout.write(`${await readPackageVersion()}\n`);
       return 0;
     }

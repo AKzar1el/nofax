@@ -752,6 +752,23 @@ test('version flags print the installed package version without config access', 
   }
 });
 
+test('help and version commands reject unexpected trailing arguments', async () => {
+  for (const command of ['--help', '-h', 'help', '--version', '-v']) {
+    for (const [trailing, diagnostic] of [
+      [['extra'], 'NOFAX_UNEXPECTED_ARGUMENT:extra'],
+      [['--unknown'], 'NOFAX_UNKNOWN_FLAG:--unknown'],
+      [['--', '--literal'], 'NOFAX_UNEXPECTED_ARGUMENT:--literal']
+    ]) {
+      const stdout = capture();
+      const stderr = capture();
+      const code = await runCli([command, ...trailing], { stdout, stderr });
+      assert.equal(code, 1, command);
+      assert.equal(stdout.read(), '', command);
+      assert.ok(stderr.read().includes(diagnostic), command);
+    }
+  }
+});
+
 test('message commands preserve leading double-dash words after the option separator', async () => {
   for (const command of ['notify', 'approve', 'refine']) {
     const stderr = capture();
