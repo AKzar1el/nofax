@@ -79,6 +79,35 @@ test('YAML anchors referenced by credential aliases hide their source values in 
   }
 });
 
+test('TOML and dotenv multiline credentials hide their bodies without hiding safe sibling fields', () => {
+  const marker = 'NOFAX_TOML_MULTILINE_SYNTHETIC_SECRET_4197';
+  const fixtures = [
+    `api_key = """\n${marker}\n"""\nmode = safe`,
+    `token = '''\r\n${marker}\r\n'''\r\nmode = safe`,
+    `credentials.password = """\nquoted \\""" then ${marker}\n"""\nmode = safe`,
+    `export PRIVATE_KEY="first line\n${marker}\nlast line"\nmode = safe`,
+    `TOKEN='first line\n${marker}\nlast line'\nmode = safe`,
+    `password = """\n${marker}\nmode = safe`
+  ];
+
+  for (const fixture of fixtures) {
+    for (const input of [fixture, JSON.stringify(fixture), JSON.stringify(JSON.stringify(fixture))]) {
+      for (const output of [redactAndBound(input), buildAgentSummary({ toolInput: { command: input } })]) {
+        assert.equal(output.includes(marker), false, 'multiline credential body must not appear in approval preview');
+        if (fixture.includes('last line') || fixture.includes('"""\nmode') || fixture.includes("'''\r\nmode")) {
+          assert.match(output, /mode = safe/, 'valid nonsecret sibling must remain readable');
+        }
+      }
+    }
+  }
+
+  const benign = `notes = """\n${marker}\n"""\nmode = safe`;
+  for (const input of [benign, JSON.stringify(benign), JSON.stringify(JSON.stringify(benign))]) {
+    assert.match(redactAndBound(input), new RegExp(marker), 'nonsecret multiline text remains readable');
+    assert.match(redactAndBound(input), /mode = safe/);
+  }
+});
+
 test('redacts credentials from escaped and double-escaped JSON in agent summaries', () => {
   const marker = 'NOFAX_SYNTHETIC_ESCAPED_JSON_SECRET_CANARY_12345';
   const object = JSON.stringify({ api_key: marker, accessToken: marker, note: 'run tests' });

@@ -158,9 +158,60 @@ function redactYamlCredentialAliases(text) {
   return parts.join('');
 }
 
+function redactMultilineCredentialAssignments(text) {
+  // Only standalone JSON-string wrappers are decoded, so quoted line breaks
+  // can be recognized without reinterpreting arbitrary command text.
+  let plain = text;
+  let wrappers = 0;
+  while (wrappers < 3 && plain.startsWith('"') && plain.endsWith('"')) {
+    let decoded;
+    try { decoded = JSON.parse(plain); } catch { break; }
+    if (typeof decoded !== 'string') break;
+    plain = decoded;
+    wrappers += 1;
+  }
+
+  const assignments = /^([ \t]*(?:export[ \t]+)?)([A-Za-z][A-Za-z0-9_. -]{0,63})([ \t]*=[ \t]*)("""|'''|"|')/gm;
+  let cursor = 0;
+  let output = '';
+  let changed = false;
+  for (const match of plain.matchAll(assignments)) {
+    if (match.index < cursor || !isSecretKey(match[2])) continue;
+    const quote = match[4];
+    const valueStart = match.index + match[0].length;
+    let closing = -1;
+    let searchFrom = valueStart;
+    while (searchFrom < plain.length) {
+      const candidate = plain.indexOf(quote, searchFrom);
+      if (candidate === -1) break;
+      let backslashes = 0;
+      if (quote[0] === '"') {
+        for (let index = candidate - 1; index >= valueStart && plain[index] === '\\'; index -= 1) backslashes += 1;
+      }
+      if (backslashes % 2 === 0) {
+        closing = candidate;
+        break;
+      }
+      searchFrom = candidate + 1;
+    }
+
+    const body = plain.slice(valueStart, closing === -1 ? undefined : closing);
+    if (!/[\r\n]/.test(body)) continue;
+    output += plain.slice(cursor, match.index);
+    output += `${match[1]}${match[2]}${match[3]}${quote}[REDACTED]${quote}`;
+    changed = true;
+    cursor = closing === -1 ? plain.length : closing + quote.length;
+    if (closing === -1) break; // An unterminated secret has no safe sibling boundary.
+  }
+  if (!changed) return text;
+  output += plain.slice(cursor);
+  for (let index = 0; index < wrappers; index += 1) output = JSON.stringify(output);
+  return output;
+}
+
 function redactSecretText(value) {
   let redacted = redactCompatibilitySecretKeyText(
-    redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(redactYamlCredentialAliases(value)))
+    redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(redactYamlCredentialAliases(redactMultilineCredentialAssignments(value))))
   );
 
   redacted = redacted.replace(
