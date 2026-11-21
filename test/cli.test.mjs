@@ -752,6 +752,25 @@ test('version flags print the installed package version without config access', 
   }
 });
 
+test('message commands preserve leading double-dash words after the option separator', async () => {
+  for (const command of ['notify', 'approve', 'refine']) {
+    const stderr = capture();
+    let observed;
+    const recordMessage = ({ title, message }) => { observed = { title, message }; };
+    const code = await runCli([command, '--title', 'Check', '--', '--flag', '--title'], {
+      stdout: capture(),
+      stderr,
+      loadConfigImpl: async () => ({}),
+      sendNotificationImpl: async (options) => { recordMessage(options); },
+      requestApprovalImpl: async (options) => { recordMessage(options); return { decision: 'allow' }; },
+      requestRefinementImpl: async (options) => { recordMessage(options); return { decision: 'refine', text: 'ok' }; }
+    });
+    assert.equal(code, 0, command);
+    assert.deepEqual(observed, { title: 'Check', message: '--flag --title' });
+    assert.equal(stderr.read(), '');
+  }
+});
+
 test('command-specific flags are rejected instead of silently ignored', async () => {
   for (const [args, unexpectedFlag] of [
     [['notify', '--server', 'https://example.com', 'hello'], '--server'],
