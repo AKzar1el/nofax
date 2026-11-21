@@ -215,6 +215,10 @@ export async function sendNotification({ config, title, message, actions, priori
   const controller = ownsTimeout ? new AbortController() : null;
   let timeoutId;
   let resolveDeadline;
+  let resolveCallerCancellation;
+  const callerCancellation = signal == null ? null : new Promise((resolve) => {
+    resolveCallerCancellation = resolve;
+  });
   const timeout = controller === null ? null : new Promise((resolve) => {
     resolveDeadline = resolve;
     timeoutId = setTimeout(() => {
@@ -222,17 +226,23 @@ export async function sendNotification({ config, title, message, actions, priori
       controller.abort();
     }, deadlineMs);
   });
-  const forwardAbort = controller !== null && signal != null ? () => {
-    controller.abort();
+  const forwardAbort = signal != null ? () => {
+    controller?.abort();
     // A custom fetch can ignore abort: caller cancellation still settles promptly.
-    resolveDeadline(PUBLISH_CANCELLED);
+    resolveCallerCancellation(PUBLISH_CANCELLED);
   } : null;
   let response;
   let request;
+  let cancelledBeforeFetch = false;
   try {
     if (forwardAbort !== null) {
       if (signal.aborted) forwardAbort();
       else signal.addEventListener('abort', forwardAbort, { once: true });
+    }
+    // A signal may abort synchronously while its listener is being installed.
+    if (signal?.aborted) {
+      cancelledBeforeFetch = true;
+      throw publishError('NOFAX_NTFY_PUBLISH_NETWORK', 'not_applied');
     }
     request = fetchImpl(`${server}/`, {
       method: 'POST',
@@ -245,8 +255,12 @@ export async function sendNotification({ config, title, message, actions, priori
       redirect: 'error',
       signal: controller === null ? signal : controller.signal
     });
-    response = timeout === null ? await request : await Promise.race([request, timeout]);
-  } catch {
+    const inFlight = [request];
+    if (timeout !== null) inFlight.push(timeout);
+    if (callerCancellation !== null) inFlight.unshift(callerCancellation);
+    response = inFlight.length === 1 ? await request : await Promise.race(inFlight);
+  } catch (error) {
+    if (cancelledBeforeFetch) throw error;
     // Even anonymous transport errors may echo the topic, message or callback
     // URL. These are approval capabilities, so never forward provider prose.
     throw publishError('NOFAX_NTFY_PUBLISH_NETWORK', 'ambiguous');
@@ -254,9 +268,13 @@ export async function sendNotification({ config, title, message, actions, priori
     if (timeoutId !== undefined) clearTimeout(timeoutId);
     if (forwardAbort !== null) signal.removeEventListener('abort', forwardAbort);
   }
-  if (response === PUBLISH_TIMEOUT || response === PUBLISH_CANCELLED) {
+  if (response === PUBLISH_TIMEOUT || response === PUBLISH_CANCELLED || signal?.aborted) {
     // Some fetch implementations ignore abort and return a body after cancellation or timeout.
-    void Promise.resolve(request).then(releaseResponseBody, () => {});
+    if (response === PUBLISH_TIMEOUT || response === PUBLISH_CANCELLED) {
+      void Promise.resolve(request).then(releaseResponseBody, () => {});
+    } else {
+      releaseResponseBody(response);
+    }
     throw publishError(response === PUBLISH_TIMEOUT
       ? 'NOFAX_NTFY_PUBLISH_TIMEOUT' : 'NOFAX_NTFY_PUBLISH_NETWORK', 'ambiguous');
   }

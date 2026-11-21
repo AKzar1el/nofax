@@ -915,6 +915,66 @@ test('a caller-managed notification signal remains unchanged without an explicit
   assert.equal(observedSignal, caller.signal);
 });
 
+test('signal-only caller cancellation settles an uncooperative publish and releases its late body', async () => {
+  const caller = new AbortController();
+  let finishFetch;
+  let cancelled = 0;
+  const publication = sendNotification({
+    config, title: 'Build done', message: 'All tests pass', signal: caller.signal,
+    fetchImpl: (_url, init) => {
+      assert.equal(init.signal, caller.signal, 'caller-owned signal identity is preserved');
+      return new Promise((resolve) => { finishFetch = resolve; });
+    }
+  });
+  caller.abort();
+  const outcome = await Promise.race([
+    publication.then(() => 'sent', (error) => `${error.message}:${error.deliveryState}`),
+    new Promise((resolve) => setTimeout(() => resolve('stalled'), 80))
+  ]);
+  assert.equal(outcome, 'NOFAX_NTFY_PUBLISH_NETWORK:ambiguous');
+  finishFetch(new Response(new ReadableStream({ cancel() { cancelled += 1; } })));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(cancelled, 1);
+});
+
+test('abort during listener installation prevents a notification POST entirely', async () => {
+  const caller = new AbortController();
+  const addListener = caller.signal.addEventListener.bind(caller.signal);
+  caller.signal.addEventListener = (...args) => {
+    addListener(...args);
+    caller.abort();
+  };
+  let published = 0;
+  await assert.rejects(() => sendNotification({
+    config, title: 'Build done', message: 'All tests pass',
+    signal: caller.signal, timeoutMs: 1000,
+    fetchImpl: async () => { published += 1; return jsonResponse({ id: 'unexpected' }); }
+  }), (error) => error?.message === 'NOFAX_NTFY_PUBLISH_NETWORK' && error.deliveryState === 'not_applied');
+  assert.equal(published, 0);
+});
+
+test('reentrant and same-turn caller abort cannot report confirmed notification success', async () => {
+  for (const shape of ['sync', 'resolved', 'microtask']) {
+    const caller = new AbortController();
+    const publication = sendNotification({
+      config, title: 'Build done', message: 'All tests pass',
+      signal: caller.signal, timeoutMs: 1000,
+      fetchImpl: () => {
+        if (shape === 'microtask') {
+          queueMicrotask(() => caller.abort());
+          return Promise.resolve(jsonResponse({ id: 'synthetic' }));
+        }
+        caller.abort();
+        const response = jsonResponse({ id: 'synthetic' });
+        return shape === 'sync' ? response : Promise.resolve(response);
+      }
+    });
+    await assert.rejects(publication,
+      (error) => error?.message === 'NOFAX_NTFY_PUBLISH_NETWORK' && error.deliveryState === 'ambiguous',
+      shape);
+  }
+});
+
 test('sendNotification releases a publish body that arrives after its timeout', async () => {
   let resolveRequest;
   let signal;
