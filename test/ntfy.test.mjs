@@ -1541,6 +1541,33 @@ test('phone choice labels expose hidden Unicode tags but keep genuine emoji tag 
   assert.equal(JSON.parse(flagPayload.actions[0].body).decision, 'flag');
 });
 
+test('phone choice labels expose supplementary variation selectors without changing decisions', async () => {
+  for (const codePoint of [0xe0100, 0xe0101, 0xe01ef]) {
+    const selector = String.fromCodePoint(codePoint);
+    let payload;
+    const remote = await createRemoteRequest({
+      config,
+      title: 'Review',
+      message: `Choice De${selector}ny is synthetic`,
+      options: [
+        { value: 'deny', label: 'Deny' },
+        { value: 'review', label: `De${selector}ny` }
+      ],
+      fetchImpl: async (_url, init) => {
+        payload = JSON.parse(init.body);
+        return jsonResponse({ id: 'synthetic' });
+      }
+    });
+    assert.deepEqual(payload.actions.map((action) => action.label), [
+      'Deny', `De\\u{${codePoint.toString(16)}}ny`
+    ]);
+    assert.deepEqual(payload.actions.map((action) => JSON.parse(action.body).decision), ['deny', 'review']);
+    assert.deepEqual(remote.allowed, ['deny', 'review']);
+    assert.equal(payload.message, `Choice De${selector}ny is synthetic`);
+    assert.ok(payload.actions.every((action) => action.label.length <= 32));
+  }
+});
+
 test('ntfy choice action labels visibly escape control and bidi characters without changing decisions', async () => {
   let payload;
   await createRemoteRequest({

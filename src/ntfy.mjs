@@ -62,7 +62,9 @@ function visibleNotificationCharacter(character, characters, index) {
 
 function visibleActionCharacter(character, characters, index) {
   if (character === '\n') return '\\u000a';
-  if (character === '\u{e0001}' || /[\u{e0020}-\u{e007f}]/u.test(character)) {
+  // Expose invisible supplementary variation selectors in approval words too.
+  if (character === '\u{e0001}' ||
+      /[\u{e0020}-\u{e007f}\u{e0100}-\u{e01ef}]/u.test(character)) {
     return `\\u{${character.codePointAt(0).toString(16)}}`;
   }
   // Unusual Unicode spaces can make distinct phone choices look identical.
