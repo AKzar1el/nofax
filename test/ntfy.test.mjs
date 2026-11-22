@@ -1499,6 +1499,48 @@ test('phone choice labels expose non-ASCII Unicode spaces without changing decis
   }
 });
 
+test('phone choice labels expose hidden Unicode tags but keep genuine emoji tag flags', async () => {
+  for (const codePoint of [0xe0061, 0xe007f, 0xe0001]) {
+    const hidden = String.fromCodePoint(codePoint);
+    let payload;
+    const remote = await createRemoteRequest({
+      config,
+      title: 'Review',
+      message: 'Choose carefully',
+      options: [
+        { value: 'deny', label: 'Deny' },
+        { value: 'review', label: `De${hidden}ny` }
+      ],
+      fetchImpl: async (_url, init) => {
+        payload = JSON.parse(init.body);
+        return jsonResponse({ id: 'synthetic' });
+      }
+    });
+    assert.deepEqual(payload.actions.map((action) => action.label), [
+      'Deny', `De\\u{${codePoint.toString(16)}}ny`
+    ]);
+    assert.deepEqual(payload.actions.map((action) => JSON.parse(action.body).decision), ['deny', 'review']);
+    assert.deepEqual(remote.allowed, ['deny', 'review']);
+    assert.ok(payload.actions.every((action) => action.label.length <= 32));
+  }
+
+  const englandFlag = String.fromCodePoint(0x1f3f4, 0xe0067, 0xe0062, 0xe0065, 0xe006e, 0xe0067, 0xe007f);
+  let flagPayload;
+  await createRemoteRequest({
+    config,
+    title: 'Review',
+    message: `Flag ${englandFlag}`,
+    options: [{ value: 'flag', label: `Review ${englandFlag}` }],
+    fetchImpl: async (_url, init) => {
+      flagPayload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.equal(flagPayload.actions[0].label, `Review ${englandFlag}`);
+  assert.equal(flagPayload.message, `Flag ${englandFlag}`);
+  assert.equal(JSON.parse(flagPayload.actions[0].body).decision, 'flag');
+});
+
 test('ntfy choice action labels visibly escape control and bidi characters without changing decisions', async () => {
   let payload;
   await createRemoteRequest({
