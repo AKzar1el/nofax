@@ -19,12 +19,27 @@ const NOT_APPLIED_PUBLISH_STATUSES = new Set([400, 401, 403, 413, 429]);
 
 function visibleNotificationText(value) {
   // Never let untrusted notification text visually alter its own display.
-  // Keep ordinary line breaks and genuine emoji joiners, but expose invisible
-  // separators embedded in words that can disguise decision labels.
-  return typeof value === 'string'
-    ? [...value].map((character, index, characters) =>
-      visibleNotificationCharacter(character, characters, index)).join('')
-    : value;
+  // Keep genuine emoji flags and ideographic variation sequences, but expose
+  // supplementary invisible selectors or tags hidden in ordinary words.
+  if (typeof value !== 'string') return value;
+  const characters = [...value];
+  let characterIndex = 0;
+  return [...actionGraphemeSegmenter.segment(value)].map(({ segment }) => {
+    const graphemeCharacters = [...segment];
+    const tagCode = emojiTagCode(segment);
+    const visible = tagCode === null
+      ? graphemeCharacters.map((character, index) => {
+        const previous = characters[characterIndex + index - 1] ?? '';
+        if (/[\u{e0001}\u{e0020}-\u{e007f}]/u.test(character) ||
+            (/[\u{e0100}-\u{e01ef}]/u.test(character) && !/\p{Unified_Ideograph}/u.test(previous))) {
+          return '\\u{' + character.codePointAt(0).toString(16) + '}';
+        }
+        return visibleNotificationCharacter(character, characters, characterIndex + index);
+      }).join('')
+      : RGI_EMOJI_TAG_FLAGS.has(tagCode) ? segment : '\u{1f3f4}[tag:' + tagCode + ']';
+    characterIndex += graphemeCharacters.length;
+    return visible;
+  }).join('');
 }
 
 function visibleNotificationTitle(value) {
