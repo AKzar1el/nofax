@@ -317,7 +317,7 @@ export async function sendNotification({ config, title, message, actions, priori
   }
 }
 
-function normalizeOptions(options) {
+export function normalizeOptions(options) {
   if (!Array.isArray(options) || options.length > 3) throw new Error('NOFAX_CHOICE_LIMIT');
   const normalized = options.map((option) => {
     if (typeof option === 'string') {
