@@ -12,6 +12,7 @@ const PUBLISH_CANCELLED = Symbol('NOFAX_PUBLISH_CANCELLED');
 const DEFAULT_PUBLISH_TIMEOUT_MS = 15_000;
 const MAX_TIMER_TIMEOUT_MS = 2_147_483_647;
 const actionGraphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+const RGI_EMOJI_TAG_FLAGS = new Set(['gbeng', 'gbsct', 'gbwls']);
 // ntfy rejects invalid, unauthorized, oversized, and rate-limited requests
 // before accepting the message. These must not leave orphan approvals.
 const NOT_APPLIED_PUBLISH_STATUSES = new Set([400, 401, 403, 413, 429]);
@@ -75,6 +76,12 @@ function visibleActionCharacter(character, characters, index) {
   return visibleNotificationCharacter(character, characters, index);
 }
 
+function emojiTagCode(segment) {
+  const match = /^\u{1f3f4}([\u{e0061}-\u{e007a}]+)\u{e007f}$/u.exec(segment);
+  return match === null ? null : [...match[1]].map((tag) =>
+    String.fromCodePoint(tag.codePointAt(0) - 0xe0000)).join('');
+}
+
 function safeSliceEnd(text, end) {
   // A code-unit boundary can split a joined emoji or combining sequence.
   for (const { segment, index } of actionGraphemeSegmenter.segment(text)) {
@@ -94,11 +101,14 @@ function boundChoiceLabel(value) {
     // Clip by whole graphemes so a joined emoji or flag cannot become a
     // misleading partial symbol. Preserve atomic visible control escapes too.
     const graphemeCharacters = [...segment];
-    // A complete black-flag tag grapheme is visible as an emoji; stray tags
-    // inside ordinary decision words must be exposed instead.
-    const emojiTagFlag = /^\u{1f3f4}[\u{e0061}-\u{e007a}]+\u{e007f}$/u.test(segment);
-    const visible = emojiTagFlag ? segment : graphemeCharacters.map((character, index) =>
-      visibleActionCharacter(character, characters, characterIndex + index)).join('');
+    // Only registered RGI tag flags have a reliable emoji presentation.
+    // Other complete tag sequences look like plain black flags on many phones;
+    // show their code visibly rather than silently hiding a decision label.
+    const tagCode = emojiTagCode(segment);
+    const visible = tagCode === null
+      ? graphemeCharacters.map((character, index) =>
+        visibleActionCharacter(character, characters, characterIndex + index)).join('')
+      : RGI_EMOJI_TAG_FLAGS.has(tagCode) ? segment : `\u{1f3f4}[tag:${tagCode}]`;
     characterIndex += graphemeCharacters.length;
     if (renderedLength + visible.length > 32) {
       // An explicit marker prevents a clipped action from looking complete.
@@ -350,8 +360,20 @@ export function normalizeOptions(options) {
   // Phones without Unicode tag support render distinct subdivision flags as
   // identical black flags. Compare that fallback as well as NFKC, while
   // preserving the actual action labels and exact decision values.
-  const displayKey = (label) => label.normalize('NFKC').replace(/[\u{e0020}-\u{e007f}]/gu, '');
-  if (new Set(normalized.map((option) => displayKey(option.label))).size !== normalized.length) {
+  const displayKey = (label, originalOption) => {
+    let displayLabel = label;
+    const sourceLabel = typeof originalOption === 'string' ? originalOption.trim() : originalOption.label.trim();
+    // Only fold generated tag captions to a black flag, not literal visible
+    // captions supplied by the caller, which remain distinct phone choices.
+    for (const { segment } of actionGraphemeSegmenter.segment(sourceLabel)) {
+      const code = emojiTagCode(segment);
+      if (code !== null && !RGI_EMOJI_TAG_FLAGS.has(code)) {
+        displayLabel = displayLabel.replace(`\u{1f3f4}[tag:${code}]`, '\u{1f3f4}');
+      }
+    }
+    return displayLabel.normalize('NFKC').replace(/[\u{e0020}-\u{e007f}]/gu, '');
+  };
+  if (new Set(normalized.map((option, index) => displayKey(option.label, options[index]))).size !== normalized.length) {
     throw new Error('NOFAX_CHOICE_DUPLICATE');
   }
   return normalized;
