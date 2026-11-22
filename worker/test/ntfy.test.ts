@@ -231,6 +231,23 @@ describe("remote ntfy publisher", () => {
     expect(payload?.message).toBe("Review\\u180enow");
   });
 
+  it("exposes word-hidden variation selectors while preserving emoji variants", async () => {
+    let payload: { title: string; message: string } | undefined;
+    const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      payload = JSON.parse(String(init?.body));
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+
+    await publishNotification({
+      env: env(),
+      title: "Al\ufe0elow",
+      message: "De\ufe0fny ❤️ 1\ufe0f\u20e3",
+      fetchImpl
+    });
+    expect(payload?.title).toBe("Al\\ufe0elow");
+    expect(payload?.message).toBe("De\\ufe0fny ❤️ 1\ufe0f\u20e3");
+  });
+
   it("exposes blank filler glyphs in phone notices", async () => {
     let payload: { title: string; message: string } | undefined;
     const fetchImpl = (async (_url: RequestInfo | URL, init?: RequestInit) => {
