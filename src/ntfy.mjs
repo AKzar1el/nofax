@@ -62,6 +62,11 @@ function visibleNotificationCharacter(character, characters, index) {
 
 function visibleActionCharacter(character, characters, index) {
   if (character === '\n') return '\\u000a';
+  // Unusual Unicode spaces can make distinct phone choices look identical.
+  // Keep ordinary ASCII word spacing; only expose the ambiguous variants.
+  if (character !== ' ' && /\p{Space_Separator}/u.test(character)) {
+    return `\\u${character.codePointAt(0).toString(16).padStart(4, '0')}`;
+  }
   return visibleNotificationCharacter(character, characters, index);
 }
 
