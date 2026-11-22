@@ -1112,6 +1112,42 @@ test('sendNotification preserves Unicode at truncation boundaries', async () => 
   assert.match(payload.title, /…\[truncated\]$/);
   assert.match(payload.message, /…\[truncated\]$/);
 });
+
+test('sendNotification clips approval titles and messages without splitting joined emoji', async () => {
+  const joinedEmoji = '\u{1F469}\u200d\u{1F4BB}';
+  let payload;
+  await sendNotification({
+    config,
+    title: 't'.repeat(103) + joinedEmoji + 'z'.repeat(40),
+    message: 'm'.repeat(2183) + joinedEmoji + 'z'.repeat(60),
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+
+  assert.equal(payload.title, 't'.repeat(103) + '…[truncated]');
+  assert.equal(payload.message, 'm'.repeat(2183) + '…[truncated]');
+  assert.ok(payload.title.length <= 120);
+  assert.ok(payload.message.length <= 2200);
+});
+
+test('sendNotification clips UTF-8 message bytes without splitting joined emoji', async () => {
+  const joinedEmoji = '\u{1F469}\u200d\u{1F4BB}';
+  let payload;
+  await sendNotification({
+    config,
+    title: 'Unicode approval',
+    message: '\u{1F600}'.repeat(1018) + joinedEmoji + '\u{1F600}'.repeat(30),
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+
+  assert.equal(payload.message, '\u{1F600}'.repeat(1018) + '…[truncated]');
+  assert.ok(Buffer.byteLength(payload.message, 'utf8') <= 4096);
+});
 test('requestApproval rejects invalid polling before notification publication', async () => {
   for (const pollIntervalMs of [0, -1, 0.5, NaN, Infinity, 2_147_483_648]) {
     let fetchCalls = 0;
