@@ -370,6 +370,9 @@ export async function runCli(args, overrides = {}) {
       const adapter = args[1];
       if (!adapter) throw new Error('NOFAX_HOOK_REQUIRED');
       rejectUnexpectedArgs(args.slice(2));
+      if (!['claude', 'codex', 'gemini'].includes(adapter)) {
+        throw new Error(`NOFAX_HOOK_UNSUPPORTED:${adapter}`);
+      }
       try {
         return await runHook(adapter, deps);
       } catch (error) {

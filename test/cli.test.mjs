@@ -570,6 +570,32 @@ test('CLI diagnostics escape blank filler and formatting marks used to spoof dec
   );
 });
 
+test('unsupported hook adapters fail before consuming stdin or reading config', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  let stdinReads = 0;
+  let configReads = 0;
+  const code = await runCli(['hook', 'unsupported'], {
+    stdout,
+    stderr,
+    stdinStream: {
+      [Symbol.asyncIterator]() {
+        stdinReads += 1;
+        throw new Error('STDIN_MUST_NOT_BE_READ');
+      }
+    },
+    loadConfigImpl: async () => {
+      configReads += 1;
+      throw new Error('CONFIG_MUST_NOT_BE_READ');
+    }
+  });
+  assert.equal(code, 1);
+  assert.equal(stdinReads, 0, 'invalid adapter must not wait for hook input');
+  assert.equal(configReads, 0);
+  assert.equal(stdout.read(), '');
+  assert.equal(stderr.read(), 'nofax: NOFAX_HOOK_UNSUPPORTED:unsupported\n');
+});
+
 test('hook approval errors cannot inject terminal controls into fallback diagnostics', async () => {
   const stdout = capture();
   const stderr = capture();
