@@ -1468,6 +1468,37 @@ test('phone choice clipping never splits an emoji grapheme or changes its decisi
   assert.ok(payload.actions.every((action) => action.label.length <= 32));
 });
 
+test('phone choice labels expose non-ASCII Unicode spaces without changing decisions or notification prose', async () => {
+  const unusualSpaces = [
+    '\u00a0', '\u1680', '\u2000', '\u2001', '\u2002', '\u2003',
+    '\u2004', '\u2005', '\u2006', '\u2007', '\u2008', '\u2009',
+    '\u200a', '\u202f', '\u205f', '\u3000'
+  ];
+  for (const space of unusualSpaces) {
+    let payload;
+    const remote = await createRemoteRequest({
+      config,
+      title: `Review${space}now`,
+      message: `Status${space}awaiting`,
+      options: [
+        { value: 'deny', label: 'Deny' },
+        { value: 'review', label: `D${space}eny` }
+      ],
+      fetchImpl: async (_url, init) => {
+        payload = JSON.parse(init.body);
+        return jsonResponse({ id: 'synthetic' });
+      }
+    });
+    const escape = `\\u${space.codePointAt(0).toString(16).padStart(4, '0')}`;
+    assert.deepEqual(payload.actions.map((action) => action.label), ['Deny', `D${escape}eny`]);
+    assert.deepEqual(payload.actions.map((action) => JSON.parse(action.body).decision), ['deny', 'review']);
+    assert.deepEqual(remote.allowed, ['deny', 'review']);
+    assert.equal(payload.title, `Review${space}now`);
+    assert.equal(payload.message, `Status${space}awaiting`);
+    assert.ok(payload.actions.every((action) => action.label.length <= 32));
+  }
+});
+
 test('ntfy choice action labels visibly escape control and bidi characters without changing decisions', async () => {
   let payload;
   await createRemoteRequest({
