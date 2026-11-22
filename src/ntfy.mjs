@@ -70,19 +70,31 @@ function safeSliceEnd(text, end) {
 }
 
 function boundChoiceLabel(value) {
-  let label = '';
-  let visibleContent = false;
+  const segments = [];
+  let renderedLength = 0;
+  let visibleContent = 0;
   const characters = [...value];
   for (const [index, character] of characters.entries()) {
     // Action labels are single-line and must not hide/reorder the human's choices.
     // Keep each visible escape or Unicode code point intact at the 32-unit limit.
     const visible = visibleActionCharacter(character, characters, index);
-    if (label.length + visible.length > 32) break;
-    label += visible;
-    if (/[\p{L}\p{N}\p{P}\p{S}]/u.test(character)) visibleContent = true;
+    if (renderedLength + visible.length > 32) {
+      // An explicit marker prevents a clipped action from looking complete.
+      while (renderedLength > 31) {
+        const removed = segments.pop();
+        renderedLength -= removed.text.length;
+        if (removed.hasContent) visibleContent -= 1;
+      }
+      segments.push({ text: '…', hasContent: false });
+      break;
+    }
+    const hasContent = /[\p{L}\p{N}\p{P}\p{S}]/u.test(character);
+    segments.push({ text: visible, hasContent });
+    renderedLength += visible.length;
+    if (hasContent) visibleContent += 1;
   }
   if (!visibleContent) throw new Error('NOFAX_CHOICE_INVALID');
-  return label;
+  return segments.map((segment) => segment.text).join('');
 }
 
 function boundText(value, max, name) {

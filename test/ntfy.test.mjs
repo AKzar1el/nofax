@@ -1306,8 +1306,30 @@ test('string choice options use the same validation and bounds as object choices
     }
   });
   assert.deepEqual(remote.allowed, [value]);
-  assert.equal(payload.actions[0].label, value.slice(0, 32));
+  assert.equal(payload.actions[0].label, `${value.slice(0, 31)}…`);
   assert.equal(JSON.parse(payload.actions[0].body).decision, value);
+});
+
+test('long approval action labels visibly indicate clipping without changing decisions', async () => {
+  const value = 'approve-reviewed-migration';
+  const original = 'Approve migration after reviewing all changes';
+  let payload;
+  await createRemoteRequest({
+    config,
+    title: 'Migration approval',
+    message: 'Check the complete request before deciding',
+    options: [{ value, label: original }, { value: 'deny', label: 'N'.repeat(32) }],
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'published' });
+    }
+  });
+  const action = payload.actions[0];
+  assert.ok(action.label.endsWith('…'), 'phone must indicate an abbreviated choice label');
+  assert.ok(action.label.length <= 32, 'ntfy label stays within its 32-unit bound');
+  assert.equal(JSON.parse(action.body).decision, value, 'display clipping never changes the decision');
+  assert.equal(payload.actions[1].label, 'N'.repeat(32), 'an exact-fit label is not marked truncated');
+  assert.equal(JSON.parse(payload.actions[1].body).decision, 'deny');
 });
 
 test('ntfy rejects malformed UTF-16 choice values and labels before any side effects', async () => {
@@ -1377,7 +1399,7 @@ test('choice labels preserve Unicode at the ntfy visible-label boundary', async 
     }
   });
 
-  assert.equal(payload.actions[0].label, 'A'.repeat(31));
+  assert.equal(payload.actions[0].label, `${'A'.repeat(31)}…`);
   assert.equal(Buffer.from(payload.actions[0].label, 'utf8').toString('utf8'), payload.actions[0].label);
 });
 
