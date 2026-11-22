@@ -62,6 +62,9 @@ function visibleNotificationCharacter(character, characters, index) {
 
 function visibleActionCharacter(character, characters, index) {
   if (character === '\n') return '\\u000a';
+  if (character === '\u{e0001}' || /[\u{e0020}-\u{e007f}]/u.test(character)) {
+    return `\\u{${character.codePointAt(0).toString(16)}}`;
+  }
   // Unusual Unicode spaces can make distinct phone choices look identical.
   // Keep ordinary ASCII word spacing; only expose the ambiguous variants.
   if (character !== ' ' && /\p{Space_Separator}/u.test(character)) {
@@ -89,7 +92,10 @@ function boundChoiceLabel(value) {
     // Clip by whole graphemes so a joined emoji or flag cannot become a
     // misleading partial symbol. Preserve atomic visible control escapes too.
     const graphemeCharacters = [...segment];
-    const visible = graphemeCharacters.map((character, index) =>
+    // A complete black-flag tag grapheme is visible as an emoji; stray tags
+    // inside ordinary decision words must be exposed instead.
+    const emojiTagFlag = /^\u{1f3f4}[\u{e0061}-\u{e007a}]+\u{e007f}$/u.test(segment);
+    const visible = emojiTagFlag ? segment : graphemeCharacters.map((character, index) =>
       visibleActionCharacter(character, characters, characterIndex + index)).join('');
     characterIndex += graphemeCharacters.length;
     if (renderedLength + visible.length > 32) {
