@@ -32,6 +32,16 @@ function visibleNotificationTitle(value) {
 }
 
 function visibleNotificationCharacter(character, characters, index) {
+  if (character === '\ufe0e' || character === '\ufe0f') {
+    // Keep genuine emoji presentation and keycap sequences, not invisible
+    // variation selectors inserted into ordinary approval words.
+    let previous = index - 1;
+    while (previous >= 0 && /\p{Emoji_Modifier}/u.test(characters[previous])) previous--;
+    if (/\p{Extended_Pictographic}/u.test(characters[previous] ?? '') ||
+        (character === '\ufe0f' && /^[0-9#*]$/.test(characters[index - 1] ?? '') &&
+         characters[index + 1] === '\u20e3')) return character;
+    return `\\u${character.codePointAt(0).toString(16).padStart(4, '0')}`;
+  }
   // Preserve genuine emoji ZWJ sequences, including skin-tone modifiers, but
   // expose joiners hidden inside decision words rather than disguising choices.
   if (character === '\u200c' || character === '\u200d') {

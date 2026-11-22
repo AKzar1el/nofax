@@ -229,6 +229,27 @@ test('local ntfy exposes soft hyphen and Mongolian vowel separator in phone choi
   assert.equal(JSON.parse(payload.actions[0].body).decision, 'first');
 });
 
+test('local ntfy exposes variation selectors hidden in words but keeps emoji variants', async () => {
+  let payload;
+  await createRemoteRequest({
+    config,
+    title: 'Al\ufe0elow',
+    message: 'De\ufe0fny ❤️ 1\ufe0f\u20e3',
+    options: [
+      { value: 'allow', label: 'Allow' },
+      { value: 'deny', label: 'Allo\ufe0fw' }
+    ],
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.equal(payload.title, 'Al\\ufe0elow');
+  assert.equal(payload.message, 'De\\ufe0fny ❤️ 1\ufe0f\u20e3');
+  assert.equal(payload.actions[0].label, 'Allow');
+  assert.equal(payload.actions[1].label, 'Allo\\ufe0fw');
+});
+
 test('local ntfy display escaping still enforces title and UTF-8 message bounds', async () => {
   let payload;
   const fetchImpl = async (_url, init) => {
