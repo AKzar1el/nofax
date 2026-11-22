@@ -1435,6 +1435,40 @@ test('choice transport rejects canonically equivalent visible labels before side
   assert.equal(published, 0);
 });
 
+test('choice transport rejects compatibility-equivalent visible labels before side effects', async () => {
+  let persisted = 0;
+  let published = 0;
+  await assert.rejects(() => createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Choose',
+    options: [
+      { value: 'deny', label: 'Allow' },
+      { value: 'allow', label: '\uff21\uff4c\uff4c\uff4f\uff57' }
+    ],
+    beforePublish: async () => { persisted += 1; },
+    fetchImpl: async () => { published += 1; return jsonResponse({ id: 'unexpected' }); }
+  }), /NOFAX_CHOICE_DUPLICATE/);
+  assert.equal(persisted, 0);
+  assert.equal(published, 0);
+});
+
+test('choice transport rejects labels compatible with the built-in Refine action', async () => {
+  let persisted = 0;
+  let published = 0;
+  await assert.rejects(() => createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Choose',
+    options: [{ value: 'allow', label: '\uff32\uff45\uff46\uff49\uff4e\uff45' }],
+    includeRefine: true,
+    beforePublish: async () => { persisted += 1; },
+    fetchImpl: async () => { published += 1; return jsonResponse({ id: 'unexpected' }); }
+  }), /NOFAX_CHOICE_DUPLICATE/);
+  assert.equal(persisted, 0);
+  assert.equal(published, 0);
+});
+
 test('requestChoice confirms reserved option words as choices rather than approval semantics', async () => {
   let requestId;
   const published = [];
