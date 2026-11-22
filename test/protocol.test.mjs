@@ -106,6 +106,32 @@ test('YAML anchors referenced by credential aliases hide their source values in 
   }
 });
 
+test('YAML flow mappings cannot expose source values referenced by credential aliases', () => {
+  const marker = 'NOFAX_YAML_FLOW_ALIAS_SYNTHETIC_SECRET_4912';
+  const fixtures = [
+    `metadata: &shared ${marker}\nconfig: {api_key: *shared, mode: safe}\nmode: safe`,
+    `metadata: &shared "${marker}"\nconfig: {"token": *shared}\nmode: safe`,
+    `metadata: &shared ${marker}\nconfig: {'password': *shared, note: okay}\nmode: safe`,
+    `metadata: &shared ${marker}\nconfig: [{authorization: *shared}]\nmode: safe`,
+    `metadata: &shared ${marker}\nconfig: {note: okay,\n  api_key: *shared}\nmode: safe`
+  ];
+  for (const fixture of fixtures) {
+    for (const input of [fixture, JSON.stringify(fixture), JSON.stringify(JSON.stringify(fixture))]) {
+      for (const output of [redactAndBound(input), buildAgentSummary({ toolInput: { command: input } })]) {
+        assert.equal(output.includes(marker), false, 'flow-map credential aliases must taint their anchor definition');
+        // Escaped multiline flow maps may conservatively suppress a following
+        // scalar; their preceding nonsecret mapping must remain visible.
+        assert.match(output, fixture.includes('note: okay,\n') ? /note: okay/ : /mode: safe/,
+          'independent nonsecret context remains readable');
+      }
+    }
+  }
+  const benign = `metadata: &shared ${marker}\nconfig: {mode: *shared}`;
+  for (const input of [benign, JSON.stringify(benign), JSON.stringify(JSON.stringify(benign))]) {
+    assert.match(redactAndBound(input), new RegExp(marker), 'nonsecret flow aliases must not taint their anchor');
+  }
+});
+
 test('TOML and dotenv multiline credentials hide their bodies without hiding safe sibling fields', () => {
   const marker = 'NOFAX_TOML_MULTILINE_SYNTHETIC_SECRET_4197';
   const fixtures = [
