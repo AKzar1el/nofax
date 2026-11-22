@@ -1403,6 +1403,35 @@ test('choice labels preserve Unicode at the ntfy visible-label boundary', async 
   assert.equal(Buffer.from(payload.actions[0].label, 'utf8').toString('utf8'), payload.actions[0].label);
 });
 
+test('phone choice clipping never splits an emoji grapheme or changes its decision', async () => {
+  const joinedEmoji = '\u{1f469}\u200d\u{1f4bb}';
+  const flagEmoji = '\u{1f1f8}\u{1f1ee}';
+  const options = [
+    { value: 'joined', label: `${'A'.repeat(28)}${joinedEmoji}` },
+    { value: 'flag', label: `${'B'.repeat(29)}${flagEmoji}` },
+    { value: 'fit', label: `${'C'.repeat(27)}${joinedEmoji}` }
+  ];
+  let payload;
+  const remote = await createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Choose',
+    options,
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.deepEqual(remote.allowed, ['joined', 'flag', 'fit']);
+  assert.deepEqual(payload.actions.map((action) => action.label), [
+    `${'A'.repeat(28)}…`,
+    `${'B'.repeat(29)}…`,
+    `${'C'.repeat(27)}${joinedEmoji}`
+  ]);
+  assert.deepEqual(payload.actions.map((action) => JSON.parse(action.body).decision), remote.allowed);
+  assert.ok(payload.actions.every((action) => action.label.length <= 32));
+});
+
 test('ntfy choice action labels visibly escape control and bidi characters without changing decisions', async () => {
   let payload;
   await createRemoteRequest({
