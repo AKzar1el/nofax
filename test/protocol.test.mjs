@@ -132,6 +132,23 @@ test('YAML flow mappings cannot expose source values referenced by credential al
   }
 });
 
+test('serialized credential previews retain independent YAML sibling context', () => {
+  const marker = 'NOFAX_SERIALIZED_CONTEXT_SYNTHETIC_SECRET_6427';
+  const fixtures = [
+    `metadata: &shared ${marker}\nconfig: {note: okay,\n  api_key: *shared}\nmode: safe`,
+    `metadata: &shared "${marker}"\nconfig: {"token": *shared,\n  hint: clear}\nmode: safe`,
+    `api_key: ${marker}\nmode: safe`
+  ];
+  for (const fixture of fixtures) {
+    for (const input of [JSON.stringify(fixture), JSON.stringify(JSON.stringify(fixture))]) {
+      for (const output of [redactAndBound(input), buildAgentSummary({ toolInput: { command: input } })]) {
+        assert.equal(output.includes(marker), false, 'serialized credential content remains masked');
+        assert.match(output, /mode: safe/, 'an independent YAML sibling remains readable');
+      }
+    }
+  }
+});
+
 test('TOML and dotenv multiline credentials hide their bodies without hiding safe sibling fields', () => {
   const marker = 'NOFAX_TOML_MULTILINE_SYNTHETIC_SECRET_4197';
   const fixtures = [

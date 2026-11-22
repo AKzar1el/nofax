@@ -334,6 +334,17 @@ function redactMultilineCredentialAssignments(text) {
 }
 
 function redactSecretText(value) {
+  // Whole JSON-string previews may encode line breaks as backslash-n. Decode
+  // only those complete wrappers so key-value matchers cannot eat a safe
+  // sibling across an escaped line boundary; preserve the original nesting.
+  let wrappers = 0;
+  while (wrappers < 3 && value.startsWith('"') && value.endsWith('"')) {
+    let decoded;
+    try { decoded = JSON.parse(value); } catch { break; }
+    if (typeof decoded !== 'string') break;
+    value = decoded;
+    wrappers += 1;
+  }
   let redacted = redactCompatibilitySecretKeyText(
     redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(redactYamlCredentialAliases(redactMultilineCredentialAssignments(redactShellCredentialBlocks(redactControlInterruptedSecretKeyText(value))))))
   );
@@ -478,6 +489,7 @@ function redactSecretText(value) {
     }
   );
 
+  for (let index = 0; index < wrappers; index += 1) redacted = JSON.stringify(redacted);
   return redacted;
 }
 
