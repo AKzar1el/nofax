@@ -11,6 +11,7 @@ const PUBLISH_TIMEOUT = Symbol('NOFAX_PUBLISH_TIMEOUT');
 const PUBLISH_CANCELLED = Symbol('NOFAX_PUBLISH_CANCELLED');
 const DEFAULT_PUBLISH_TIMEOUT_MS = 15_000;
 const MAX_TIMER_TIMEOUT_MS = 2_147_483_647;
+const actionGraphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 // ntfy rejects invalid, unauthorized, oversized, and rate-limited requests
 // before accepting the message. These must not leave orphan approvals.
 const NOT_APPLIED_PUBLISH_STATUSES = new Set([400, 401, 403, 413, 429]);
@@ -74,10 +75,15 @@ function boundChoiceLabel(value) {
   let renderedLength = 0;
   let visibleContent = 0;
   const characters = [...value];
-  for (const [index, character] of characters.entries()) {
+  let characterIndex = 0;
+  for (const { segment } of actionGraphemeSegmenter.segment(value)) {
     // Action labels are single-line and must not hide/reorder the human's choices.
-    // Keep each visible escape or Unicode code point intact at the 32-unit limit.
-    const visible = visibleActionCharacter(character, characters, index);
+    // Clip by whole graphemes so a joined emoji or flag cannot become a
+    // misleading partial symbol. Preserve atomic visible control escapes too.
+    const graphemeCharacters = [...segment];
+    const visible = graphemeCharacters.map((character, index) =>
+      visibleActionCharacter(character, characters, characterIndex + index)).join('');
+    characterIndex += graphemeCharacters.length;
     if (renderedLength + visible.length > 32) {
       // An explicit marker prevents a clipped action from looking complete.
       while (renderedLength > 31) {
@@ -88,7 +94,7 @@ function boundChoiceLabel(value) {
       segments.push({ text: '…', hasContent: false });
       break;
     }
-    const hasContent = /[\p{L}\p{N}\p{P}\p{S}]/u.test(character);
+    const hasContent = /[\p{L}\p{N}\p{P}\p{S}]/u.test(segment);
     segments.push({ text: visible, hasContent });
     renderedLength += visible.length;
     if (hasContent) visibleContent += 1;
