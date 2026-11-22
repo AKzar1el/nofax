@@ -194,8 +194,11 @@ function redactYamlCredentialAliases(text) {
   const parts = text.split(/(\r\n|\n|(?:\\{1,4}r)?\\{1,4}n)/g);
   const credentialAnchors = new Set();
   for (let index = 0; index < parts.length; index += 2) {
-    const alias = parts[index].match(/^\s*(?:-\s*)?([A-Za-z][A-Za-z0-9_. -]{0,63})\s*:\s*\*([A-Za-z0-9_-]{1,64})(?=\s|$|\\|["'])/);
-    if (alias && isSecretKey(alias[1])) credentialAnchors.add(alias[2]);
+    // A YAML flow mapping may put credential aliases after '{' or ',' on
+    // the same line; serialization can escape its optional key quotes.
+    for (const alias of parts[index].matchAll(/(?:^|[,{])\s*(?:-\s*)?((?:\\{0,4})["'])?([A-Za-z][A-Za-z0-9_. -]{0,63})\1\s*:\s*\*([A-Za-z0-9_-]{1,64})(?=\s|$|\\|["',}\]])/g)) {
+      if (isSecretKey(alias[2])) credentialAnchors.add(alias[3]);
+    }
   }
   if (credentialAnchors.size === 0) return text;
 
