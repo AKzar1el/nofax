@@ -313,9 +313,9 @@ function normalizeOptions(options) {
     return { value, label: boundChoiceLabel(label) };
   });
   if (new Set(normalized.map((option) => option.value)).size !== normalized.length) throw new Error('NOFAX_CHOICE_DUPLICATE');
-  // Distinct Unicode encodings can render as identical phone actions while
-  // carrying different decisions; compare their canonical visible forms.
-  if (new Set(normalized.map((option) => option.label.normalize('NFC'))).size !== normalized.length) {
+  // Canonical and compatibility spellings can look alike on a phone while
+  // carrying different decisions. Compare only; preserve original labels.
+  if (new Set(normalized.map((option) => option.label.normalize('NFKC'))).size !== normalized.length) {
     throw new Error('NOFAX_CHOICE_DUPLICATE');
   }
   return normalized;
@@ -337,7 +337,9 @@ export async function createRemoteRequest({
   validateTopic(config.topic);
   const normalized = normalizeOptions(options);
   if (includeRefine && normalized.some((option) => option.value === 'refine')) throw new Error('NOFAX_CHOICE_DUPLICATE');
-  if (includeRefine && normalized.some((option) => option.label === 'Refine')) throw new Error('NOFAX_CHOICE_DUPLICATE');
+  if (includeRefine && normalized.some((option) => option.label.normalize('NFKC') === 'Refine')) {
+    throw new Error('NOFAX_CHOICE_DUPLICATE');
+  }
   const totalActions = normalized.length + (includeRefine ? 1 : 0);
   if (totalActions < 1 || totalActions > 3) throw new Error('NOFAX_CHOICE_LIMIT');
 
