@@ -1640,6 +1640,31 @@ test('choice transport rejects compatibility-equivalent visible labels before si
   assert.equal(published, 0);
 });
 
+test('choice transport rejects Unicode tag flags indistinguishable on tag-unaware phones', async () => {
+  const flag = (...tags) => String.fromCodePoint(0x1f3f4, ...[...tags].map((tag) =>
+    0xe0000 + tag.codePointAt(0)), 0xe007f);
+  for (const [first, second] of [
+    [flag('x'), flag('y')], // Complete but invalid one-letter subdivision flags.
+    [flag('gbeng'), flag('gbsct')] // Genuine emoji flags also collapse to the black flag.
+  ]) {
+    let persisted = 0;
+    let published = 0;
+    await assert.rejects(() => createRemoteRequest({
+      config,
+      title: 'Pick',
+      message: 'Choose',
+      options: [
+        { value: 'deny', label: first },
+        { value: 'review', label: second }
+      ],
+      beforePublish: async () => { persisted += 1; },
+      fetchImpl: async () => { published += 1; return jsonResponse({ id: 'unexpected' }); }
+    }), /NOFAX_CHOICE_DUPLICATE/);
+    assert.equal(persisted, 0);
+    assert.equal(published, 0);
+  }
+});
+
 test('choice transport rejects labels compatible with the built-in Refine action', async () => {
   let persisted = 0;
   let published = 0;

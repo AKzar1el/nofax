@@ -347,9 +347,11 @@ export function normalizeOptions(options) {
     return { value, label: boundChoiceLabel(label) };
   });
   if (new Set(normalized.map((option) => option.value)).size !== normalized.length) throw new Error('NOFAX_CHOICE_DUPLICATE');
-  // Canonical and compatibility spellings can look alike on a phone while
-  // carrying different decisions. Compare only; preserve original labels.
-  if (new Set(normalized.map((option) => option.label.normalize('NFKC'))).size !== normalized.length) {
+  // Phones without Unicode tag support render distinct subdivision flags as
+  // identical black flags. Compare that fallback as well as NFKC, while
+  // preserving the actual action labels and exact decision values.
+  const displayKey = (label) => label.normalize('NFKC').replace(/[\u{e0020}-\u{e007f}]/gu, '');
+  if (new Set(normalized.map((option) => displayKey(option.label))).size !== normalized.length) {
     throw new Error('NOFAX_CHOICE_DUPLICATE');
   }
   return normalized;
