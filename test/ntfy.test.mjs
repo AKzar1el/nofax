@@ -1396,6 +1396,24 @@ test('choice transport rejects options that collapse to the same visible label',
   assert.equal(fetchCalls, 0);
 });
 
+test('choice transport rejects canonically equivalent visible labels before side effects', async () => {
+  let persisted = 0;
+  let published = 0;
+  await assert.rejects(() => createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Choose',
+    options: [
+      { value: 'deny', label: 'Caf\u00e9' },
+      { value: 'allow', label: 'Cafe\u0301' }
+    ],
+    beforePublish: async () => { persisted += 1; },
+    fetchImpl: async () => { published += 1; return jsonResponse({ id: 'unexpected' }); }
+  }), /NOFAX_CHOICE_DUPLICATE/);
+  assert.equal(persisted, 0);
+  assert.equal(published, 0);
+});
+
 test('requestChoice confirms reserved option words as choices rather than approval semantics', async () => {
   let requestId;
   const published = [];

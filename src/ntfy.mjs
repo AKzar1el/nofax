@@ -303,7 +303,11 @@ function normalizeOptions(options) {
     return { value, label: boundChoiceLabel(label) };
   });
   if (new Set(normalized.map((option) => option.value)).size !== normalized.length) throw new Error('NOFAX_CHOICE_DUPLICATE');
-  if (new Set(normalized.map((option) => option.label)).size !== normalized.length) throw new Error('NOFAX_CHOICE_DUPLICATE');
+  // Distinct Unicode encodings can render as identical phone actions while
+  // carrying different decisions; compare their canonical visible forms.
+  if (new Set(normalized.map((option) => option.label.normalize('NFC'))).size !== normalized.length) {
+    throw new Error('NOFAX_CHOICE_DUPLICATE');
+  }
   return normalized;
 }
 
