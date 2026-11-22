@@ -66,8 +66,11 @@ function visibleActionCharacter(character, characters, index) {
 }
 
 function safeSliceEnd(text, end) {
-  const previous = text.charCodeAt(end - 1);
-  return previous >= 0xD800 && previous <= 0xDBFF ? end - 1 : end;
+  // A code-unit boundary can split a joined emoji or combining sequence.
+  for (const { segment, index } of actionGraphemeSegmenter.segment(text)) {
+    if (index + segment.length > end) return index;
+  }
+  return text.length;
 }
 
 function boundChoiceLabel(value) {
@@ -121,11 +124,11 @@ function boundMessageText(value) {
   const maxContentBytes = MAX_NTFY_MESSAGE_BYTES - Buffer.byteLength(marker, 'utf8');
   let bytes = 0;
   let end = 0;
-  for (const character of text) {
-    const characterBytes = Buffer.byteLength(character, 'utf8');
-    if (bytes + characterBytes > maxContentBytes) break;
-    bytes += characterBytes;
-    end += character.length;
+  for (const { segment } of actionGraphemeSegmenter.segment(text)) {
+    const segmentBytes = Buffer.byteLength(segment, 'utf8');
+    if (bytes + segmentBytes > maxContentBytes) break;
+    bytes += segmentBytes;
+    end += segment.length;
   }
   return `${text.slice(0, end)}${marker}`;
 }
