@@ -695,8 +695,75 @@ test('choice handlers preserve Unicode integrity when bounding visible labels', 
     options: [{ value: 'ship', label: `${'A'.repeat(31)}😀` }]
   });
 
-  assert.equal(transportedLabel, 'A'.repeat(31));
+  assert.equal(transportedLabel, `${'A'.repeat(31)}\u2026`);
   assert.equal(Buffer.from(transportedLabel, 'utf8').toString('utf8'), transportedLabel);
+});
+
+test('MCP shorthand choices preserve complete graphemes and visibly mark clipped phone labels', async () => {
+  const transported = [];
+  const handlers = createMcpToolHandlers({
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: async (input) => {
+      transported.push(input.options[0]);
+      return {
+        requestId: 'nfx_abcdefghijklmnopqrstuv96',
+        responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz1296',
+        allowed: input.options.map((option) => option.value)
+      };
+    },
+    savePendingRequestImpl: async () => {}
+  });
+
+  const choices = [
+    { value: `${'A'.repeat(31)}e\u0301Z`, expected: `${'A'.repeat(31)}\u2026` },
+    { value: `${'A'.repeat(29)}\u{1F469}\u200D\u{1F4BB}`, expected: `${'A'.repeat(29)}\u2026` },
+    { value: `${'A'.repeat(31)}\u{1F1F8}\u{1F1EE}`, expected: `${'A'.repeat(31)}\u2026` }
+  ];
+  for (const choice of choices) {
+    assert.ok(choice.value.length <= 80, 'public MCP shorthand schema accepts this input');
+    await handlers.requestChoice({ title: 'Pick one', message: 'Choose explicitly', options: [choice.value] });
+  }
+  assert.equal(transported.length, choices.length);
+  choices.forEach((choice, index) => {
+    assert.equal(transported[index].value, choice.value, 'decision value stays exact');
+    assert.equal(transported[index].label, choice.expected);
+    assert.ok(transported[index].label.length <= 32);
+  });
+});
+
+test('MCP prevalidation compares the rendered phone labels without false Unicode collisions', async () => {
+  let calls = 0;
+  let received;
+  const handlers = createMcpToolHandlers({
+    loadConfigImpl: async () => config,
+    createRemoteRequestImpl: async (input) => {
+      calls += 1;
+      received = input.options;
+      return {
+        requestId: 'nfx_abcdefghijklmnopqrstuv95',
+        responseTopic: 'nofax_r_abcdefghijklmnopqrstuvwxyz1295',
+        allowed: input.options.map((option) => option.value)
+      };
+    },
+    savePendingRequestImpl: async () => {}
+  });
+
+  const first = `${'A'.repeat(31)}e\u0301Z`;
+  const second = `${'A'.repeat(31)}e`;
+  await handlers.requestChoice({ title: 'Choose', message: 'Distinct choices', options: [first, second] });
+  assert.equal(calls, 1);
+  assert.deepEqual(received.map((item) => item.value), [first, second]);
+  assert.deepEqual(received.map((item) => item.label), [`${'A'.repeat(31)}\u2026`, second]);
+
+  await assert.rejects(() => handlers.requestChoice({
+    title: 'Choose',
+    message: 'Equivalent phone labels',
+    options: [
+      { value: 'one', label: '\uFF21' },
+      { value: 'two', label: 'A' }
+    ]
+  }), /NOFAX_CHOICE_DUPLICATE/);
+  assert.equal(calls, 1, 'no notification transport for ambiguous labels');
 });
 
 test('choice results stay choice semantics when option values use reserved decision words', async (t) => {
