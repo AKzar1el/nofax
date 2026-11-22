@@ -1665,6 +1665,71 @@ test('choice transport rejects Unicode tag flags indistinguishable on tag-unawar
   }
 });
 
+test('phone choice labels show unsupported emoji tag codes without changing decisions', async () => {
+  const tagFlag = (code) => String.fromCodePoint(0x1f3f4,
+    ...[...code].map((letter) => 0xe0000 + letter.codePointAt(0)), 0xe007f);
+
+  for (const code of ['x', 'notreal', 'usca']) {
+    let payload;
+    let persisted = 0;
+    const remote = await createRemoteRequest({
+      config,
+      title: 'Review',
+      message: 'Choose carefully',
+      options: [{ value: 'review', label: `Review ${tagFlag(code)}` }],
+      beforePublish: async () => { persisted += 1; },
+      fetchImpl: async (_url, init) => {
+        payload = JSON.parse(init.body);
+        return jsonResponse({ id: 'synthetic' });
+      }
+    });
+    assert.equal(payload.actions[0].label, `Review \u{1f3f4}[tag:${code}]`);
+    assert.ok(payload.actions[0].label.length <= 32);
+    assert.doesNotMatch(payload.actions[0].label, /[\u{e0061}-\u{e007f}]/u);
+    assert.equal(JSON.parse(payload.actions[0].body).decision, 'review');
+    assert.deepEqual(remote.allowed, ['review']);
+    assert.equal(persisted, 1);
+  }
+
+  // The three RGI subdivision flags keep their real emoji presentation.
+  for (const code of ['gbeng', 'gbsct', 'gbwls']) {
+    let payload;
+    await createRemoteRequest({
+      config,
+      title: 'Review',
+      message: 'Choose carefully',
+      options: [{ value: 'review', label: `Review ${tagFlag(code)}` }],
+      fetchImpl: async (_url, init) => {
+        payload = JSON.parse(init.body);
+        return jsonResponse({ id: 'synthetic' });
+      }
+    });
+    assert.equal(payload.actions[0].label, `Review ${tagFlag(code)}`);
+    assert.equal(JSON.parse(payload.actions[0].body).decision, 'review');
+  }
+});
+
+test('literal visible flag-code captions remain distinguishable phone choices', async () => {
+  let payload;
+  await createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Two explicit captions',
+    options: [
+      { value: 'first', label: '\u{1f3f4}[tag:x]' },
+      { value: 'second', label: '\u{1f3f4}[tag:y]' }
+    ],
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.deepEqual(payload.actions.map(({ label }) => label),
+    ['\u{1f3f4}[tag:x]', '\u{1f3f4}[tag:y]']);
+  assert.deepEqual(payload.actions.map(({ body }) => JSON.parse(body).decision),
+    ['first', 'second']);
+});
+
 test('choice transport rejects labels compatible with the built-in Refine action', async () => {
   let persisted = 0;
   let published = 0;
