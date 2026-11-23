@@ -250,6 +250,47 @@ test('local ntfy exposes variation selectors hidden in words but keeps emoji var
   assert.equal(payload.actions[1].label, 'Allo\\ufe0fw');
 });
 
+test('notification titles and messages expose supplementary invisible controls without hiding legitimate flags or Han IVS', async () => {
+  const selector = String.fromCodePoint(0xe0100);
+  const tagLetter = String.fromCodePoint(0xe0061);
+  const cancelTag = String.fromCodePoint(0xe007f);
+  const unsupportedFlag = String.fromCodePoint(0x1f3f4, 0xe0078, 0xe007f);
+  const englandFlag = String.fromCodePoint(0x1f3f4, 0xe0067, 0xe0062, 0xe0065, 0xe006e, 0xe0067, 0xe007f);
+  const hanIVS = '\u3402' + selector;
+  let payload;
+  await sendNotification({
+    config,
+    title: 'De' + selector + 'ny ' + hanIVS + ' ' + unsupportedFlag,
+    message: 'Al' + tagLetter + 'low ' + cancelTag + ' ' + englandFlag + ' ' + hanIVS,
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.equal(payload.title, 'De\\u{e0100}ny ' + hanIVS + ' \u{1f3f4}[tag:x]');
+  assert.equal(payload.message, 'Al\\u{e0061}low \\u{e007f} ' + englandFlag + ' ' + hanIVS);
+});
+
+test('supplementary invisible controls expand before ntfy payload limits are enforced', async () => {
+  const hiddenTag = String.fromCodePoint(0xe0061);
+  let payload;
+  await sendNotification({
+    config,
+    title: ('A' + hiddenTag).repeat(100),
+    message: ('De' + hiddenTag + 'ny').repeat(900),
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.ok(payload.title.length <= 120);
+  assert.ok(payload.message.length <= 2200);
+  assert.ok(Buffer.byteLength(payload.message, 'utf8') <= 4096);
+  assert.ok(!payload.title.includes(hiddenTag));
+  assert.ok(!payload.message.includes(hiddenTag));
+  assert.match(payload.message, /\\u\{e0061\}/);
+});
+
 test('local ntfy display escaping still enforces title and UTF-8 message bounds', async () => {
   let payload;
   const fetchImpl = async (_url, init) => {
@@ -1563,7 +1604,7 @@ test('phone choice labels expose supplementary variation selectors without chang
     ]);
     assert.deepEqual(payload.actions.map((action) => JSON.parse(action.body).decision), ['deny', 'review']);
     assert.deepEqual(remote.allowed, ['deny', 'review']);
-    assert.equal(payload.message, `Choice De${selector}ny is synthetic`);
+    assert.equal(payload.message, 'Choice De\\u{' + codePoint.toString(16) + '}ny is synthetic');
     assert.ok(payload.actions.every((action) => action.label.length <= 32));
   }
 });
