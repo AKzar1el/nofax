@@ -208,6 +208,30 @@ test('local ntfy shows invisible Unicode operators and grapheme joiners as escap
   assert.equal(payload.actions[0].label, 'Allow\\u2064');
 });
 
+test('phone approval text exposes isolate-format and interlinear controls without changing decisions', async () => {
+  const hiddenControls = [0x206a, 0x206b, 0x206c, 0x206d, 0x206e, 0x206f, 0xfff9, 0xfffa, 0xfffb];
+  for (const point of hiddenControls) {
+    const character = String.fromCharCode(point);
+    const escape = `\\u${point.toString(16)}`;
+    let payload;
+    await createRemoteRequest({
+      config,
+      title: `A${character}pproval`,
+      message: `D${character}eny`,
+      options: [{ value: 'allow', label: `Al${character}low` }, { value: 'deny', label: 'Deny' }],
+      fetchImpl: async (_url, init) => {
+        payload = JSON.parse(init.body);
+        return jsonResponse({ id: 'synthetic' });
+      }
+    });
+    assert.equal(payload.title, `A${escape}pproval`);
+    assert.equal(payload.message, `D${escape}eny`);
+    assert.equal(payload.actions[0].label, `Al${escape}low`);
+    assert.equal(JSON.parse(payload.actions[0].body).decision, 'allow');
+    assert.equal(payload.actions[1].label, 'Deny');
+  }
+});
+
 test('local ntfy exposes soft hyphen and Mongolian vowel separator in phone choices', async () => {
   let payload;
   await createRemoteRequest({
