@@ -255,7 +255,7 @@ Current Gemini CLI builds expose a synchronous `BeforeTool` hook that can allow 
             "name": "nofax-approval",
             "type": "command",
             "command": "nofax hook gemini",
-            "timeout": 305000
+            "timeout": 330000
           }
         ]
       }
@@ -278,7 +278,7 @@ Current Gemini CLI builds expose a synchronous `BeforeTool` hook that can allow 
 
 `BeforeTool` waits for an explicit Nofax Allow/Deny result. A Nofax timeout or transport failure returns Gemini's `ask` decision, forcing the native interactive confirmation instead of allowing an auto-approval policy to treat the missing Nofax decision as permission. The `Notification` hook remains advisory and is forwarded only as a phone notification.
 
-Adjust the matcher to the tools you want Nofax to gate. Keep the hook timeout longer than Nofax's configured approval timeout (`timeoutSeconds`, 300 seconds by default).
+Adjust the matcher to the tools you want Nofax to gate. Gemini's hook `timeout` is in milliseconds and must cover more than the configured human-decision window: Nofax can spend up to 15 seconds publishing the request, 300 seconds waiting for a decision by default (`timeoutSeconds`), and another 5 seconds on best-effort confirmation. The example allows 330 seconds, including 10 seconds of startup/scheduling headroom. If you increase `timeoutSeconds`, increase the Gemini hook timeout by the same amount; otherwise Gemini may terminate the hook before Nofax finishes. A missing decision still falls back to native confirmation, never automatic approval.
 
 ### Pi (native MCP support)
 
