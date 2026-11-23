@@ -535,6 +535,42 @@ test('CLI error diagnostics quote terminal controls and forged log lines', async
   assert.equal(stderr.read(), 'nofax: upstream failed \\u001b[2J\\u000anofax: approved \\u202eDENY\n');
 });
 
+test('CLI and hook diagnostics do not expose synthetic credentials from thrown errors', async () => {
+  const bearer = 'NOFAX_TEST_ONLY_BEARER_8271';
+  const key = 'NOFAX_TEST_ONLY_KEY_8271';
+  const userinfo = 'NOFAX_TEST_ONLY_USERINFO_8271';
+  const diagnostic = [
+    'upstream failed',
+    `Authorization: Bearer ${bearer}`,
+    `api_key=${key}`,
+    `fetch https://${userinfo}@notify.example.invalid/path`,
+    'status: retry'
+  ].join('\n');
+  for (const hook of [false, true]) {
+    const stdout = capture();
+    const stderr = capture();
+    const code = await runCli(hook ? ['hook', 'claude'] : ['notify', 'Synthetic'], {
+      stdout,
+      stderr,
+      ...(hook ? {
+        stdinText: JSON.stringify({ hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: {} }),
+        requestApprovalImpl: async () => { throw new Error(diagnostic); }
+      } : {
+        sendNotificationImpl: async () => { throw new Error(diagnostic); }
+      }),
+      loadConfigImpl: async () => ({})
+    });
+    assert.equal(code, hook ? 0 : 1);
+    for (const secret of [bearer, key, userinfo]) {
+      assert.equal(stderr.read().includes(secret), false, 'diagnostic must redact error credentials');
+    }
+    assert.match(stderr.read(), /upstream failed/);
+    assert.match(stderr.read(), /status: retry/);
+    if (hook) assert.match(stderr.read(), /native approval/i);
+    else assert.equal(stdout.read(), '');
+  }
+});
+
 test('CLI diagnostics expose invisible Unicode that can disguise approval words', async () => {
   const stdout = capture();
   const stderr = capture();
@@ -631,8 +667,8 @@ test('CLI error diagnostics bound long plain and invisible errors without trunca
       assert.ok(stderr.read().length <= 4104, 'diagnostic output must fit the 4096-character budget plus prefix');
       assert.ok(stderr.read().endsWith('...[truncated]\n'));
       assert.doesNotMatch(stderr.read(), /[\u200b\u{e0061}]/u);
-      if (message.startsWith('\u200b')) assert.match(stderr.read(), /\\u200b/);
-      if (message.startsWith('\u{e0061}')) assert.match(stderr.read(), /\\u\{e0061\}/);
+      // Prefixes of large upstream errors can themselves be partial credentials.
+      assert.equal(stderr.read(), 'nofax: [OVERSIZED_INPUT_REDACTED]...[truncated]\n');
     }
   }
 });
