@@ -607,6 +607,56 @@ test('Claude hook errors render supplementary controls but retain native approva
   assert.doesNotMatch(stderr.read(), /[\u{e0061}\u{e0100}]/u);
 });
 
+test('CLI error diagnostics bound long plain and invisible errors without truncating short messages', async () => {
+  for (const [message, expectedExact] of [
+    ['ordinary diagnostic', 'nofax: ordinary diagnostic\n'],
+    ['a'.repeat(4096), `nofax: ${'a'.repeat(4096)}\n`],
+    ['b'.repeat(4094) + '🧪', `nofax: ${'b'.repeat(4094)}🧪\n`],
+    ['c'.repeat(262144), null],
+    ['\u200b'.repeat(65536), null],
+    ['\u{e0061}'.repeat(65536), null]
+  ]) {
+    const stdout = capture();
+    const stderr = capture();
+    const code = await runCli(['notify', 'Synthetic'], {
+      stdout, stderr,
+      loadConfigImpl: async () => ({}),
+      sendNotificationImpl: async () => { throw new Error(message); }
+    });
+    assert.equal(code, 1);
+    assert.equal(stdout.read(), '');
+    if (expectedExact !== null) {
+      assert.equal(stderr.read(), expectedExact);
+    } else {
+      assert.ok(stderr.read().length <= 4104, 'diagnostic output must fit the 4096-character budget plus prefix');
+      assert.ok(stderr.read().endsWith('...[truncated]\n'));
+      assert.doesNotMatch(stderr.read(), /[\u200b\u{e0061}]/u);
+      if (message.startsWith('\u200b')) assert.match(stderr.read(), /\\u200b/);
+      if (message.startsWith('\u{e0061}')) assert.match(stderr.read(), /\\u\{e0061\}/);
+    }
+  }
+});
+
+test('Claude hook bounds inflated error diagnostics and still requests native approval', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  const code = await runCli(['hook', 'claude'], {
+    stdinText: JSON.stringify({
+      hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'npm test' }
+    }),
+    stdout, stderr,
+    loadConfigImpl: async () => ({}),
+    requestApprovalImpl: async () => { throw new Error('\u200b'.repeat(16384)); }
+  });
+  assert.equal(code, 0, 'remote failure must defer to native approval');
+  assert.equal(stdout.read(), '');
+  const [diagnostic, fallback] = stderr.read().trimEnd().split('\n');
+  assert.ok(diagnostic.length <= 4103);
+  assert.ok(diagnostic.endsWith('...[truncated]'));
+  assert.doesNotMatch(diagnostic, /\u200b/u);
+  assert.match(fallback, /native approval/i);
+});
+
 test('hook approval errors cannot inject terminal controls into fallback diagnostics', async () => {
   const stdout = capture();
   const stderr = capture();

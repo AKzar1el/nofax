@@ -10,17 +10,31 @@ const HELP = `nofax - remote approvals and notifications for coding agents\n\nUs
 
 const PACKAGE_JSON_URL = new URL('../package.json', import.meta.url);
 const MAX_HOOK_STDIN_BYTES = 1024 * 1024;
+const MAX_DIAGNOSTIC_CHARS = 4096;
+const DIAGNOSTIC_TRUNCATION = '...[truncated]';
+const DIAGNOSTIC_CONTROLS = /[\x00-\x1f\x7f-\x9f\u00ad\u034f\u061c\u115f-\u1160\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\u2800\u3164\ufe00-\ufe0f\ufeff\uffa0\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/u;
 
 function safeDiagnostic(error) {
   // Untrusted transport errors may contain line controls or invisible marks
-  // that disguise decision words. Render both explicitly in terminal logs.
-  return String(error?.message ?? error).replace(
-    /[\x00-\x1f\x7f-\x9f\u00ad\u034f\u061c\u115f-\u1160\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\u2800\u3164\ufe00-\ufe0f\ufeff\uffa0\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu,
-    (character) => {
-      const point = character.codePointAt(0);
-      return point <= 0xffff ? '\\u' + point.toString(16).padStart(4, '0') : '\\u{' + point.toString(16) + '}';
+  // that disguise decision words or flood logs after escape expansion.
+  const chunks = [];
+  let length = 0;
+  for (const character of String(error?.message ?? error)) {
+    const point = character.codePointAt(0);
+    const rendered = DIAGNOSTIC_CONTROLS.test(character)
+      ? (point <= 0xffff ? '\\u' + point.toString(16).padStart(4, '0') : '\\u{' + point.toString(16) + '}')
+      : character;
+    if (length + rendered.length > MAX_DIAGNOSTIC_CHARS) {
+      // Back off whole escaped characters; never split a Unicode pair or escape.
+      while (length > MAX_DIAGNOSTIC_CHARS - DIAGNOSTIC_TRUNCATION.length) {
+        length -= chunks.pop().length;
+      }
+      return chunks.join('') + DIAGNOSTIC_TRUNCATION;
     }
-  );
+    chunks.push(rendered);
+    length += rendered.length;
+  }
+  return chunks.join('');
 }
 
 async function readPackageVersion() {
