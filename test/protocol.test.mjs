@@ -329,6 +329,41 @@ test('Unicode spacing inside credential labels cannot expose values in serialize
   }
 });
 
+test('shell expression credential values stay hidden without erasing benign sibling context', () => {
+  const marker = 'NOFAX_SYNTHETIC_SHELL_EXPANSION_CANARY_20261124';
+  const samples = [
+    `export api_key=$'prefix_${marker}' mode=safe`,
+    `api_key=$"prefix_${marker}" mode=safe`,
+    `api_key=$(printf '%s' '${marker}') mode=safe`,
+    `api_key=prefix$'${marker}' mode=safe`,
+    `api_key=prefix"${marker}" mode=safe`,
+    `api_key=prefix$(printf '%s' '${marker}') mode=safe`,
+    `api_key=prefix\`printf_${marker}\` mode=safe`,
+    `api_key=prefix\\ ${marker} mode=safe`,
+    `api_key="$(printf '%s' '${marker}')" mode=safe`,
+    `api_key=prefix\${UNSET:-${marker}} mode=safe`,
+    `api_key=prefix\${UNSET:-$(printf '%s' '${marker}')} mode=safe`,
+    `api_key=prefix\\\n${marker}\nmode=safe`
+  ];
+
+  for (const sample of samples) {
+    for (const input of [sample, JSON.stringify(sample), JSON.stringify(JSON.stringify(sample))]) {
+      for (const output of [
+        redactAndBound(input),
+        buildAgentSummary({ source: 'Claude Code', toolName: 'Bash', toolInput: { command: input } })
+      ]) {
+        assert.equal(output.includes(marker), false, `shell credential must be redacted: ${sample.split('=')[0]}`);
+        assert.match(output, /mode=safe/, 'independent shell argument must remain visible');
+      }
+    }
+  }
+
+  for (const input of [`api_key=$(printf '%s' '${marker}' mode=safe`, `api_key=$'${marker} mode=safe`]) {
+    assert.equal(redactAndBound(input).includes(marker), false, 'malformed shell expressions must fail closed');
+  }
+  assert.match(redactAndBound(`note=$'${marker}' mode=safe`), new RegExp(marker));
+});
+
 test('redacts credentials hidden by percent-encoded query parameter names', () => {
   const marker = 'NOFAX_SYNTHETIC_ENCODED_QUERY_SECRET_12345';
   for (const key of ['api_key', 'api%5Fkey', 'tok%65n', '%74oken', 'api+key', 'access+token', '%61pi+key']) {

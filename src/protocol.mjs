@@ -340,6 +340,83 @@ function redactMultilineCredentialAssignments(text) {
   return output;
 }
 
+function redactShellExpressionCredentials(text) {
+  // Shell words can concatenate quotes and substitutions after an assignment.
+  // Mask the entire bounded word before simpler key=value redactors split it.
+  const assignments = /(^|[\s;])((?:export[ \t]+)?(?:\$env:|\$)?)([A-Za-z][A-Za-z0-9_]{0,63})([ \t]*=[ \t]*)/gm;
+  let output = '';
+  let cursor = 0;
+  for (const match of text.matchAll(assignments)) {
+    if (match.index < cursor || !isSecretKey(match[3])) continue;
+    const valueStart = match.index + match[0].length;
+    const frames = [];
+    let special = false;
+    let index = valueStart;
+
+    while (index < text.length) {
+      const char = text[index];
+      const frame = frames[frames.length - 1];
+      if (frame === 'single') {
+        if (char === "'") frames.pop();
+        index += 1;
+        continue;
+      }
+      if (char === '\\') {
+        if (!frame) special = true;
+        index = Math.min(text.length, index + 2);
+        continue;
+      }
+      if (frame === 'double') {
+        if (char === '"') frames.pop();
+        else if (char === '$' && text[index + 1] === '(') {
+          frames.push('sub');
+          index += 2;
+          special = true;
+          continue;
+        } else if (char === '`') frames.push('backtick');
+        index += 1;
+        continue;
+      }
+      if (frame === 'backtick' && char === '`') {
+        frames.pop();
+        index += 1;
+        continue;
+      }
+      if (frame === 'sub' && char === ')') {
+        frames.pop();
+        index += 1;
+        continue;
+      }
+      if (char === '$' && text[index + 1] === '(') {
+        frames.push('sub');
+        special = true;
+        index += 2;
+        continue;
+      }
+      if (char === "'" || char === '"' || char === '`') {
+        frames.push(char === "'" ? 'single' : char === '"' ? 'double' : 'backtick');
+        if (!frame && (index > valueStart || char === '`')) special = true;
+        index += 1;
+        continue;
+      }
+      if (frame === 'sub' && char === '(') {
+        frames.push('sub');
+        index += 1;
+        continue;
+      }
+      if (!frame && /[\s,;&|}\]]/.test(char)) break;
+      index += 1;
+    }
+
+    if (!special) continue;
+    // An unterminated expression has no trustworthy trailing-word boundary.
+    if (frames.length > 0) index = text.length;
+    output += text.slice(cursor, match.index) + match[0] + '[REDACTED]';
+    cursor = index;
+  }
+  return output + text.slice(cursor);
+}
+
 function redactSecretText(value) {
   // Whole JSON-string previews may encode line breaks as backslash-n. Decode
   // only those complete wrappers so key-value matchers cannot eat a safe
@@ -353,7 +430,7 @@ function redactSecretText(value) {
     wrappers += 1;
   }
   let redacted = redactCompatibilitySecretKeyText(
-    redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(redactYamlCredentialAliases(redactMultilineCredentialAssignments(redactShellCredentialBlocks(redactControlInterruptedSecretKeyText(value))))))
+    redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(redactYamlCredentialAliases(redactShellExpressionCredentials(redactMultilineCredentialAssignments(redactShellCredentialBlocks(redactControlInterruptedSecretKeyText(value)))))))
   );
 
   redacted = redacted.replace(
