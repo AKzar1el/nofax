@@ -493,6 +493,13 @@ function redactSecretText(value) {
   return redacted;
 }
 
+export function redactDiagnosticSecrets(value) {
+  // Error strings can originate outside NoFax and reach captured stderr.
+  // Never show a prefix of oversized input that might contain a partial token.
+  if (value.length > MAX_REDACTION_INPUT) return '[OVERSIZED_INPUT_REDACTED]...[truncated]';
+  return redactSecretText(value);
+}
+
 function randomBase64Url(bytes) {
   return randomBytes(bytes).toString('base64url');
 }

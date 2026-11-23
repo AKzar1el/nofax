@@ -5,6 +5,7 @@ import { listPendingRequests } from './requests.mjs';
 import { handleClaudePermissionRequest } from './adapters/claude.mjs';
 import { handleCodexPermissionRequest } from './adapters/codex.mjs';
 import { handleGeminiHook } from './adapters/gemini.mjs';
+import { redactDiagnosticSecrets } from './protocol.mjs';
 
 const HELP = `nofax - remote approvals and notifications for coding agents\n\nUsage:\n  nofax --version\n  nofax init [--server URL] [--topic TOPIC] [--timeout SECONDS] [--force]\n  nofax doctor\n  nofax test\n  nofax pending [--limit N]\n  nofax notify [--title TITLE] MESSAGE...\n  nofax approve [--title TITLE] MESSAGE...\n  nofax refine [--title TITLE] MESSAGE...\n  nofax mcp\n  nofax config [--show-topic]\n  nofax hook claude\n  nofax hook codex\n  nofax hook gemini\n\nEnvironment:\n  NOFAX_HOME   Override ~/.nofax\n`;
 
@@ -19,7 +20,7 @@ function safeDiagnostic(error) {
   // that disguise decision words or flood logs after escape expansion.
   const chunks = [];
   let length = 0;
-  for (const character of String(error?.message ?? error)) {
+  for (const character of redactDiagnosticSecrets(String(error?.message ?? error))) {
     const point = character.codePointAt(0);
     const rendered = DIAGNOSTIC_CONTROLS.test(character)
       ? (point <= 0xffff ? '\\u' + point.toString(16).padStart(4, '0') : '\\u{' + point.toString(16) + '}')
