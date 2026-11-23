@@ -301,6 +301,34 @@ test('redacts compatibility-width credential labels without changing benign appr
   assert.match(buildAgentSummary({ toolInput: benign }), new RegExp(marker));
 });
 
+test('Unicode spacing inside credential labels cannot expose values in serialized previews', () => {
+  const marker = 'NOFAX_SYNTHETIC_UNICODE_SPACING_SECRET_20261123';
+  for (const space of ['\u00a0', '\u2007', '\u2009', '\u202f']) {
+    const key = `api${space}key`;
+    const object = { [key]: marker, note: 'safe detail' };
+    assert.equal(redactAndBound(object)[key], '[REDACTED]');
+
+    const fixtures = [
+      `${key}=${marker} mode=safe`,
+      `${key}="${marker}" mode=safe`,
+      JSON.stringify(object),
+      `echo ${JSON.stringify(object)}`
+    ];
+    for (const fixture of fixtures) {
+      for (const input of [fixture, JSON.stringify(fixture), JSON.stringify(JSON.stringify(fixture))]) {
+        for (const output of [redactAndBound(input), buildAgentSummary({ toolInput: { command: input } })]) {
+          assert.equal(output.includes(marker), false, 'Unicode-spaced credential value must be hidden');
+          assert.match(output, /safe/, 'independent benign context must remain');
+        }
+      }
+    }
+
+    for (const input of [`no${space}te=${marker} mode=safe`, JSON.stringify(`no${space}te=${marker} mode=safe`)]) {
+      assert.match(redactAndBound(input), new RegExp(marker), 'benign Unicode-spaced keys remain readable');
+    }
+  }
+});
+
 test('redacts credentials hidden by percent-encoded query parameter names', () => {
   const marker = 'NOFAX_SYNTHETIC_ENCODED_QUERY_SECRET_12345';
   for (const key of ['api_key', 'api%5Fkey', 'tok%65n', '%74oken', 'api+key', 'access+token', '%61pi+key']) {
