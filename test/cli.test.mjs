@@ -570,6 +570,43 @@ test('CLI diagnostics escape blank filler and formatting marks used to spoof dec
   );
 });
 
+test('CLI diagnostics render supplementary tags and variation selectors visibly', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  const injected = 'A\u{e0061}llow D\u{e007f}eny \ufe00\ufe0d \u{e0000}\u{e0100}\u{e01ef} 漢字 🧪';
+  const code = await runCli(['notify', 'Synthetic'], {
+    stdout,
+    stderr,
+    loadConfigImpl: async () => ({}),
+    sendNotificationImpl: async () => { throw new Error(injected); }
+  });
+  assert.equal(code, 1);
+  assert.equal(stdout.read(), '');
+  assert.equal(
+    stderr.read(),
+    'nofax: A\\u{e0061}llow D\\u{e007f}eny \\ufe00\\ufe0d \\u{e0000}\\u{e0100}\\u{e01ef} 漢字 🧪\n'
+  );
+});
+
+test('Claude hook errors render supplementary controls but retain native approval', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  const code = await runCli(['hook', 'claude'], {
+    stdinText: JSON.stringify({
+      hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'npm test' }
+    }),
+    stdout,
+    stderr,
+    loadConfigImpl: async () => ({}),
+    requestApprovalImpl: async () => { throw new Error('D\u{e0061}ENY\u{e0100}'); }
+  });
+  assert.equal(code, 0, 'transport failure must defer to native approval');
+  assert.equal(stdout.read(), '');
+  assert.match(stderr.read(), /D\\u\{e0061\}ENY\\u\{e0100\}/);
+  assert.match(stderr.read(), /native approval/i);
+  assert.doesNotMatch(stderr.read(), /[\u{e0061}\u{e0100}]/u);
+});
+
 test('hook approval errors cannot inject terminal controls into fallback diagnostics', async () => {
   const stdout = capture();
   const stderr = capture();
