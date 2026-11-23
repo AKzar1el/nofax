@@ -303,6 +303,41 @@ test('legacy resolved projection dated before creation is rejected', async (t) =
   await assert.rejects(loadRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_RESOLVED_AT_INVALID/);
 });
 
+test('ISO request creation rejects impossible calendar days instead of normalizing them', async (t) => {
+  const root = await home(t);
+  const invalidDays = ['2026-02-30T18:00:00.000Z', '2026-04-31T18:00:00.000Z'];
+  for (const createdAt of invalidDays) {
+    await assert.rejects(
+      savePendingRequest({ home: root, request: { ...pending, createdAt } }),
+      /NOFAX_REQUEST_CREATED_AT_INVALID/
+    );
+  }
+  await savePendingRequest({ home: root, request: pending });
+  const path = join(root, 'requests', `${pending.requestId}.json`);
+  for (const createdAt of invalidDays) {
+    await writeFile(path, JSON.stringify({ ...pending, createdAt }), 'utf8');
+    await assert.rejects(loadRequest({ home: root, requestId: pending.requestId }), /NOFAX_REQUEST_CREATED_AT_INVALID/);
+  }
+});
+
+test('ISO terminal dates reject calendar overflow but accept a genuine leap day', async (t) => {
+  const root = await home(t);
+  await savePendingRequest({ home: root, request: pending });
+  await assert.rejects(
+    resolveRequest({ home: root, requestId: pending.requestId, response: { decision: 'deny' }, resolvedAt: '2026-09-31T18:01:00.000Z' }),
+    /NOFAX_REQUEST_RESOLVED_AT_INVALID/
+  );
+  assert.equal((await loadRequest({ home: root, requestId: pending.requestId })).status, 'pending');
+
+  const leapRoot = await home(t);
+  const leapRequest = { ...pending, createdAt: '2024-02-28T18:00:00.000Z' };
+  await savePendingRequest({ home: leapRoot, request: leapRequest });
+  const resolved = await resolveRequest({
+    home: leapRoot, requestId: pending.requestId, response: { decision: 'deny' }, resolvedAt: '2024-02-29T18:01:00.000Z'
+  });
+  assert.equal(resolved.decision, 'deny');
+});
+
 test('discardPendingRequest removes only unresolved pending state', async (t) => {
   const root = await home(t);
   await savePendingRequest({ home: root, request: pending });
