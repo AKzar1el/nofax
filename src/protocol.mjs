@@ -173,14 +173,21 @@ function redactCompatibilitySecretKeyText(text) {
 
   // Keep the original suspicious spelling visible while redacting its value.
   // Quoted keys/values may also be nested in once- or twice-serialized JSON.
+  // Unicode space separators can make an otherwise recognizable key look benign.
   let redacted = text.replace(
-    /(?<![\p{L}\p{N}\p{Pc}])(\\*["'])([\p{L}\p{N}\p{Pc}_.\/ \-]{1,64})\1([ \t]*[:=][ \t]*)(\\*["'])(?:\\.|(?!(?<!\\)\4)[^\r\n])*?(?<!\\)\4/gu,
+    /(?<![\p{L}\p{N}\p{Pc}])(\\*["'])([\p{L}\p{N}\p{Pc}_.\/ \-\p{Zs}]{1,64})\1([ \t]*[:=][ \t]*)(\\*["'])(?:\\.|(?!(?<!\\)\4)[^\r\n])*?(?<!\\)\4/gu,
     (match, keyQuote, key, separator, valueQuote) => isCompatibilitySecret(key)
       ? `${keyQuote}${key}${keyQuote}${separator}${valueQuote}[REDACTED]${valueQuote}`
       : match
   );
   redacted = redacted.replace(
-    /(?<![\p{L}\p{N}\p{Pc}])(\\*["']?)([\p{L}\p{N}\p{Pc}_.\/ \-]{1,64})\1([ \t]*[:=][ \t]*)(?!\\*["'])([^\s"'\x60,;&}\]]+)/gu,
+    /(?<![\p{L}\p{N}\p{Pc}])([\p{L}\p{N}\p{Pc}_.\/ \-\p{Zs}]{1,64})([ \t]*[:=][ \t]*)(\\*["'])(?:\\.|(?!(?<!\\)\3)[^\r\n])*?(?<!\\)\3/gu,
+    (match, key, separator, valueQuote) => isCompatibilitySecret(key)
+      ? `${key}${separator}${valueQuote}[REDACTED]${valueQuote}`
+      : match
+  );
+  redacted = redacted.replace(
+    /(?<![\p{L}\p{N}\p{Pc}])(\\*["']?)([\p{L}\p{N}\p{Pc}_.\/ \-\p{Zs}]{1,64})\1([ \t]*[:=][ \t]*)(?!\\*["'])([^\s"'\x60,;&}\]]+)/gu,
     (match, keyQuote, key, separator) => isCompatibilitySecret(key)
       ? `${keyQuote}${key}${keyQuote}${separator}[REDACTED]`
       : match
