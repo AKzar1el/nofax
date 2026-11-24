@@ -2,6 +2,74 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildAgentSummary, createRequestId, createResponseTopic, redactAndBound } from '../src/protocol.mjs';
 
+test('PowerShell provider credential command previews omit sensitive arguments', () => {
+  const marker = 'NOFAX_CANARY_X91';
+  const commands = [
+    `Set-Item Env:API_KEY '${marker}'`,
+    `Set-Item -Path 'Env:API_KEY' -Value '${marker}'`,
+    `Set-Item -Value '${marker}' -LiteralPath Env:API_KEY`,
+    `Set-Item -Confirm:$false -Path Env:API_KEY -Value '${marker}'`,
+    `Set-Item -WhatIf -Path:Env:API_KEY -Value:'${marker}'`,
+    `New-Item -Path Env:API_KEY -Value '${marker}' -Force`,
+    `Set-Content -Value '${marker}' -LiteralPath 'Variable:API_KEY'`,
+    `Set-Variable API_KEY '${marker}'`,
+    `Set-Variable -Value '${marker}' -Name API_KEY -Scope Global`,
+    `Set-Variable -Name:API_KEY -Value:'${marker}'`,
+    `Set-Variable -Confirm:$false -Name API_KEY -Value '${marker}'`,
+    `Set-Item Env:API_KEY ('${marker};nested')`,
+    `Set-Item -P:Env:API_KEY -V:'${marker}'`,
+    `New-Item -Path Env: -Name API_KEY -Value '${marker}'`,
+    `Set-Item -Path @('Env:NOTE','Env:API_KEY') -Value '${marker}'`,
+    `Set-Item -Path (Join-Path Env: API_KEY) -Value '${marker}'`,
+    `Microsoft.PowerShell.Management\\Set-Item -Path Environment::API_KEY -Value '${marker}'`,
+  ];
+  for (const command of commands) {
+    const input = `${command}; echo mode=safe`;
+    for (const preview of [input, JSON.stringify(input), JSON.stringify(JSON.stringify(input))]) {
+      const bounded = redactAndBound(preview);
+      const summary = buildAgentSummary({ source: 'Codex', toolName: 'shell', toolInput: { command: preview } });
+      for (const output of [bounded, summary]) {
+        assert.ok(!output.includes(marker), `credential value leaked for ${command.split(' ')[0]}`);
+        assert.match(output, /REDACTED/);
+        assert.match(output, /mode=safe/);
+      }
+    }
+  }
+  for (const malformed of [`Set-Item Env:API_KEY '${marker}`, `Set-Variable -Name API_KEY -Value '${marker}`]) {
+    assert.ok(!redactAndBound(malformed).includes(marker));
+  }
+  const hereString = ["Set-Item Env:API_KEY @'", "unpaired ' quote", marker, "'@", 'echo mode=safe'].join('\n');
+  for (const input of [hereString, JSON.stringify(hereString)]) {
+    const output = redactAndBound(input);
+    assert.ok(!output.includes(marker));
+    assert.match(output, /mode=safe/);
+  }
+  const serialized = JSON.stringify({
+    command: commands[2],
+    mode: 'safe',
+    nested: JSON.stringify({ command: commands[8], note: 'safe sibling' }),
+  });
+  for (const input of [serialized, JSON.stringify(serialized)]) {
+    const output = redactAndBound(input);
+    assert.ok(!output.includes(marker));
+    assert.match(output, /safe sibling/);
+    assert.match(output, /mode/);
+  }
+  const duplicateFields = '{"command":"Set-Item Env:NOTE harmless","mode":"one","mode":"two"}';
+  assert.equal(redactAndBound(duplicateFields), duplicateFields);
+  for (const benign of [
+    `Set-Item Env:NOTE '${marker}'; echo mode=safe`,
+    `Set-Content -Value '${marker}' -Path 'notes.txt'`,
+    `Set-Variable -Value '${marker}' -Name NOTE`,
+    `Set-Variable NOTE '${marker}'`,
+    `Set-Variable -Value 'api_key' -Name NOTE`,
+    `New-Item -Path Env: -Name NOTE -Value '${marker}'`,
+    `Microsoft.PowerShell.Management\\Set-Item -Path Environment::NOTE -Value '${marker}'`,
+  ]) {
+    assert.equal(redactAndBound(benign), benign);
+  }
+});
+
 test('approval summaries expose display-control characters literally instead of executing them', () => {
   const input = 'echo safe\rOVERWRITE\u001b[2K\u202e--hidden\u2066\u0000\u2028Spoofed heading\u2029';
   const marker = 'NOFAX_SYNTHETIC_DISPLAY_CONTROL_SECRET_12345';
