@@ -577,13 +577,88 @@ function redactSetxArgv(argv) {
   return isSecretKey(argv[1]) ? [argv[0], argv[1], '[REDACTED]', ...argv.slice(3)] : argv;
 }
 
-function redactSerializedSetxArgv(text, depth = 0) {
-  if (!/^\s*[\[{" ]/.test(text) || !/setx|\\u/i.test(text)) return text;
+function powerShellProviderCommand(value) {
+  if (typeof value !== 'string') return null;
+  return /^(?:Microsoft\.PowerShell\.(?:Management|Utility)\\)?(Set-Item|New-Item|Set-Content|Set-Variable)$/i.exec(powerShellLiteral(value))?.[1].toLowerCase() ?? null;
+}
+
+function redactPowerShellProviderArgv(argv) {
+  const command = powerShellProviderCommand(argv[0]);
+  if (!command || argv.length === 1) return argv;
+  const omitted = () => [argv[0], '[REDACTED: credential command arguments]'];
+  const variable = command === 'set-variable';
+  const names = [];
+  const paths = [];
+  const positional = [];
+  let hasValue = false;
+  const switches = /^(?:force|whatif|confirm|verbose|debug|passthru|nonewline|asbytestream)$/i;
+  const otherValues = /^(?:scope|option|description|erroraction|warningaction|informationaction|errorvariable|warningvariable|informationvariable|outvariable|outbuffer|pipelinevariable|filter|include|exclude|encoding|stream|itemtype|type)$/i;
+
+  // Inspect typed argument boundaries directly; joining them into shell text
+  // would reinterpret literal whitespace, punctuation and nested values.
+  for (let index = 1; index < argv.length; index += 1) {
+    const word = argv[index];
+    if (typeof word !== 'string') return omitted();
+    const option = /^-([A-Za-z]+)(?::([\s\S]*))?$/.exec(word);
+    if (!option) {
+      if (word.startsWith('-')) return omitted();
+      positional.push(word);
+      continue;
+    }
+    const [, flag, attached] = option;
+    if (switches.test(flag)) {
+      if (attached !== undefined && !/^\$(?:true|false)$/i.test(attached)) return omitted();
+      continue;
+    }
+    const isName = /^name$/i.test(flag);
+    const isPath = /^(?:path|literalpath)$/i.test(flag);
+    const isValue = /^value$/i.test(flag);
+    if (!isName && !isPath && !isValue && !otherValues.test(flag)) return omitted();
+    const arg = attached ?? argv[++index];
+    if (typeof arg !== 'string' || (attached === undefined && arg.startsWith('-'))) return omitted();
+    if (isName) names.push(arg);
+    else if (isPath) paths.push(arg);
+    else if (isValue) {
+      if (hasValue) return omitted();
+      hasValue = true;
+    }
+  }
+
+  const targets = variable ? names : paths;
+  if (variable && paths.length) return omitted();
+  if (!targets.length && positional.length) targets.push(positional.shift());
+  if (targets.length !== 1 || positional.length > (hasValue ? 0 : 1)) return omitted();
+  const literalName = /^[\p{L}\p{N}_.:/\\-]+$/u;
+  const sensitiveName = word => {
+    const name = powerShellLiteral(word);
+    return !literalName.test(name) || isSecretKey(name);
+  };
+  if (variable) return sensitiveName(targets[0]) ? omitted() : argv;
+
+  const path = powerShellLiteral(targets[0]);
+  const provider = /^(?:(?:Microsoft\.PowerShell\.Core\\)?(?:environment|variable)::|(?:env|variable):)\\?([\s\S]*)$/i.exec(path);
+  if (provider) {
+    if (!provider[1]) {
+      if (names.length !== 1 || sensitiveName(names[0])) return omitted();
+    } else if (names.length || sensitiveName(provider[1])) return omitted();
+  } else if (/[()[\]{},$\x60*?]/.test(path) || !path || names.length) {
+    // A composed or unresolved target cannot establish a benign provider.
+    return omitted();
+  }
+  return argv;
+}
+
+function redactCommandArgv(argv) {
+  return isSetxExecutable(argv[0]) ? redactSetxArgv(argv) : redactPowerShellProviderArgv(argv);
+}
+
+function redactSerializedCommandArgv(text, depth = 0) {
+  if (!/^\s*[\[{" ]/.test(text) || !/setx|Set-Item|New-Item|Set-Content|Set-Variable|\\u/i.test(text)) return text;
   let parsed;
   try { parsed = JSON.parse(text); } catch { return text; }
   if (depth >= MAX_DEPTH) return '[REDACTED: nested command preview]';
   if (typeof parsed === 'string') {
-    const masked = redactSerializedSetxArgv(parsed, depth + 1);
+    const masked = redactSerializedCommandArgv(parsed, depth + 1);
     return masked === parsed ? text : JSON.stringify(masked);
   }
   if (!parsed || typeof parsed !== 'object') return text;
@@ -603,16 +678,16 @@ function redactSerializedSetxArgv(text, depth = 0) {
       const first = /^\s*("(?:\\.|[^"\\])*")/.exec(text.slice(frame.start + 1, start));
       if (!first) continue;
       const executable = JSON.parse(first[1]);
-      if (!isSetxExecutable(executable)) continue;
+      if (!isSetxExecutable(executable) && !powerShellProviderCommand(executable)) continue;
       const argv = JSON.parse(text.slice(frame.start, end));
-      const masked = redactSetxArgv(argv);
+      const masked = redactCommandArgv(argv);
       if (masked !== argv) {
         replacements.length = frame.replacementIndex;
         replacements.push({ start: frame.start, end, value: JSON.stringify(masked) });
       }
     } else if (!/^\s*:/.test(text.slice(end))) {
       const decoded = JSON.parse(token);
-      const masked = redactSerializedSetxArgv(decoded, depth + 1);
+      const masked = redactSerializedCommandArgv(decoded, depth + 1);
       if (masked !== decoded) replacements.push({ start, end, value: JSON.stringify(masked) });
     }
   }
@@ -637,7 +712,7 @@ function redactSecretText(value) {
     value = decoded;
     wrappers += 1;
   }
-  value = redactPowerShellCredentialCommands(redactSerializedSetxArgv(value));
+  value = redactPowerShellCredentialCommands(redactSerializedCommandArgv(value));
   let redacted = redactCompatibilitySecretKeyText(
     redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(redactYamlCredentialAliases(redactShellExpressionCredentials(redactMultilineCredentialAssignments(redactShellCredentialBlocks(redactControlInterruptedSecretKeyText(value)))))))
   );
@@ -869,7 +944,7 @@ export function redactAndBound(value, options = {}) {
   seen.add(value);
 
   if (Array.isArray(value)) {
-    const maskedArgv = redactSetxArgv(value);
+    const maskedArgv = redactCommandArgv(value);
     if (maskedArgv !== value) {
       seen.delete(value);
       return maskedArgv.map(boundString);

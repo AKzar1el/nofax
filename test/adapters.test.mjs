@@ -218,7 +218,7 @@ test('provider credential command previews remain private without changing human
   }
 });
 
-test('structured setx previews preserve deny, timeout and transport-error decisions', async () => {
+test('structured credential command previews preserve deny, timeout and transport-error decisions', async () => {
   const marker = 'NOFAX_SYNTHETIC_ADAPTER_ARGV_X91';
   const sensitive = ['setx', 'API_KEY', marker];
   const benign = ['setx', 'NOTE', marker];
@@ -227,6 +227,11 @@ test('structured setx previews preserve deny, timeout and transport-error decisi
     { command: JSON.stringify({ argv: sensitive }), masked: true },
     { command: benign, masked: false },
     { command: JSON.stringify({ argv: benign }), masked: false },
+    { command: ['Set-Item', '-Value', marker, '-Path', 'Env:API_KEY'], masked: true },
+    { command: JSON.stringify({ argv: ['Set-Variable', '-Name', 'API_KEY', '-Value', marker] }), masked: true },
+    { command: ['New-Item', '-Path', 'Env:', '-Value', marker], masked: true },
+    { command: ['Set-Variable', '-Value', marker, '-Name', 'NOTE'], masked: false },
+    { command: JSON.stringify({ argv: ['Set-Content', '-Path', 'notes with spaces.txt', '-Value', marker] }), masked: false },
   ];
   for (const { command, masked } of cases) {
     for (const decision of ['deny', 'timeout', 'error']) {
