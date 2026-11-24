@@ -417,6 +417,149 @@ function redactShellExpressionCredentials(text) {
   return output + text.slice(cursor);
 }
 
+// Split only at unquoted, top-level delimiters. An incomplete quote or group
+// deliberately consumes the remainder instead of guessing where a secret ends.
+function splitPowerShellPreview(text, delimiter) {
+  const parts = [];
+  const groups = [];
+  let quote = '';
+  let hereQuote = '';
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (hereQuote) {
+      if (text[index - 1] === '\n' && char === hereQuote && text[index + 1] === '@') {
+        hereQuote = '';
+        index += 1;
+      }
+      continue;
+    }
+    if (char === '\x60' && quote !== "'") {
+      index += 1;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        if (text[index + 1] === quote) index += 1;
+        else quote = '';
+      }
+      continue;
+    }
+    if (char === '@' && /["']/.test(text[index + 1] ?? '')
+        && (text[index + 2] === '\n' || text.slice(index + 2, index + 4) === '\r\n')) {
+      hereQuote = text[index + 1];
+      index += 1;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if ('([{'.includes(char)) groups.push(char);
+    else if (')]}'.includes(char) && groups.at(-1) === '([{'.charAt(')]}'.indexOf(char))) groups.pop();
+    if (!groups.length && delimiter.test(char)) {
+      parts.push({ text: text.slice(start, index), delimiter: char });
+      start = index + 1;
+    }
+  }
+  parts.push({ text: text.slice(start), delimiter: '' });
+  return parts;
+}
+
+function powerShellLiteral(word) {
+  if (!word) return '';
+  const quote = word[0];
+  if ((quote === '"' || quote === "'") && word.endsWith(quote)) {
+    return word.slice(1, -1).replace(quote === "'" ? /''/g : /""/g, quote);
+  }
+  return word;
+}
+
+function redactPowerShellCredentialCommands(text, depth = 0) {
+  if (!/\b(?:Set-Item|New-Item|Set-Content|Set-Variable)\b/i.test(text)) return text;
+  // Inspect string lexemes in complete serialized containers without
+  // rebuilding objects (which could discard duplicate keys or context).
+  if (depth < 3 && /^\s*[\[{" ]/.test(text)) {
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { /* Not a complete JSON value. */ }
+    if (typeof parsed === 'string') {
+      const masked = redactPowerShellCredentialCommands(parsed, depth + 1);
+      return masked === parsed ? text : JSON.stringify(masked);
+    }
+    if (parsed && typeof parsed === 'object') {
+      return text.replace(/"(?:\\.|[^"\\])*"/g, lexeme => {
+        const decoded = JSON.parse(lexeme);
+        const masked = redactPowerShellCredentialCommands(decoded, depth + 1);
+        return masked === decoded ? lexeme : JSON.stringify(masked);
+      });
+    }
+  }
+  return splitPowerShellPreview(text, /[;|\r\n&]/).map(({ text: segment, delimiter }) => {
+    const command = /^([ \t]*)((?:Microsoft\.PowerShell\.(?:Management|Utility)\\)?(Set-Item|New-Item|Set-Content|Set-Variable))(?=[ \t])/i.exec(segment);
+    if (!command) return segment + delimiter;
+    const variable = command[3].toLowerCase() === 'set-variable';
+    const args = splitPowerShellPreview(segment.slice(command[0].length), /[ \t]/)
+      .map(part => part.text).filter(Boolean);
+    const names = [];
+    const paths = [];
+    const positional = [];
+    let ambiguous = false;
+    const switches = /^(?:force|whatif|confirm|verbose|debug|passthru|nonewline|asbytestream)$/i;
+    const otherValues = /^(?:value|scope|option|description|erroraction|warningaction|informationaction|errorvariable|warningvariable|informationvariable|outvariable|outbuffer|pipelinevariable|credential|filter|include|exclude|encoding|stream|itemtype|type)$/i;
+    for (let index = 0; index < args.length; index += 1) {
+      const option = /^-([A-Za-z]+)(?::([\s\S]*))?$/.exec(args[index]);
+      if (!option) {
+        positional.push(args[index]);
+        continue;
+      }
+      const [, name, attached] = option;
+      if (switches.test(name)) continue;
+      const isName = /^name$/i.test(name);
+      const isPath = /^(?:path|literalpath)$/i.test(name);
+      if (!isName && !isPath && !otherValues.test(name)) {
+        ambiguous = true;
+        continue;
+      }
+      const arg = attached ?? args[++index];
+      if (!arg) ambiguous = true;
+      else if (isName) names.push(arg);
+      else if (isPath) paths.push(arg);
+    }
+    const targets = variable ? names : paths;
+    if (!targets.length && positional.length) targets.push(positional[0]);
+    const literalName = /^[\p{L}\p{N}_.:/\\-]+$/u;
+    const sensitiveName = word => {
+      const value = powerShellLiteral(word);
+      return !literalName.test(value) || isSecretKey(value);
+    };
+    const sensitivePath = word => {
+      const value = powerShellLiteral(word);
+      const provider = /^(?:(?:Microsoft\.PowerShell\.Core\\)?(?:environment|variable)::|(?:env|variable):)\\?([\s\S]*)$/i.exec(value);
+      if (!provider) {
+        // A composed provider expression has no trustworthy literal target.
+        return /(?:env|variable|environment):/i.test(value)
+          && /[()[\]{},$\x60]/.test(value);
+      }
+      return provider[1] ? sensitiveName(provider[1]) : names.some(sensitiveName);
+    };
+    const sensitive = variable
+      ? targets.some(sensitiveName)
+      : targets.some(sensitivePath);
+    // For unknown option layouts, avoid assuming that a credential-like
+    // positional argument is harmless. For recognized sensitive operations,
+    // omit the arguments rather than attempting to evaluate shell expressions.
+    const uncertain = ambiguous && args.some(word => {
+      const attached = /^-[A-Za-z]+:([\s\S]+)$/.exec(word)?.[1];
+      return variable
+        ? isSecretKey(powerShellLiteral(attached ?? word))
+        : sensitivePath(attached ?? word);
+    });
+    return sensitive || uncertain
+      ? command[1] + command[2] + ' [REDACTED: credential command arguments]' + delimiter
+      : segment + delimiter;
+  }).join('');
+}
+
 function redactSecretText(value) {
   // Whole JSON-string previews may encode line breaks as backslash-n. Decode
   // only those complete wrappers so key-value matchers cannot eat a safe
@@ -429,6 +572,7 @@ function redactSecretText(value) {
     value = decoded;
     wrappers += 1;
   }
+  value = redactPowerShellCredentialCommands(value);
   let redacted = redactCompatibilitySecretKeyText(
     redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(redactYamlCredentialAliases(redactShellExpressionCredentials(redactMultilineCredentialAssignments(redactShellCredentialBlocks(redactControlInterruptedSecretKeyText(value)))))))
   );

@@ -183,6 +183,41 @@ test('Gemini BeforeTool adapter forces native confirmation on timeout or transpo
   assert.deepEqual(errors, ['offline']);
 });
 
+test('provider credential command previews remain private without changing human denial or timeout semantics', async () => {
+  const marker = 'NOFAX_CANARY_ADAPTER_P91';
+  const cases = [
+    `Set-Item -Value '${marker}' -LiteralPath Env:API_KEY; echo mode=safe`,
+    `Set-Variable -Confirm:$false -Name:API_KEY -Value:'${marker}'; echo mode=safe`,
+    `New-Item -Path Env: -Name API_KEY -Value '${marker}'; echo mode=safe`,
+  ];
+  for (const command of cases) {
+    for (const decision of ['deny', 'timeout']) {
+      const seen = [];
+      const options = { config, requestApprovalImpl: async ({ message }) => { seen.push(message); return { decision }; } };
+      const tool_input = { command, note: 'review context' };
+      const claude = await handleClaudePermissionRequest({ ...claudeInput, tool_input }, options);
+      const codex = await handleCodexPermissionRequest({ ...codexInput, tool_input }, options);
+      const gemini = await handleGeminiHook({ hook_event_name: 'BeforeTool', tool_name: 'run_shell_command', tool_input }, options);
+      assert.equal(seen.length, 3);
+      for (const message of seen) {
+        assert.ok(!message.includes(marker));
+        assert.match(message, /REDACTED/);
+        assert.match(message, /mode=safe/);
+        assert.match(message, /review context/);
+      }
+      if (decision === 'deny') {
+        assert.equal(claude.hookSpecificOutput.decision.behavior, 'deny');
+        assert.equal(codex.hookSpecificOutput.decision.behavior, 'deny');
+        assert.equal(gemini.decision, 'deny');
+      } else {
+        assert.equal(claude, null);
+        assert.equal(codex, null);
+        assert.deepEqual(gemini, { decision: 'ask' });
+      }
+    }
+  }
+});
+
 test('adapter notification titles redact untrusted credential-bearing event fields', async () => {
   const secret = 'NOFAX_SYNTHETIC_TITLE_SECRET_12345';
   const toolName = `Bash api_key=${secret}`;
