@@ -218,6 +218,49 @@ test('provider credential command previews remain private without changing human
   }
 });
 
+test('structured setx previews preserve deny, timeout and transport-error decisions', async () => {
+  const marker = 'NOFAX_SYNTHETIC_ADAPTER_ARGV_X91';
+  const sensitive = ['setx', 'API_KEY', marker];
+  const benign = ['setx', 'NOTE', marker];
+  const cases = [
+    { command: sensitive, masked: true },
+    { command: JSON.stringify({ argv: sensitive }), masked: true },
+    { command: benign, masked: false },
+    { command: JSON.stringify({ argv: benign }), masked: false },
+  ];
+  for (const { command, masked } of cases) {
+    for (const decision of ['deny', 'timeout', 'error']) {
+      const seen = [];
+      const errors = [];
+      const options = { config, onError: error => errors.push(error.message), requestApprovalImpl: async ({ message }) => {
+        seen.push(message);
+        if (decision === 'error') throw new Error('synthetic offline');
+        return { decision };
+      } };
+      const tool_input = { command, note: 'safe sibling' };
+      const claude = await handleClaudePermissionRequest({ ...claudeInput, tool_input }, options);
+      const codex = await handleCodexPermissionRequest({ ...codexInput, tool_input }, options);
+      const gemini = await handleGeminiHook({ hook_event_name: 'BeforeTool', tool_name: 'run_shell_command', tool_input }, options);
+      assert.equal(seen.length, 3);
+      for (const message of seen) {
+        assert.equal(message.includes(marker), !masked);
+        if (masked) assert.match(message, /REDACTED/);
+        assert.match(message, /safe sibling/);
+      }
+      if (decision === 'deny') {
+        assert.equal(claude.hookSpecificOutput.decision.behavior, 'deny');
+        assert.equal(codex.hookSpecificOutput.decision.behavior, 'deny');
+        assert.equal(gemini.decision, 'deny');
+      } else {
+        assert.equal(claude, null);
+        assert.equal(codex, null);
+        assert.deepEqual(gemini, { decision: 'ask' });
+      }
+      assert.equal(errors.length, decision === 'error' ? 3 : 0);
+    }
+  }
+});
+
 test('adapter notification titles redact untrusted credential-bearing event fields', async () => {
   const secret = 'NOFAX_SYNTHETIC_TITLE_SECRET_12345';
   const toolName = `Bash api_key=${secret}`;
