@@ -1,0 +1,15 @@
+{
+  "name": "nofax",
+  "version": "0.2.51",
+  "description": "Local human-in-the-loop notifications, approval requests, choices and refinement via a configured ntfy service. Does not install hooks or replace Gemini permission controls.",
+  "mcpServers": {
+    "nofax": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "nofax@0.2.51",
+        "mcp"
+      ]
+    }
+  }
+}
