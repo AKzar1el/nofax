@@ -1,0 +1,15 @@
+{
+  "name": "nofax",
+  "version": "0.2.50",
+  "description": "Local human-in-the-loop notifications and explicit approval requests for AI coding agents using the Nofax MCP server.",
+  "mcpServers": {
+    "nofax": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "nofax@0.2.50",
+        "mcp"
+      ]
+    }
+  }
+}
