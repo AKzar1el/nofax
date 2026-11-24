@@ -135,6 +135,14 @@ Start the local stdio MCP server:
 nofax mcp
 ```
 
+### Gemini CLI extension
+
+```bash
+gemini extensions install https://github.com/AKzar1el/nofax
+```
+
+Requires Node.js 20 or newer and the local setup described above (`nofax init`, then `nofax doctor`). The extension starts the pinned local `nofax mcp` server; it does not install approval hooks, grant permissions, or set any trust override. Notifications and human decisions remain explicit tool actions. No hosted Nofax account or paid model API is required. For supported optional hook adapters, follow the separate setup instructions below.
+
 ### Connect an MCP client
 
 Claude Code can launch the published local MCP server directly:
