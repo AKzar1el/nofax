@@ -648,12 +648,110 @@ function redactPowerShellProviderArgv(argv) {
   return argv;
 }
 
+function interpreterArgvKind(value) {
+  if (typeof value !== 'string') return null;
+  const exe = value.replace(/^"|"$/g, '').split(/[\\/]/).pop();
+  if (/^(?:python(?:\d+(?:\.\d+)?)?w?|pyw?)(?:\.exe)?$/i.test(exe)) return 'python';
+  if (/^node(?:js)?(?:\.exe)?$/i.test(exe)) return 'node';
+  return null;
+}
+
+function interpreterCodeMayExposeCredentials(code, kind) {
+  if (code.length > MAX_REDACTION_INPUT) return true;
+  // Lexical classification only: never evaluate code or resolve runtime aliases.
+  // Keep literal benign targets, but omit ambiguous environment access.
+  const tokens = [];
+  const lexer = kind === 'python'
+    ? /#[^\r\n]*|(?:'''[\s\S]*?'''|"""[\s\S]*?"""|'(?:\\[\s\S]|[^'\\])*'|"(?:\\[\s\S]|[^"\\])*")|\\\r?\n|[\p{L}_][\p{L}\p{N}_]*|[^\s]/gu
+    : /\/\/[^\r\n]*|\/\*[\s\S]*?\*\/|'(?:\\[\s\S]|[^'\\])*'|"(?:\\[\s\S]|[^"\\])*"|\x60(?:\\[\s\S]|[^\x60\\])*\x60|[\p{L}_$][\p{L}\p{N}_$]*|[^\s]/gu;
+  for (const match of code.matchAll(lexer)) {
+    const token = match[0];
+    if (kind === 'python' ? token.startsWith('#') || /^\\\r?\n$/.test(token) : token.startsWith('//') || token.startsWith('/*')) continue;
+    tokens.push(token);
+  }
+  // A slash outside a recognized comment/string can begin a JS regex literal.
+  // Its contents can mimic a comment and conceal subsequent environment access.
+  if (kind === 'node' && tokens.includes('/') && /\b(?:process|env)\b/.test(code)) return true;
+  if (kind === 'node' && tokens.some(token => /^(?:require|import|globalThis)$/.test(token))
+      && tokens.some(token => token === 'env' || /^(['"])env\1$/.test(token))
+      && !tokens.includes('process')) return true;
+  const literal = token => {
+    if (!token || !/^(['"])[A-Za-z_][A-Za-z0-9_.-]*\1$/.test(token)) return null;
+    return token.slice(1, -1);
+  };
+  const benign = name => name !== null && !isSecretKey(name);
+  const bracketKey = index => tokens[index] === '[' && tokens[index + 2] === ']' && benign(literal(tokens[index + 1]));
+  const callKey = index => tokens[index] === '(' && [',', ')'].includes(tokens[index + 2]) && benign(literal(tokens[index + 1]));
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    const previous = tokens[i - 1];
+    const next = tokens[i + 1];
+    // Interpolated strings and escaped identifiers are not plain literals.
+    if (kind === 'node' && token.startsWith('\x60') && token.includes('$' + '{') && /process|env|\\u/.test(token)) return true;
+    if (kind === 'python' && /^(?:f|fr|rf)$/i.test(previous ?? '') && /^['"]/.test(token) && token.includes('{') && /environ|putenv|getattr|os/.test(token)) return true;
+    if (token === '\\') return true;
+    if (kind === 'python') {
+      if (/^(?:environ|environb)$/.test(token)) {
+        if (previous !== '.') return true;
+        if (bracketKey(i + 1)) continue;
+        if (next === '.' && /^(?:get|setdefault|pop)$/.test(tokens[i + 2] ?? '') && callKey(i + 3)) continue;
+        return true;
+      }
+      if (/^(?:putenv|unsetenv|getenv|getenvb)$/.test(token)) {
+        if (previous === '.' && callKey(i + 1)) continue;
+        return true;
+      }
+      if (/^(?:getattr|setattr|__import__)$/.test(token) && tokens.includes('os')) return true;
+      if (/^(['"])(?:os|environ|environb|putenv)\1$/.test(token) && (previous === '[' || previous === ',' || previous === '(') && tokens.some(t => /^(?:getattr|setattr|__import__|import_module)$/.test(t))) return true;
+    } else {
+      if (/^(['"])(?:node:)?process\1$/.test(token) && (previous === '[' || previous === 'from' || previous === 'import' || (previous === '(' && tokens[i - 2] === 'require'))) return true;
+      if (token !== 'process') continue;
+      let end;
+      if (next === '.' && tokens[i + 2] === 'env') end = i + 3;
+      else if (next === '[' && literal(tokens[i + 2]) === 'env' && tokens[i + 3] === ']') end = i + 4;
+      else if (next === '.' && /^[A-Za-z_$][\w$]*$/.test(tokens[i + 2] ?? '')) continue;
+      else return true;
+      if (bracketKey(end)) continue;
+      if (tokens[end] === '.' && /^[A-Za-z_$][\w$]*$/.test(tokens[end + 1] ?? '') && benign(tokens[end + 1])) continue;
+      return true;
+    }
+  }
+  return false;
+}
+
+function redactInterpreterArgv(argv) {
+  const kind = interpreterArgvKind(argv[0]);
+  if (!kind) return argv;
+  const omitted = () => [argv[0], '[REDACTED: credential command arguments]'];
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i];
+    if (typeof arg !== 'string') return omitted();
+    if (arg === '--' || !arg.startsWith('-')) break;
+    if (kind === 'python' && /^-[bBdEiIOPqRsSuvVx]*m/.test(arg)) break;
+    if (kind === 'node' && /^--run(?:=|$)/.test(arg)) break;
+    const optionWithValue = kind === 'python'
+      ? /^(?:-[bBdEiIOPqRsSuvVx]*[WX]|--check-hash-based-pycs)$/
+      : /^(?:-r|--require|--import|--loader|--experimental-loader|-C|--conditions|--input-type|--experimental-policy|--env-file|--env-file-if-exists|--icu-data-dir|--openssl-config|--title|--watch-path|--redirect-warnings|--diagnostic-dir|--report-directory|--report-filename|--snapshot-blob|--heapsnapshot-signal|--inspect-port)$/;
+    if (optionWithValue.test(arg)) {
+      if (typeof argv[++i] !== 'string') return omitted();
+      continue;
+    }
+    const match = (kind === 'python' ? /^-[bBdEiIOPqRsSuvVx]*c([\s\S]*)$/ : /^(?:-(?:pe|ep|ie|ip|e|p)([\s\S]*)|--(?:eval|print)(?:=([\s\S]*))?)$/).exec(arg);
+    if (!match) continue;
+    const attached = match[1] || match[2];
+    const code = attached || (arg.endsWith('=') ? '' : argv[++i]);
+    if (typeof code !== 'string' || interpreterCodeMayExposeCredentials(code, kind)) return omitted();
+  }
+  return argv;
+}
+
 function redactCommandArgv(argv) {
+  if (interpreterArgvKind(argv[0])) return redactInterpreterArgv(argv);
   return isSetxExecutable(argv[0]) ? redactSetxArgv(argv) : redactPowerShellProviderArgv(argv);
 }
 
 function redactSerializedCommandArgv(text, depth = 0) {
-  if (!/^\s*[\[{" ]/.test(text) || !/setx|Set-Item|New-Item|Set-Content|Set-Variable|\\u/i.test(text)) return text;
+  if (!/^\s*[\[{" ]/.test(text) || !/setx|Set-Item|New-Item|Set-Content|Set-Variable|python|node|\bpyw?\b|\\u/i.test(text)) return text;
   let parsed;
   try { parsed = JSON.parse(text); } catch { return text; }
   if (depth >= MAX_DEPTH) return '[REDACTED: nested command preview]';
@@ -678,7 +776,7 @@ function redactSerializedCommandArgv(text, depth = 0) {
       const first = /^\s*("(?:\\.|[^"\\])*")/.exec(text.slice(frame.start + 1, start));
       if (!first) continue;
       const executable = JSON.parse(first[1]);
-      if (!isSetxExecutable(executable) && !powerShellProviderCommand(executable)) continue;
+      if (!isSetxExecutable(executable) && !powerShellProviderCommand(executable) && !interpreterArgvKind(executable)) continue;
       const argv = JSON.parse(text.slice(frame.start, end));
       const masked = redactCommandArgv(argv);
       if (masked !== argv) {
