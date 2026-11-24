@@ -1,0 +1,81 @@
+{
+  "manifest_version": "0.3",
+  "name": "nofax",
+  "display_name": "Nofax - Human Approval and Notifications",
+  "version": "0.2.51",
+  "description": "Local human-in-the-loop notifications, approval requests, choices, and refinement via a configured ntfy transport.",
+  "long_description": "Nofax runs locally over MCP and sends explicitly requested notifications through your configured ntfy service. Interactive requests remain pending until a matching terminal response is received. It does not replace Claude or operating-system permission controls and installs no hooks. Configure Nofax first using the documented CLI quick start. Public ntfy is not end-to-end encrypted; avoid sensitive material and use a trusted transport. Local request state stays in your Nofax home directory.",
+  "author": {
+    "name": "AKzar1el",
+    "url": "https://github.com/AKzar1el"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AKzar1el/nofax"
+  },
+  "homepage": "https://github.com/AKzar1el/nofax",
+  "documentation": "https://github.com/AKzar1el/nofax#readme",
+  "support": "https://github.com/AKzar1el/nofax/issues",
+  "license": "MIT",
+  "privacy_policies": [
+    "https://github.com/AKzar1el/nofax/blob/main/PRIVACY.md",
+    "https://docs.ntfy.sh/privacy/"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "bin/nofax.mjs",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/bin/nofax.mjs",
+        "mcp"
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "nofax_notify",
+      "description": "Send a one-way phone notification. This tool is informational and does not create a human-response wait. Notification transport success never counts as approval."
+    },
+    {
+      "name": "nofax_request_approval",
+      "description": "Send Allow/Deny to the phone and return a durable pending requestId. IMPORTANT: after this tool returns pending, call nofax_wait_for_response and repeat while it remains pending. Never continue the guarded action without a terminal Allow response. Set allowRefine when the human should also be able to send refinement text."
+    },
+    {
+      "name": "nofax_request_choice",
+      "description": "Send up to three explicit options to the phone and return a durable pending requestId. IMPORTANT: call nofax_wait_for_response and repeat while pending; do not choose on the human's behalf."
+    },
+    {
+      "name": "nofax_request_refinement",
+      "description": "Ask the human for free-text refinement through the configured Nofax Refine iOS Shortcut. Use this when free-text edits are needed; use nofax_request_approval for Allow/Deny or nofax_request_choice for predefined options. Returns a durable pending requestId; call nofax_wait_for_response and repeat while pending."
+    },
+    {
+      "name": "nofax_wait_for_response",
+      "description": "Long-poll a durable Nofax request for up to 240 seconds. If the result is pending, you MUST call this tool again with the same requestId. Repeat indefinitely until a terminal response is returned or the user explicitly changes/cancels the goal. Do not continue the guarded action while pending."
+    },
+    {
+      "name": "nofax_get_request",
+      "description": "Inspect safe metadata and terminal state for one known durable requestId without waiting. Use nofax_wait_for_response when the caller must wait for a human decision, or nofax_list_pending to recover requestIds after interruption. Secret response topics are never returned."
+    },
+    {
+      "name": "nofax_list_pending",
+      "description": "List a bounded set of unresolved Nofax request handles for recovery after client or conversation interruption. Secret response topics are never returned."
+    }
+  ],
+  "keywords": [
+    "human-in-the-loop",
+    "notifications",
+    "approvals",
+    "ntfy",
+    "developer-tools"
+  ],
+  "compatibility": {
+    "platforms": [
+      "win32",
+      "darwin"
+    ],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  }
+}

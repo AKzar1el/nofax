@@ -129,6 +129,8 @@ policy instead. See Microsoft's [PowerShell execution policy reference](https://
 
 ## MCP
 
+For Claude Desktop, see the [desktop extension setup and verification guide](docs/desktop-extension.md) and the [local privacy notice](PRIVACY.md).
+
 Start the local stdio MCP server:
 
 ```bash
