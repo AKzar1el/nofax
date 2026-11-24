@@ -2,6 +2,56 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildAgentSummary, createRequestId, createResponseTopic, redactAndBound } from '../src/protocol.mjs';
 
+test('typed PowerShell provider argv preserves privacy and benign review context', () => {
+  const marker = 'NOFAX_SYNTHETIC_PS_ARGV_X92';
+  const sensitive = [
+    ['Set-Item', 'Env:API_KEY', marker],
+    ['Set-Item', '-Path', 'Env:TOKEN', '-Value', marker],
+    ['Set-Item', '-Value', marker, '-LiteralPath', 'Variable:API_KEY'],
+    ['New-Item', '-Path', 'Env:', '-Name', 'API_KEY', '-Value', marker],
+    ['New-Item', '-Path', 'Env:', '-Value', marker],
+    ['Set-Content', '-Path:Environment::API_KEY', '-Value:' + marker],
+    ['Set-Variable', 'API_KEY', marker],
+    ['Set-Variable', '-Value', marker, '-Name', 'API_KEY'],
+    ['Set-Variable', '-Name', 'NOTE', 'API_KEY', '-Value', marker],
+    ['Set-Item', '-Path', ['Env:NOTE', 'Env:API_KEY'], '-Value', marker],
+    ['Set-Item', '-Path', 'Env:NOTE', 'Env:API_KEY', '-Value', marker],
+    ['Set-Item', '-Path', 'Env:NOTE', '-Path', 'Env:API_KEY', '-Value', marker],
+    ['Set-Item', '-P', 'Env:API_KEY', '-V', marker],
+    ['Microsoft.PowerShell.Management\\Set-Item', '-Path', 'Environment::API_KEY', '-Value', marker],
+    ['Set-Variable', '-Name', 'NOTE', '-Credential', marker, '-Value', 'safe'],
+    ['Set-Item', '-Path', 'Env:$name', '-Value', marker],
+  ];
+  for (const argv of sensitive) {
+    const object = { command: argv, note: 'safe sibling' };
+    for (const input of [argv, object, JSON.stringify(argv), JSON.stringify(object), JSON.stringify(JSON.stringify(object)), JSON.stringify({ nested: JSON.stringify(object), note: 'safe sibling' })]) {
+      for (const output of [JSON.stringify(redactAndBound(input)), buildAgentSummary({ toolInput: input })]) {
+        assert.ok(!output.includes(marker), 'credential argv leaked for ' + argv[0]);
+        assert.match(output, /REDACTED/);
+        if (input !== argv && input !== JSON.stringify(argv)) assert.match(output, /safe sibling/);
+      }
+    }
+  }
+  const duplicate = '{"argv":["\\u0053et-Item","Env:API_KEY","' + marker + '"],"mode":"one","mode":"two"}';
+  assert.ok(!redactAndBound(duplicate).includes(marker));
+  assert.match(redactAndBound(duplicate), /"mode":"one","mode":"two"/);
+  for (const argv of [
+    ['Set-Item', 'Env:NOTE', marker],
+    ['Set-Item', '-Path', 'Env:NOTE', '-Value', marker],
+    ['Set-Variable', '-Value', marker, '-Name', 'NOTE'],
+    ['Set-Variable', 'NOTE', marker],
+    ['New-Item', '-Path', 'Env:', '-Name', 'NOTE', '-Value', marker],
+    ['Set-Content', '-Value', marker, '-Path', 'notes with spaces.txt'],
+    ['Microsoft.PowerShell.Management\\Set-Item', '-Path', 'Environment::NOTE', '-Value', marker],
+    ['echo', 'Set-Item', marker],
+  ]) {
+    assert.deepEqual(redactAndBound(argv), argv);
+    const serialized = JSON.stringify({ command: argv, note: 'safe sibling' });
+    assert.equal(redactAndBound(serialized), serialized);
+    assert.match(buildAgentSummary({ toolInput: { command: argv } }), new RegExp(marker));
+  }
+});
+
 test('structured setx credential argv is private in typed and serialized previews', () => {
   const marker = 'NOFAX_SYNTHETIC_ARGV_X91';
   const cases = [
