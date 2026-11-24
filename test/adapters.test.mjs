@@ -232,6 +232,11 @@ test('structured credential command previews preserve deny, timeout and transpor
     { command: ['New-Item', '-Path', 'Env:', '-Value', marker], masked: true },
     { command: ['Set-Variable', '-Value', marker, '-Name', 'NOTE'], masked: false },
     { command: JSON.stringify({ argv: ['Set-Content', '-Path', 'notes with spaces.txt', '-Value', marker] }), masked: false },
+    { command: ['python', '-c', "import os; os.environ['API_KEY']='" + marker + "'"], masked: true },
+    { command: JSON.stringify({ argv: ['node', '-e', "const e=process.env; e['TOKEN']='" + marker + "'"] }), masked: true },
+    { command: ['node', '--eval', "process.env[key]=process.argv[1]", marker], masked: true },
+    { command: ['python', '-c', "import os; os.environ['NOTE']='" + marker + "'"], masked: false },
+    { command: JSON.stringify({ argv: ['node', '-e', "console.log('" + marker + " process.env')"] }), masked: false },
   ];
   for (const { command, masked } of cases) {
     for (const decision of ['deny', 'timeout', 'error']) {

@@ -2,6 +2,110 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildAgentSummary, createRequestId, createResponseTopic, redactAndBound } from '../src/protocol.mjs';
 
+test('inline interpreter argv previews mask credential targets and retain benign context', () => {
+  const marker = 'NOFAX_SYNTHETIC_INTERPRETER_X95';
+  const python = [
+    "import os; os.environ['API_KEY']='" + marker + "'",
+    "import os; os.putenv('TOKEN','" + marker + "')",
+    "import os; os.environ['API_'+'KEY']='" + marker + "'",
+    "from os import environ as e; e['API_KEY']='" + marker + "'",
+    "import os as x; x.environ['API_KEY']='" + marker + "'",
+    "import os; os.environ.update({'API_KEY':'" + marker + "'})",
+    "import os; os.environ[name]='" + marker + "'",
+    "import os; os.environ.setdefault('API_KEY','" + marker + "')",
+    "import os; getattr(os,'environ')['API_KEY']='" + marker + "'",
+    "import os as x; getattr(x, attr)[name]='" + marker + "'",
+    "from os import putenv as p; p('API_KEY','" + marker + "')",
+    "import os; e=os.environ; e['API_KEY']='" + marker + "'",
+    "import os; os.environ['API\\x5fKEY']='" + marker + "'",
+    "import os; os.environ['API_KEY'] += '" + marker + "'",
+    "import os; os.environb[b'API_KEY']=b'" + marker + "'",
+    "import os; os.environ['API_KEY']=sys.argv[1]",
+    "import os; os.environ.setdefault(name,'" + marker + "')",
+    "__import__('os').environ['API_KEY']='" + marker + "'",
+  ];
+  const node = [
+    "process.env['API_KEY']='" + marker + "'",
+    "process.env[key]='" + marker + "'",
+    "const e=process.env; e.API_KEY='" + marker + "'",
+    "const {env:e}=require('process'); e['API_KEY']='" + marker + "'",
+    "Reflect.set(process.env,'API_KEY','" + marker + "')",
+    "process['env']['API_KEY']='" + marker + "'",
+    "process.env['API_'+'KEY']='" + marker + "'",
+    "process.env.API_KEY += '" + marker + "'",
+    "const p=process; p.env.API_KEY='" + marker + "'",
+    "globalThis['process'].env.API_KEY='" + marker + "'",
+    "const p=require('node:process'); p.env.API_KEY='" + marker + "'",
+    "Object.defineProperty(process.env,'API_KEY',{value:'" + marker + "'})",
+    "process.env['API\\x5fKEY']='" + marker + "'",
+    "process[env][key]='" + marker + "'",
+    "process.env.API_KEY=process.argv[1]",
+    "Reflect.set(process['env'],key,'" + marker + "')",
+    "const p = globalThis.process; p.env.API_KEY='" + marker + "'",
+  ];
+  const sensitive = [
+    ...python.map(code => ['python', '-c', code, marker]),
+    ...node.map(code => ['node', '-e', code, marker]),
+    ['C:\\Python\\python3.11.exe', '-W', 'ignore', '-c', python[0]],
+    ['py', '-3.11', '-c' + python[1]],
+    ['node', '-r', 'example-module', '--eval', node[0]],
+    ['node.exe', '--eval=' + node[1]],
+    ['node', '-pe', node[0]],
+    ['node', '--print', node[2]],
+    ['python', '-Ic', python[0]],
+    ['pythonw.exe', '-c', python[0]],
+    ['pyw.exe', '-c', python[0]],
+    ['nodejs', '-e', node[0]],
+    ['python', '-IW', 'ignore', '-c', python[0]],
+    ['node', '-e', 'console.log(1)', '-e', node[0]],
+    ['node', '--experimental-policy', 'policy.json', '-e', node[0]],
+    ['node', '-e', "const r=/[//]/; " + node[0]],
+    ['node', '-e', "const p=require('pro'+'cess'); p.env['API_KEY']='" + marker + "'"],
+    ['node', '-e', "globalThis[which].env['API_KEY']='" + marker + "'"],
+  ];
+  const benign = [
+    ['python', '-c', "import os; os.environ['NOTE']='" + marker + "'"],
+    ['python', '-c', "print('" + marker + " os.environ')"],
+    ['python', '-c', "# os.environ['API_KEY']\nprint('" + marker + "')"],
+    ['python', '-c', "import os; os.putenv('NOTE','" + marker + "')"],
+    ['python', '-c', "import os; print(os.environ.get('NOTE'),'" + marker + "')"],
+    ['python', '-c', "import os; print(os.getcwd(),'" + marker + "')"],
+    ['python', '-c', "print('''" + marker + " os.environ['API_KEY']''')"],
+    ['python', '-c', "import os as x; x.environ['NOTE']='" + marker + "'"],
+    ['node', '-e', "process.env.NOTE='" + marker + "'"],
+    ['node', '-e', "console.log('" + marker + " process.env')"],
+    ['node', '-e', "// process.env.API_KEY\nconsole.log('" + marker + "')"],
+    ['node', '-e', "process.env['NOTE']='" + marker + "'"],
+    ['node', '-e', "process['env']['NOTE']='" + marker + "'"],
+    ['node', '-e', "console.log(process.cwd(),'" + marker + "')"],
+    ['node', '-e', "/* process.env.API_KEY */console.log('" + marker + "')"],
+    ['node', '-e', "console.log('" + marker + "')"],
+    ['echo', 'node', marker],
+    ['python', 'script.py', '-c', "print('" + marker + "')"],
+    ['node', 'script.js', '-e', marker],
+    ['python', '-Ic', "print('" + marker + "')"],
+    ['pythonw.exe', '-c', "print('" + marker + "')"],
+    ['nodejs', '-e', "console.log('" + marker + "')"],
+    ['python', '-IW', 'ignore', '-c', "print('" + marker + "')"],
+    ['node', '-r', 'example-module', '-e', "console.log('" + marker + "')"],
+    ['node', '-e', "const r=/hello/; console.log('" + marker + "')"],
+    ['node', '-e', "console.log(4 / 2, '" + marker + "')"],
+  ];
+  for (const [argv, masked] of [...sensitive.map(a => [a, true]), ...benign.map(a => [a, false])]) {
+    const object = { command: argv, note: 'safe sibling' };
+    for (const input of [argv, object, JSON.stringify(argv), JSON.stringify(object), JSON.stringify(JSON.stringify(object)), JSON.stringify({ nested: JSON.stringify(object), note: 'safe sibling' })]) {
+      for (const output of [JSON.stringify(redactAndBound(input)), buildAgentSummary({ toolInput: input })]) {
+        assert.equal(output.includes(marker), !masked, 'interpreter preview privacy or benign context: ' + argv[0]);
+        if (masked) assert.match(output, /REDACTED/);
+        if (input !== argv && input !== JSON.stringify(argv)) assert.match(output, /safe sibling/);
+      }
+    }
+  }
+  const duplicate = '{"argv":["\\u006eode","-e",' + JSON.stringify(node[0]) + '],"mode":"one","mode":"two"}';
+  assert.ok(!redactAndBound(duplicate).includes(marker));
+  assert.match(redactAndBound(duplicate), /"mode":"one","mode":"two"/);
+});
+
 test('typed PowerShell provider argv preserves privacy and benign review context', () => {
   const marker = 'NOFAX_SYNTHETIC_PS_ARGV_X92';
   const sensitive = [
