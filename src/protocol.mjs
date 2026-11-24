@@ -560,6 +560,71 @@ function redactPowerShellCredentialCommands(text, depth = 0) {
   }).join('');
 }
 
+function isSetxExecutable(value) {
+  return typeof value === 'string' && /(?:^|[\\/])setx(?:\.exe)?$/i.test(value.replace(/^"|"$/g, ''));
+}
+
+function redactSetxArgv(argv) {
+  if (!isSetxExecutable(argv[0])) return argv;
+  if (argv.length === 1 || (argv.length === 2 && argv[1] === '/?')) return argv;
+
+  // Only the literal local variable/value form has an unambiguous value
+  // position. Omit all arguments for other layouts (including remote options).
+  const local = (argv.length === 3 || (argv.length === 4 && typeof argv[3] === 'string' && /^\/m$/i.test(argv[3])))
+    && typeof argv[1] === 'string' && /^[\p{L}_][\p{L}\p{N}_.-]*$/u.test(argv[1])
+    && typeof argv[2] === 'string';
+  if (!local) return [argv[0], '[REDACTED: credential command arguments]'];
+  return isSecretKey(argv[1]) ? [argv[0], argv[1], '[REDACTED]', ...argv.slice(3)] : argv;
+}
+
+function redactSerializedSetxArgv(text, depth = 0) {
+  if (!/^\s*[\[{" ]/.test(text) || !/setx|\\u/i.test(text)) return text;
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { return text; }
+  if (depth >= MAX_DEPTH) return '[REDACTED: nested command preview]';
+  if (typeof parsed === 'string') {
+    const masked = redactSerializedSetxArgv(parsed, depth + 1);
+    return masked === parsed ? text : JSON.stringify(masked);
+  }
+  if (!parsed || typeof parsed !== 'object') return text;
+
+  // Inspect complete array spans and nested string lexemes, not a rebuilt
+  // object: duplicate keys and unrelated review context must remain intact.
+  const arrays = [];
+  const replacements = [];
+  for (const match of text.matchAll(/"(?:\\.|[^"\\])*"|[\[\]]/g)) {
+    const token = match[0];
+    const start = match.index;
+    const end = start + token.length;
+    if (token === '[') {
+      arrays.push({ start, replacementIndex: replacements.length });
+    } else if (token === ']') {
+      const frame = arrays.pop();
+      const first = /^\s*("(?:\\.|[^"\\])*")/.exec(text.slice(frame.start + 1, start));
+      if (!first) continue;
+      const executable = JSON.parse(first[1]);
+      if (!isSetxExecutable(executable)) continue;
+      const argv = JSON.parse(text.slice(frame.start, end));
+      const masked = redactSetxArgv(argv);
+      if (masked !== argv) {
+        replacements.length = frame.replacementIndex;
+        replacements.push({ start: frame.start, end, value: JSON.stringify(masked) });
+      }
+    } else if (!/^\s*:/.test(text.slice(end))) {
+      const decoded = JSON.parse(token);
+      const masked = redactSerializedSetxArgv(decoded, depth + 1);
+      if (masked !== decoded) replacements.push({ start, end, value: JSON.stringify(masked) });
+    }
+  }
+  let result = '';
+  let offset = 0;
+  for (const replacement of replacements) {
+    result += text.slice(offset, replacement.start) + replacement.value;
+    offset = replacement.end;
+  }
+  return result + text.slice(offset);
+}
+
 function redactSecretText(value) {
   // Whole JSON-string previews may encode line breaks as backslash-n. Decode
   // only those complete wrappers so key-value matchers cannot eat a safe
@@ -572,7 +637,7 @@ function redactSecretText(value) {
     value = decoded;
     wrappers += 1;
   }
-  value = redactPowerShellCredentialCommands(value);
+  value = redactPowerShellCredentialCommands(redactSerializedSetxArgv(value));
   let redacted = redactCompatibilitySecretKeyText(
     redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(redactYamlCredentialAliases(redactShellExpressionCredentials(redactMultilineCredentialAssignments(redactShellCredentialBlocks(redactControlInterruptedSecretKeyText(value)))))))
   );
@@ -804,6 +869,11 @@ export function redactAndBound(value, options = {}) {
   seen.add(value);
 
   if (Array.isArray(value)) {
+    const maskedArgv = redactSetxArgv(value);
+    if (maskedArgv !== value) {
+      seen.delete(value);
+      return maskedArgv.map(boundString);
+    }
     if (value.length === 2 && typeof value[0] === 'string' && isSecretKey(value[0])) {
       seen.delete(value);
       return [boundString(value[0]), '[REDACTED]'];

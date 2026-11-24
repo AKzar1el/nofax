@@ -2,6 +2,39 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildAgentSummary, createRequestId, createResponseTopic, redactAndBound } from '../src/protocol.mjs';
 
+test('structured setx credential argv is private in typed and serialized previews', () => {
+  const marker = 'NOFAX_SYNTHETIC_ARGV_X91';
+  const cases = [
+    ['setx', 'API_KEY', marker],
+    ['SETX.EXE', 'GITHUB_PAT', marker, '/m'],
+    ['C:\\Windows\\System32\\setx.exe', 'TOKEN', marker],
+    ['setx', '/m', 'API_KEY', marker],
+    ['setx', '/s', 'example.invalid', '/u', 'synthetic', '/p', marker, 'NOTE', 'safe'],
+    ['setx', 'API_KEY', { value: marker }],
+  ];
+  for (const argv of cases) {
+    const object = { command: argv, note: 'safe sibling' };
+    for (const input of [argv, object, JSON.stringify(argv), JSON.stringify(object), JSON.stringify(JSON.stringify(object)), JSON.stringify({ nested: JSON.stringify(object), note: 'safe sibling' })]) {
+      const bounded = JSON.stringify(redactAndBound(input));
+      const summary = buildAgentSummary({ toolInput: input });
+      for (const output of [bounded, summary]) {
+        assert.ok(!output.includes(marker), 'credential argv leaked');
+        assert.match(output, /REDACTED/);
+        if (input !== argv && input !== JSON.stringify(argv)) assert.match(output, /safe sibling/);
+      }
+    }
+  }
+  const duplicate = `{"argv":["\\u0073etx","API_KEY","${marker}"],"mode":"first","mode":"second"}`;
+  const output = redactAndBound(duplicate);
+  assert.ok(!output.includes(marker));
+  assert.match(output, /"mode":"first","mode":"second"/);
+  for (const argv of [['setx', 'NOTE', marker], ['setx.exe', 'NOTE', marker, '/m'], ['echo', 'API_KEY', marker], ['setx', '/?']]) {
+    assert.deepEqual(redactAndBound(argv), argv);
+    const serialized = JSON.stringify({ command: argv, note: 'safe sibling' });
+    assert.equal(redactAndBound(serialized), serialized);
+  }
+});
+
 test('PowerShell provider credential command previews omit sensitive arguments', () => {
   const marker = 'NOFAX_CANARY_X91';
   const commands = [
