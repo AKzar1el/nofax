@@ -723,10 +723,17 @@ function redactInterpreterArgv(argv) {
   const kind = interpreterArgvKind(argv[0]);
   if (!kind) return argv;
   const omitted = () => [argv[0], '[REDACTED: credential command arguments]'];
+  let ambiguousOption = false;
   for (let i = 1; i < argv.length; i++) {
     const arg = argv[i];
     if (typeof arg !== 'string') return omitted();
-    if (arg === '--' || !arg.startsWith('-')) break;
+    if (arg === '--') break;
+    if (!arg.startsWith('-')) {
+      // An unclassified option may consume a separate argument. Do not
+      // assume this positional-looking token is the script boundary.
+      if (!ambiguousOption) break;
+      continue;
+    }
     if (kind === 'python' && /^-[bBdEiIOPqRsSuvVx]*m/.test(arg)) break;
     if (kind === 'node' && /^--run(?:=|$)/.test(arg)) break;
     const optionWithValue = kind === 'python'
@@ -737,10 +744,20 @@ function redactInterpreterArgv(argv) {
       continue;
     }
     const match = (kind === 'python' ? /^-[bBdEiIOPqRsSuvVx]*c([\s\S]*)$/ : /^(?:-(?:pe|ep|ie|ip|e|p)([\s\S]*)|--(?:eval|print)(?:=([\s\S]*))?)$/).exec(arg);
-    if (!match) continue;
+    if (!match) {
+      const knownStandalone = kind === 'python'
+        ? /^(?:-[bBdEiIOPqRsSuvVx]+|-[WX].+|-[23](?:\.\d+)?|--help|--version)$/
+        : /^(?:--no-warnings|--trace-warnings|--no-deprecation|--trace-deprecation|--enable-source-maps|--no-experimental-fetch|--experimental-repl-await|-i|--interactive|-v|--version|-h|--help)$/;
+      if (!knownStandalone.test(arg) && !arg.includes('=')) ambiguousOption = true;
+      continue;
+    }
     const attached = match[1] || match[2];
     const code = attached || (arg.endsWith('=') ? '' : argv[++i]);
     if (typeof code !== 'string' || interpreterCodeMayExposeCredentials(code, kind)) return omitted();
+    // Python's -c ends interpreter option processing; Node permits repeated
+    // inline eval options until its own positional or -- boundary.
+    if (kind === 'python') break;
+    ambiguousOption = false;
   }
   return argv;
 }
@@ -750,10 +767,60 @@ function redactCommandArgv(argv) {
   return isSetxExecutable(argv[0]) ? redactSetxArgv(argv) : redactPowerShellProviderArgv(argv);
 }
 
+function isCredentialCommand(value) {
+  return isSetxExecutable(value) || !!powerShellProviderCommand(value) || !!interpreterArgvKind(value);
+}
+
+const COMMAND_FIELD = /^(?:command|executable|program|file)$/i;
+const ARGUMENT_FIELD = /^(?:args|arguments|argv)$/i;
+const OMITTED_COMMAND_ARGS = '[REDACTED: credential command arguments]';
+const COMMAND_PREVIEW_HINT = /setx|Set-Item|New-Item|Set-Content|Set-Variable|python|node|\bpyw?\b|\\u/i;
+
+function looksLikeCredentialCommandCarrier(text, depth = 0) {
+  // Malformed JSON cannot establish safe field boundaries. Recognize an
+  // explicit executable field or first argv element without rebuilding it.
+  if (depth >= MAX_DEPTH) return true;
+  let previous = null;
+  for (const match of text.matchAll(/"(?:\\.|[^"\\])*"/g)) {
+    try {
+      const decoded = JSON.parse(match[0]);
+      const start = match.index;
+      if (isCredentialCommand(decoded)) {
+        if (text.slice(0, start).trimEnd().endsWith('[')) return true;
+        if (previous && COMMAND_FIELD.test(previous.value) && /^\s*:\s*$/.test(text.slice(previous.end, start))) return true;
+      }
+      if (/^\s*[\[{"]/.test(decoded) && COMMAND_PREVIEW_HINT.test(decoded)
+          && looksLikeCredentialCommandCarrier(decoded, depth + 1)) return true;
+      previous = { value: decoded, end: start + match[0].length };
+    } catch { previous = null; }
+  }
+  return false;
+}
+
+function splitCommandMaskIndices(entries) {
+  const commands = entries.filter(([key, value]) => COMMAND_FIELD.test(key) && isCredentialCommand(value));
+  if (!commands.length) return new Set();
+  const masked = new Set();
+  for (const [index, [key, value]] of entries.entries()) {
+    if (!ARGUMENT_FIELD.test(key)) continue;
+    // Duplicate fields are possible in serialized input. A benign duplicate
+    // must not override evidence that another command can expose credentials.
+    if (!Array.isArray(value) || value.length > MAX_ARRAY || commands.length > MAX_OBJECT_KEYS
+        || value.some(arg => typeof arg !== 'string')
+        || commands.some(([, executable]) => {
+          const argv = [executable, ...value];
+          return redactCommandArgv(argv) !== argv;
+        })) masked.add(index);
+  }
+  return masked;
+}
+
 function redactSerializedCommandArgv(text, depth = 0) {
-  if (!/^\s*[\[{" ]/.test(text) || !/setx|Set-Item|New-Item|Set-Content|Set-Variable|python|node|\bpyw?\b|\\u/i.test(text)) return text;
+  if (!/^\s*[\[{" ]/.test(text) || !COMMAND_PREVIEW_HINT.test(text)) return text;
   let parsed;
-  try { parsed = JSON.parse(text); } catch { return text; }
+  try { parsed = JSON.parse(text); } catch {
+    return looksLikeCredentialCommandCarrier(text) ? OMITTED_COMMAND_ARGS : text;
+  }
   if (depth >= MAX_DEPTH) return '[REDACTED: nested command preview]';
   if (typeof parsed === 'string') {
     const masked = redactSerializedCommandArgv(parsed, depth + 1);
@@ -761,37 +828,60 @@ function redactSerializedCommandArgv(text, depth = 0) {
   }
   if (!parsed || typeof parsed !== 'object') return text;
 
-  // Inspect complete array spans and nested string lexemes, not a rebuilt
-  // object: duplicate keys and unrelated review context must remain intact.
-  const arrays = [];
+  // Inspect exact spans, not rebuilt objects: duplicate keys and unrelated
+  // review context must remain intact. Associate fields only in their own frame.
+  const frames = [];
   const replacements = [];
-  for (const match of text.matchAll(/"(?:\\.|[^"\\])*"|[\[\]]/g)) {
+  function completeValue(start, end) {
+    const parent = frames[frames.length - 1];
+    if (parent?.kind !== '{' || parent.key === null) return;
+    const key = parent.key;
+    parent.key = null;
+    if (COMMAND_FIELD.test(key) || ARGUMENT_FIELD.test(key)) {
+      parent.entries.push([key, JSON.parse(text.slice(start, end))]);
+      parent.spans.push({ start, end });
+    }
+  }
+  for (const match of text.matchAll(/"(?:\\.|[^"\\])*"|[{}\[\]:,]|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/g)) {
     const token = match[0];
     const start = match.index;
     const end = start + token.length;
-    if (token === '[') {
-      arrays.push({ start, replacementIndex: replacements.length });
-    } else if (token === ']') {
-      const frame = arrays.pop();
-      const first = /^\s*("(?:\\.|[^"\\])*")/.exec(text.slice(frame.start + 1, start));
-      if (!first) continue;
-      const executable = JSON.parse(first[1]);
-      if (!isSetxExecutable(executable) && !powerShellProviderCommand(executable) && !interpreterArgvKind(executable)) continue;
-      const argv = JSON.parse(text.slice(frame.start, end));
-      const masked = redactCommandArgv(argv);
-      if (masked !== argv) {
-        replacements.length = frame.replacementIndex;
-        replacements.push({ start: frame.start, end, value: JSON.stringify(masked) });
+    if (token === '[' || token === '{') {
+      frames.push({ kind: token, start, key: null, entries: [], spans: [] });
+    } else if (token === ']' || token === '}') {
+      const frame = frames.pop();
+      if (token === ']') {
+        const first = /^\s*("(?:\\.|[^"\\])*")/.exec(text.slice(frame.start + 1, start));
+        if (first && isCredentialCommand(JSON.parse(first[1]))) {
+          const argv = JSON.parse(text.slice(frame.start, end));
+          const masked = redactCommandArgv(argv);
+          if (masked !== argv) replacements.push({ start: frame.start, end, value: JSON.stringify(masked) });
+        }
+      } else {
+        for (const index of splitCommandMaskIndices(frame.entries)) {
+          replacements.push({ ...frame.spans[index], value: JSON.stringify(OMITTED_COMMAND_ARGS) });
+        }
       }
-    } else if (!/^\s*:/.test(text.slice(end))) {
-      const decoded = JSON.parse(token);
-      const masked = redactSerializedCommandArgv(decoded, depth + 1);
-      if (masked !== decoded) replacements.push({ start, end, value: JSON.stringify(masked) });
+      completeValue(frame.start, end);
+    } else if (token !== ':' && token !== ',') {
+      if (token.startsWith('"')) {
+        const decoded = JSON.parse(token);
+        if (/^\s*:/.test(text.slice(end))) {
+          frames[frames.length - 1].key = decoded;
+          continue;
+        }
+        const masked = redactSerializedCommandArgv(decoded, depth + 1);
+        if (masked !== decoded) replacements.push({ start, end, value: JSON.stringify(masked) });
+      }
+      completeValue(start, end);
     }
   }
   let result = '';
   let offset = 0;
+  // An outer masked span takes precedence over replacements within it.
+  replacements.sort((a, b) => a.start - b.start || b.end - a.end);
   for (const replacement of replacements) {
+    if (replacement.start < offset) continue;
     result += text.slice(offset, replacement.start) + replacement.value;
     offset = replacement.end;
   }
@@ -810,7 +900,7 @@ function redactSecretText(value) {
     value = decoded;
     wrappers += 1;
   }
-  value = redactPowerShellCredentialCommands(redactSerializedCommandArgv(value));
+  value = redactPowerShellCredentialCommands(redactSerializedCommandArgv(value, wrappers));
   let redacted = redactCompatibilitySecretKeyText(
     redactInvisibleSecretKeyText(normalizeUnicodeEscapedSecretKeys(redactYamlCredentialAliases(redactShellExpressionCredentials(redactMultilineCredentialAssignments(redactShellCredentialBlocks(redactControlInterruptedSecretKeyText(value)))))))
   );
@@ -1067,6 +1157,7 @@ export function redactAndBound(value, options = {}) {
   }
 
   const entries = Object.entries(value);
+  const maskedArgs = splitCommandMaskIndices(entries);
   const redactEntryValue = entries.some(([key, child]) => (
     typeof child === 'string'
     && (key.toLowerCase() === 'name' || key.toLowerCase() === 'key' || key.toLowerCase() === 'header')
@@ -1074,9 +1165,10 @@ export function redactAndBound(value, options = {}) {
   ));
 
   const out = {};
-  for (const [key, child] of entries.slice(0, MAX_OBJECT_KEYS)) {
+  for (const [index, [key, child]] of entries.slice(0, MAX_OBJECT_KEYS).entries()) {
     const normalizedKey = key.toLowerCase();
-    const bounded = isSecretKey(key) || (redactEntryValue && (normalizedKey === 'value' || normalizedKey === 'values'))
+    const bounded = maskedArgs.has(index) ? OMITTED_COMMAND_ARGS
+      : isSecretKey(key) || (redactEntryValue && (normalizedKey === 'value' || normalizedKey === 'values'))
       ? '[REDACTED]'
       : redactAndBound(child, { seen, depth: depth + 1 });
     // Assignment to '__proto__' changes the prototype instead of retaining approval context.

@@ -237,8 +237,14 @@ test('structured credential command previews preserve deny, timeout and transpor
     { command: ['node', '--eval', "process.env[key]=process.argv[1]", marker], masked: true },
     { command: ['python', '-c', "import os; os.environ['NOTE']='" + marker + "'"], masked: false },
     { command: JSON.stringify({ argv: ['node', '-e', "console.log('" + marker + " process.env')"] }), masked: false },
+    { toolInput: { command: 'setx', args: ['API_KEY', marker] }, masked: true },
+    { toolInput: { executable: 'Set-Item', arguments: ['Env:API_KEY', marker] }, masked: true },
+    { toolInput: { command: 'node', args: ['--experimental-config-file', 'example.json', '-e', "process.env[key]='" + marker + "'"] }, masked: true },
+    { command: JSON.stringify({ command: 'python', args: ['-c', "os.environ[name]='" + marker + "'"] }), masked: true },
+    { toolInput: { command: 'setx', args: ['NOTE', marker] }, masked: false },
+    { toolInput: { executable: 'node', arguments: ['-e', "console.log('" + marker + "')"] }, masked: false },
   ];
-  for (const { command, masked } of cases) {
+  for (const { command, toolInput, masked } of cases) {
     for (const decision of ['deny', 'timeout', 'error']) {
       const seen = [];
       const errors = [];
@@ -247,7 +253,7 @@ test('structured credential command previews preserve deny, timeout and transpor
         if (decision === 'error') throw new Error('synthetic offline');
         return { decision };
       } };
-      const tool_input = { command, note: 'safe sibling' };
+      const tool_input = { ...(toolInput ?? { command }), note: 'safe sibling' };
       const claude = await handleClaudePermissionRequest({ ...claudeInput, tool_input }, options);
       const codex = await handleCodexPermissionRequest({ ...codexInput, tool_input }, options);
       const gemini = await handleGeminiHook({ hook_event_name: 'BeforeTool', tool_name: 'run_shell_command', tool_input }, options);
