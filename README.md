@@ -129,6 +129,8 @@ policy instead. See Microsoft's [PowerShell execution policy reference](https://
 
 ## MCP
 
+For Claude Desktop, see the [desktop extension setup and verification guide](docs/desktop-extension.md) and the [local privacy notice](PRIVACY.md).
+
 Start the local stdio MCP server:
 
 ```bash
@@ -149,7 +151,15 @@ Codex CLI can register the same stdio server:
 codex mcp add nofax -- npx -y nofax mcp
 ```
 
-Gemini CLI can register it in user settings:
+Gemini CLI can install the local MCP extension from this public repository:
+
+```bash
+gemini extensions install https://github.com/AKzar1el/nofax
+```
+
+The extension manifest pins the published Nofax package version. Review the extension at install time and keep Gemini's native permission and workspace-trust controls enabled. Complete the Quick start configuration for your own ntfy transport before requesting notifications or approvals. The extension does not install hooks or change approval policy; the existing hook setup below remains separate and opt-in. Use either the extension or manual registration, not both.
+
+Alternatively, Gemini CLI can register the MCP server in user settings:
 
 ```bash
 gemini mcp add --scope user --transport stdio nofax npx -- -y nofax mcp

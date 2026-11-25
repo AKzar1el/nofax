@@ -42,6 +42,13 @@ Local Nofax `0.2.x` behavior is unchanged by these removals.
 - The capability-path form is normalized to `/mcp` before MCP protocol handling.
 - Remote read operations perform no external messaging/provider calls; only explicit `nofax_notify` invokes ntfy.
 
+## 0.2.51 - 2026-11-24
+
+### Security and reliability
+
+- Includes accumulated credential-redaction, approval-label visibility, request-timestamp, and notification cancellation fixes from the local 0.2.x development line.
+- Adds a local desktop extension manifest, privacy notice, and installation/verification guide. The MCPB does not install hooks or alter permission policy.
+
 ## 0.2.49 - 2026-10-30
 
 ### Security
