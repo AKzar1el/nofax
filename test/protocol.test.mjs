@@ -106,6 +106,118 @@ test('inline interpreter argv previews mask credential targets and retain benign
   assert.match(redactAndBound(duplicate), /"mode":"one","mode":"two"/);
 });
 
+test('split executable and argument fields protect credential previews without hiding benign context', () => {
+  const marker = 'NOFAX_SYNTHETIC_SPLIT_X202';
+  const sensitive = [
+    ['setx', ['API_KEY', marker]],
+    ['setx.exe', ['TOKEN', marker]],
+    ['Set-Item', ['Env:API_KEY', marker]],
+    ['Set-Variable', ['API_KEY', marker]],
+    ['python', ['-c', "import os; os.environ['API_KEY']='" + marker + "'"]],
+    ['node', ['-e', "process.env.API_KEY='" + marker + "'"]],
+  ];
+  const benign = [
+    ['setx', ['NOTE', marker]],
+    ['Set-Item', ['Env:NOTE', marker]],
+    ['Set-Variable', ['NOTE', marker]],
+    ['python', ['-c', "print('" + marker + "')"]],
+    ['node', ['-e', "console.log('" + marker + "')"]],
+    ['echo', ['NOTE', marker]],
+  ];
+  const shapes = [
+    ['command', 'args'], ['command', 'arguments'],
+    ['executable', 'args'], ['executable', 'arguments'],
+    ['program', 'argv'], ['file', 'args'],
+  ];
+  const outputs = input => [JSON.stringify(redactAndBound(input)), buildAgentSummary({ toolInput: input })];
+  for (const [commandKey, argsKey] of shapes) {
+    for (const [rows, masked] of [[sensitive, true], [benign, false]]) {
+      for (const [command, args] of rows) {
+        const object = { [commandKey]: command, [argsKey]: args, note: 'safe sibling' };
+        for (const input of [object, JSON.stringify(object), JSON.stringify(JSON.stringify(object)), { nested: JSON.stringify(object) }]) {
+          for (const output of outputs(input)) {
+            assert.equal(output.includes(marker), !masked, commandKey + '+' + argsKey + ': ' + command);
+            if (masked) assert.match(output, /REDACTED/);
+            assert.match(output, /safe sibling/);
+          }
+        }
+      }
+    }
+  }
+  const duplicate = '{"command":"echo","command":"setx","args":["API_KEY","' + marker + '"],"mode":"one","mode":"two","note":"safe sibling"}';
+  const duplicateArgs = '{"command":"setx","args":["NOTE","safe"],"args":["API_KEY","' + marker + '"],"note":"safe sibling"}';
+  const escaped = '{"\\u0063ommand":"setx","\\u0061rgs":["API_KEY","' + marker + '"],"note":"safe sibling"}';
+  for (const input of [
+    duplicate, duplicateArgs, escaped,
+    { CoMmAnD: 'setx', ArGuMeNtS: ['API_KEY', marker], note: 'safe sibling' },
+    { command: 'setx', args: { untyped: marker }, note: 'safe sibling' },
+    { command: 'setx', args: 'API_KEY ' + marker, note: 'safe sibling' },
+    JSON.stringify({ outer: [{ executable: 'node', arguments: ['-e', "process.env.API_KEY='" + marker + "'"] }], note: 'safe sibling' }),
+    JSON.stringify({ nested: JSON.stringify({ file: 'setx', args: ['API_KEY', marker] }), note: 'safe sibling' }),
+  ]) {
+    for (const output of outputs(input)) {
+      assert.ok(!output.includes(marker));
+      assert.match(output, /safe sibling/);
+    }
+  }
+  assert.match(redactAndBound(duplicate), /"mode":"one","mode":"two"/);
+  const separated = { first: { command: 'setx' }, second: { args: ['NOTE', marker] }, note: 'safe sibling' };
+  for (const output of outputs(separated)) assert.match(output, new RegExp(marker));
+});
+
+test('ambiguous command preview boundaries fail closed without treating script data as inline code', () => {
+  const marker = 'NOFAX_SYNTHETIC_BOUNDARY_X203';
+  const nodeCode = "process.env[key]='" + marker + "'";
+  const pythonCode = "os.environ[name]='" + marker + "'";
+  const sensitive = [
+    { command: 'node', args: ['--future-preview-option', 'example', '-e', nodeCode] },
+    { executable: 'node', arguments: ['--experimental-config-file', 'example.json', '-e', nodeCode] },
+    { command: 'node', args: ['-e', 'console.log(1)', '-e', nodeCode] },
+    { command: 'python', args: ['-c', pythonCode] },
+    ...['--cpu-prof-dir', '--heap-prof-name', '--localstorage-file', '--report-dir', '--trace-event-file-pattern', '--experimental-default-type', '--test-reporter-destination', '--tls-cipher-list'].map(option => ({ command: 'node', args: [option, 'example', '-e', nodeCode] })),
+  ];
+  const benign = [
+    { command: 'node', args: ['--no-warnings', 'script.js', '-e', nodeCode] },
+    { command: 'node', args: ['--', 'script.js', '-e', nodeCode] },
+    { command: 'node', args: ['-e', 'console.log(1)', 'script-data', '-e', nodeCode] },
+    { command: 'python', args: ['-c', 'print(1)', '-c', pythonCode] },
+    { command: 'python', args: ['-I', 'script.py', '-c', pythonCode] },
+  ];
+  for (const [cases, masked] of [[sensitive, true], [benign, false]]) {
+    for (const input of cases) {
+      const object = { ...input, note: 'safe sibling' };
+      for (const value of [object, JSON.stringify(object), { nested: JSON.stringify(object) }]) {
+        for (const output of [JSON.stringify(redactAndBound(value)), buildAgentSummary({ toolInput: value })]) {
+          assert.equal(output.includes(marker), !masked, JSON.stringify(input));
+          assert.match(output, /safe sibling/);
+        }
+      }
+    }
+  }
+  for (const malformed of [
+    '{"command":"setx","args":["API_KEY","' + marker + '"]',
+    '["setx","API_KEY","' + marker + '"',
+    '{"executable":"node","arguments":["-e",' + JSON.stringify(nodeCode) + ']',
+    '{"nested":' + JSON.stringify(JSON.stringify({ command: 'setx', args: ['API_KEY', marker] })),
+    '["safe",' + JSON.stringify(JSON.stringify({ command: 'node', args: ['-e', nodeCode] })),
+  ]) {
+    for (const input of [malformed, JSON.stringify(malformed), { nested: malformed }]) {
+      assert.ok(!JSON.stringify(redactAndBound(input)).includes(marker));
+      assert.ok(!buildAgentSummary({ toolInput: input }).includes(marker));
+    }
+  }
+  const unrelatedMalformed = '{"note":"' + marker + '","command":"echo"';
+  assert.match(redactAndBound(unrelatedMalformed), new RegExp(marker));
+  let nested = JSON.stringify({ command: 'setx', args: ['API_KEY', marker] });
+  for (let i = 0; i < 6; i++) nested = JSON.stringify(nested);
+  const deepMalformed = '{"nested":' + JSON.stringify(nested);
+  for (const value of [nested, deepMalformed]) {
+    const output = redactAndBound(value);
+    assert.match(output, /REDACTED/);
+    assert.ok(!output.includes(marker));
+  }
+});
+
 test('typed PowerShell provider argv preserves privacy and benign review context', () => {
   const marker = 'NOFAX_SYNTHETIC_PS_ARGV_X92';
   const sensitive = [
