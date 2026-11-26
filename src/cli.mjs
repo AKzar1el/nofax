@@ -67,9 +67,11 @@ function parseArgs(args, allowedFlags = []) {
     }
     if (['--title', '--server', '--topic', '--timeout', '--limit'].includes(value)) {
       if (!allowedFlags.includes(value)) throw new Error(`NOFAX_UNKNOWN_FLAG:${value}`);
+      const key = value.slice(2);
+      if (Object.hasOwn(flags, key)) throw new Error(`NOFAX_DUPLICATE_FLAG:${value}`);
       const next = args[index + 1];
       if (next === undefined || next.startsWith('--')) throw new Error(`NOFAX_FLAG_VALUE:${value}`);
-      flags[value.slice(2)] = next;
+      flags[key] = next;
       index += 1;
       continue;
     }

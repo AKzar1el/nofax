@@ -1207,6 +1207,50 @@ test('value-taking flags do not swallow a following recognized flag', async () =
   assert.match(stderr.read(), /NOFAX_FLAG_VALUE:--title/);
 });
 
+test('duplicate value-taking flags fail before config access or notification', async () => {
+  const first = 'SYNTHETIC_PRIVATE_FIRST_VALUE';
+  const second = 'SYNTHETIC_PRIVATE_SECOND_VALUE';
+  for (const [args, flag] of [
+    [['init', '--server', first, '--server', second], '--server'],
+    [['init', '--topic', first, '--topic', second], '--topic'],
+    [['init', '--timeout', '30', '--timeout', '30'], '--timeout'],
+    [['pending', '--limit', '1', '--limit', '2'], '--limit'],
+    ...['notify', 'approve', 'refine'].map((command) => [
+      [command, '--title', first, 'message', '--title', second], '--title'
+    ])
+  ]) {
+    const stdout = capture();
+    const stderr = capture();
+    let effects = 0;
+    const noEffect = async () => { effects += 1; throw new Error('UNEXPECTED_EFFECT'); };
+    const code = await runCli(args, {
+      stdout, stderr,
+      initConfigImpl: noEffect, loadConfigImpl: noEffect,
+      listPendingRequestsImpl: noEffect, sendNotificationImpl: noEffect,
+      requestApprovalImpl: noEffect, requestRefinementImpl: noEffect
+    });
+    assert.equal(code, 1, args[0]);
+    assert.equal(effects, 0, args[0]);
+    assert.equal(stdout.read(), '');
+    assert.equal(stderr.read(), `nofax: NOFAX_DUPLICATE_FLAG:${flag}\n`);
+    assert.doesNotMatch(stderr.read(), /SYNTHETIC_PRIVATE/);
+  }
+});
+
+test('duplicate-looking literal message flags after separator are preserved', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  let observed;
+  const code = await runCli(['notify', '--title', 'Check', '--', '--title', 'literal'], {
+    stdout, stderr,
+    loadConfigImpl: async () => ({ version: 1, server: 'https://ntfy.sh', topic: 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF', timeoutSeconds: 300 }),
+    sendNotificationImpl: async (options) => { observed = { title: options.title, message: options.message }; }
+  });
+  assert.equal(code, 0);
+  assert.deepEqual(observed, { title: 'Check', message: '--title literal' });
+  assert.equal(stderr.read(), '');
+});
+
 test('commands without positional arguments reject trailing input before side effects', async () => {
   for (const args of [
     ['init', 'unexpected'],
