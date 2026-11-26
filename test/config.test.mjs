@@ -243,6 +243,35 @@ test('rejects embedded control characters before parsing a notification server U
   }
 });
 
+test('rejects non-string notification servers before URL coercion', () => {
+  let coerced = false;
+  const custom = { toString() { coerced = true; return 'https://safe.example.invalid'; } };
+  for (const server of [
+    ['https://safe.example.invalid'],
+    ['https://safe.example.invalid\n.other.invalid'],
+    custom, null, 42
+  ]) {
+    assert.throws(() => normalizeServer(server), /NOFAX_SERVER_INVALID/);
+  }
+  assert.equal(coerced, false);
+});
+
+test('malformed persisted server types require an explicit replacement during recovery', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-server-type-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const path = join(home, 'config.json');
+  const original = JSON.stringify({ version: 1, server: ['https://safe.example.invalid\n.other.invalid'],
+    topic: 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF', timeoutSeconds: 725 });
+  await writeFile(path, original);
+  await assert.rejects(() => loadConfig({ home }), /NOFAX_SERVER_INVALID/);
+  await assert.rejects(() => initConfig({ home, force: true }), /NOFAX_SERVER_REQUIRES_EXPLICIT_REPLACEMENT/);
+  assert.equal(await readFile(path, 'utf8'), original);
+  const recovered = await initConfig({ home, force: true, server: 'https://replacement.example.invalid' });
+  assert.equal(recovered.server, 'https://replacement.example.invalid');
+  assert.equal(recovered.timeoutSeconds, 725);
+  assert.deepEqual(await loadConfig({ home }), recovered);
+});
+
 test('requires HTTPS for non-loopback ntfy servers but preserves local development', () => {
   for (const server of ['http://localhost:8080/', 'http://127.0.0.1:8080', 'http://127.2.3.4:8080', 'http://[::1]:8080']) {
     assert.equal(normalizeServer(server), server.endsWith('/') ? server.slice(0, -1) : server);
