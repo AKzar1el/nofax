@@ -61,6 +61,14 @@ nofax init
 
 Nofax creates `~/.nofax/config.json` and generates a high-entropy notification topic. With the default transport, subscribe to the displayed topic in the ntfy mobile app.
 
+To check local setup without contacting ntfy or exposing the private topic,
+run `nofax doctor`. It reports whether the saved configuration is valid,
+missing, invalid, or requires legacy topic rotation. Exit code `0` means
+**local configuration only** is valid; `1` means it needs attention. Its JSON
+output never includes the topic or private server URL. A successful local
+check does **not** prove the phone receives notifications or that anyone has
+approved a request; use the next step to test delivery explicitly.
+
 ### 3. Test
 
 ```bash
@@ -121,6 +129,8 @@ policy instead. See Microsoft's [PowerShell execution policy reference](https://
 
 ## MCP
 
+For Claude Desktop, see the [desktop extension setup and verification guide](docs/desktop-extension.md) and the [local privacy notice](PRIVACY.md).
+
 Start the local stdio MCP server:
 
 ```bash
@@ -141,7 +151,15 @@ Codex CLI can register the same stdio server:
 codex mcp add nofax -- npx -y nofax mcp
 ```
 
-Gemini CLI can register it in user settings:
+Gemini CLI can install the local MCP extension from this public repository:
+
+```bash
+gemini extensions install https://github.com/AKzar1el/nofax
+```
+
+The extension manifest pins the published Nofax package version. Review the extension at install time and keep Gemini's native permission and workspace-trust controls enabled. Complete the Quick start configuration for your own ntfy transport before requesting notifications or approvals. The extension does not install hooks or change approval policy; the existing hook setup below remains separate and opt-in. Use either the extension or manual registration, not both.
+
+Alternatively, Gemini CLI can register the MCP server in user settings:
 
 ```bash
 gemini mcp add --scope user --transport stdio nofax npx -- -y nofax mcp
@@ -247,7 +265,7 @@ Current Gemini CLI builds expose a synchronous `BeforeTool` hook that can allow 
             "name": "nofax-approval",
             "type": "command",
             "command": "nofax hook gemini",
-            "timeout": 305000
+            "timeout": 330000
           }
         ]
       }
@@ -270,7 +288,7 @@ Current Gemini CLI builds expose a synchronous `BeforeTool` hook that can allow 
 
 `BeforeTool` waits for an explicit Nofax Allow/Deny result. A Nofax timeout or transport failure returns Gemini's `ask` decision, forcing the native interactive confirmation instead of allowing an auto-approval policy to treat the missing Nofax decision as permission. The `Notification` hook remains advisory and is forwarded only as a phone notification.
 
-Adjust the matcher to the tools you want Nofax to gate. Keep the hook timeout longer than Nofax's configured approval timeout (`timeoutSeconds`, 300 seconds by default).
+Adjust the matcher to the tools you want Nofax to gate. Gemini's hook `timeout` is in milliseconds and must cover more than the configured human-decision window: Nofax can spend up to 15 seconds publishing the request, 300 seconds waiting for a decision by default (`timeoutSeconds`), and another 5 seconds on best-effort confirmation. The example allows 330 seconds, including 10 seconds of startup/scheduling headroom. If you increase `timeoutSeconds`, increase the Gemini hook timeout by the same amount; otherwise Gemini may terminate the hook before Nofax finishes. A missing decision still falls back to native confirmation, never automatic approval.
 
 ### Pi (native MCP support)
 
@@ -407,11 +425,33 @@ Override the home directory with `NOFAX_HOME`:
 NOFAX_HOME=/path/to/nofax-home nofax config
 ```
 
+`nofax config` masks the notification topic by default because the topic grants
+access to notification content and may be captured in terminal or agent logs.
+Use `nofax config --show-topic` only when you deliberately need to view or copy
+the topic locally, and keep that output private. A legacy repeated topic is
+always shown as `[ROTATION_REQUIRED]`, even with `--show-topic`.
+The initial `nofax init` and explicit `nofax init --force` setup outputs still
+print the subscription URL needed to connect your phone.
+
 Use another ntfy-compatible server with:
 
 ```bash
 nofax init --server https://ntfy.example.com --force
 ```
+
+Running `nofax init` again without options reuses the existing configuration
+without printing the saved notification topic. Use `nofax config --show-topic`
+privately if you need to resubscribe an existing phone.
+When a configuration already exists, supplying `--server`, `--topic`, or
+`--timeout` requires `--force`; otherwise Nofax stops instead of silently
+ignoring the requested change. `--force` rotates the phone topic while keeping
+the existing valid server and timeout unless you override them. If the saved
+configuration is invalid, `--force` can recover the phone topic and use safe
+defaults for invalid timeout settings. If the saved server is malformed or the
+saved file is unreadable, oversized, or has an unsupported version, provide an
+explicit `--server URL` with `--force`: Nofax refuses to silently switch a
+possibly private endpoint to public `ntfy.sh`. Confirm the new displayed
+subscription in your ntfy app after each rotation.
 
 Notification content and one-time response-topic callbacks can carry sensitive
 capabilities. Custom servers require HTTPS; HTTP is supported only for local

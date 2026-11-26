@@ -122,7 +122,7 @@ export function buildMcpServer({ handlers = createMcpToolHandlers() } = {}) {
         title: z.string().min(1).max(120).optional().describe('Optional choice prompt title shown to the human; defaults to "Nofax choice".'),
         message: z.string().min(1).max(2200).describe('Question or decision context shown to the human.'),
         options: z.array(z.union([
-          z.string().min(1).max(80).describe('String shorthand for a choice value; its first 32 characters are also used as the human-facing label.'),
+          z.string().min(1).max(80).describe('String shorthand for a choice value. The decision value remains exact; the phone label is bounded to 32 UTF-16 units using whole graphemes and a visible clipping marker.'),
           z.object({
             value: z.string().min(1).max(80).describe('Choice value returned as the terminal human decision.'),
             label: z.string().min(1).max(32).describe('Short human-facing label displayed for this choice.')

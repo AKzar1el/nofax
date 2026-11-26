@@ -11,18 +11,35 @@ const PUBLISH_TIMEOUT = Symbol('NOFAX_PUBLISH_TIMEOUT');
 const PUBLISH_CANCELLED = Symbol('NOFAX_PUBLISH_CANCELLED');
 const DEFAULT_PUBLISH_TIMEOUT_MS = 15_000;
 const MAX_TIMER_TIMEOUT_MS = 2_147_483_647;
+const actionGraphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+const RGI_EMOJI_TAG_FLAGS = new Set(['gbeng', 'gbsct', 'gbwls']);
 // ntfy rejects invalid, unauthorized, oversized, and rate-limited requests
 // before accepting the message. These must not leave orphan approvals.
 const NOT_APPLIED_PUBLISH_STATUSES = new Set([400, 401, 403, 413, 429]);
 
 function visibleNotificationText(value) {
   // Never let untrusted notification text visually alter its own display.
-  // Keep ordinary line breaks and genuine emoji joiners, but expose invisible
-  // separators embedded in words that can disguise decision labels.
-  return typeof value === 'string'
-    ? [...value].map((character, index, characters) =>
-      visibleNotificationCharacter(character, characters, index)).join('')
-    : value;
+  // Keep genuine emoji flags and ideographic variation sequences, but expose
+  // supplementary invisible selectors or tags hidden in ordinary words.
+  if (typeof value !== 'string') return value;
+  const characters = [...value];
+  let characterIndex = 0;
+  return [...actionGraphemeSegmenter.segment(value)].map(({ segment }) => {
+    const graphemeCharacters = [...segment];
+    const tagCode = emojiTagCode(segment);
+    const visible = tagCode === null
+      ? graphemeCharacters.map((character, index) => {
+        const previous = characters[characterIndex + index - 1] ?? '';
+        if (/[\u{e0001}\u{e0020}-\u{e007f}]/u.test(character) ||
+            (/[\u{e0100}-\u{e01ef}]/u.test(character) && !/\p{Unified_Ideograph}/u.test(previous))) {
+          return '\\u{' + character.codePointAt(0).toString(16) + '}';
+        }
+        return visibleNotificationCharacter(character, characters, characterIndex + index);
+      }).join('')
+      : RGI_EMOJI_TAG_FLAGS.has(tagCode) ? segment : '\u{1f3f4}[tag:' + tagCode + ']';
+    characterIndex += graphemeCharacters.length;
+    return visible;
+  }).join('');
 }
 
 function visibleNotificationTitle(value) {
@@ -32,6 +49,16 @@ function visibleNotificationTitle(value) {
 }
 
 function visibleNotificationCharacter(character, characters, index) {
+  if (character === '\ufe0e' || character === '\ufe0f') {
+    // Keep genuine emoji presentation and keycap sequences, not invisible
+    // variation selectors inserted into ordinary approval words.
+    let previous = index - 1;
+    while (previous >= 0 && /\p{Emoji_Modifier}/u.test(characters[previous])) previous--;
+    if (/\p{Extended_Pictographic}/u.test(characters[previous] ?? '') ||
+        (character === '\ufe0f' && /^[0-9#*]$/.test(characters[index - 1] ?? '') &&
+         characters[index + 1] === '\u20e3')) return character;
+    return `\\u${character.codePointAt(0).toString(16).padStart(4, '0')}`;
+  }
   // Preserve genuine emoji ZWJ sequences, including skin-tone modifiers, but
   // expose joiners hidden inside decision words rather than disguising choices.
   if (character === '\u200c' || character === '\u200d') {
@@ -45,34 +72,76 @@ function visibleNotificationCharacter(character, characters, index) {
     return `\\u${character.codePointAt(0).toString(16).padStart(4, '0')}`;
   }
   // Blank Hangul/Braille fillers can disguise approval words.
-  return character.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u00ad\u034f\u061c\u115f-\u1160\u180e\u200b\u200e-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\u2800\u3164\uffa0\ufeff]/gu,
+  return character.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f\u00ad\u034f\u061c\u115f-\u1160\u180e\u200b\u200e-\u200f\u2028-\u202e\u2060-\u206f\u2800\u3164\uffa0\ufff9-\ufffb\ufeff]/gu,
     (control) => `\\u${control.codePointAt(0).toString(16).padStart(4, '0')}`);
 }
 
 function visibleActionCharacter(character, characters, index) {
   if (character === '\n') return '\\u000a';
+  // Expose invisible supplementary variation selectors in approval words too.
+  if (character === '\u{e0001}' ||
+      /[\u{e0020}-\u{e007f}\u{e0100}-\u{e01ef}]/u.test(character)) {
+    return `\\u{${character.codePointAt(0).toString(16)}}`;
+  }
+  // Unusual Unicode spaces can make distinct phone choices look identical.
+  // Keep ordinary ASCII word spacing; only expose the ambiguous variants.
+  if (character !== ' ' && /\p{Space_Separator}/u.test(character)) {
+    return `\\u${character.codePointAt(0).toString(16).padStart(4, '0')}`;
+  }
   return visibleNotificationCharacter(character, characters, index);
 }
 
+function emojiTagCode(segment) {
+  const match = /^\u{1f3f4}([\u{e0061}-\u{e007a}]+)\u{e007f}$/u.exec(segment);
+  return match === null ? null : [...match[1]].map((tag) =>
+    String.fromCodePoint(tag.codePointAt(0) - 0xe0000)).join('');
+}
+
 function safeSliceEnd(text, end) {
-  const previous = text.charCodeAt(end - 1);
-  return previous >= 0xD800 && previous <= 0xDBFF ? end - 1 : end;
+  // A code-unit boundary can split a joined emoji or combining sequence.
+  for (const { segment, index } of actionGraphemeSegmenter.segment(text)) {
+    if (index + segment.length > end) return index;
+  }
+  return text.length;
 }
 
 function boundChoiceLabel(value) {
-  let label = '';
-  let visibleContent = false;
+  const segments = [];
+  let renderedLength = 0;
+  let visibleContent = 0;
   const characters = [...value];
-  for (const [index, character] of characters.entries()) {
+  let characterIndex = 0;
+  for (const { segment } of actionGraphemeSegmenter.segment(value)) {
     // Action labels are single-line and must not hide/reorder the human's choices.
-    // Keep each visible escape or Unicode code point intact at the 32-unit limit.
-    const visible = visibleActionCharacter(character, characters, index);
-    if (label.length + visible.length > 32) break;
-    label += visible;
-    if (/[\p{L}\p{N}\p{P}\p{S}]/u.test(character)) visibleContent = true;
+    // Clip by whole graphemes so a joined emoji or flag cannot become a
+    // misleading partial symbol. Preserve atomic visible control escapes too.
+    const graphemeCharacters = [...segment];
+    // Only registered RGI tag flags have a reliable emoji presentation.
+    // Other complete tag sequences look like plain black flags on many phones;
+    // show their code visibly rather than silently hiding a decision label.
+    const tagCode = emojiTagCode(segment);
+    const visible = tagCode === null
+      ? graphemeCharacters.map((character, index) =>
+        visibleActionCharacter(character, characters, characterIndex + index)).join('')
+      : RGI_EMOJI_TAG_FLAGS.has(tagCode) ? segment : `\u{1f3f4}[tag:${tagCode}]`;
+    characterIndex += graphemeCharacters.length;
+    if (renderedLength + visible.length > 32) {
+      // An explicit marker prevents a clipped action from looking complete.
+      while (renderedLength > 31) {
+        const removed = segments.pop();
+        renderedLength -= removed.text.length;
+        if (removed.hasContent) visibleContent -= 1;
+      }
+      segments.push({ text: '…', hasContent: false });
+      break;
+    }
+    const hasContent = /[\p{L}\p{N}\p{P}\p{S}]/u.test(segment);
+    segments.push({ text: visible, hasContent });
+    renderedLength += visible.length;
+    if (hasContent) visibleContent += 1;
   }
   if (!visibleContent) throw new Error('NOFAX_CHOICE_INVALID');
-  return label;
+  return segments.map((segment) => segment.text).join('');
 }
 
 function boundText(value, max, name) {
@@ -93,11 +162,11 @@ function boundMessageText(value) {
   const maxContentBytes = MAX_NTFY_MESSAGE_BYTES - Buffer.byteLength(marker, 'utf8');
   let bytes = 0;
   let end = 0;
-  for (const character of text) {
-    const characterBytes = Buffer.byteLength(character, 'utf8');
-    if (bytes + characterBytes > maxContentBytes) break;
-    bytes += characterBytes;
-    end += character.length;
+  for (const { segment } of actionGraphemeSegmenter.segment(text)) {
+    const segmentBytes = Buffer.byteLength(segment, 'utf8');
+    if (bytes + segmentBytes > maxContentBytes) break;
+    bytes += segmentBytes;
+    end += segment.length;
   }
   return `${text.slice(0, end)}${marker}`;
 }
@@ -215,6 +284,10 @@ export async function sendNotification({ config, title, message, actions, priori
   const controller = ownsTimeout ? new AbortController() : null;
   let timeoutId;
   let resolveDeadline;
+  let resolveCallerCancellation;
+  const callerCancellation = signal == null ? null : new Promise((resolve) => {
+    resolveCallerCancellation = resolve;
+  });
   const timeout = controller === null ? null : new Promise((resolve) => {
     resolveDeadline = resolve;
     timeoutId = setTimeout(() => {
@@ -222,17 +295,23 @@ export async function sendNotification({ config, title, message, actions, priori
       controller.abort();
     }, deadlineMs);
   });
-  const forwardAbort = controller !== null && signal != null ? () => {
-    controller.abort();
+  const forwardAbort = signal != null ? () => {
+    controller?.abort();
     // A custom fetch can ignore abort: caller cancellation still settles promptly.
-    resolveDeadline(PUBLISH_CANCELLED);
+    resolveCallerCancellation(PUBLISH_CANCELLED);
   } : null;
   let response;
   let request;
+  let cancelledBeforeFetch = false;
   try {
     if (forwardAbort !== null) {
       if (signal.aborted) forwardAbort();
       else signal.addEventListener('abort', forwardAbort, { once: true });
+    }
+    // A signal may abort synchronously while its listener is being installed.
+    if (signal?.aborted) {
+      cancelledBeforeFetch = true;
+      throw publishError('NOFAX_NTFY_PUBLISH_NETWORK', 'not_applied');
     }
     request = fetchImpl(`${server}/`, {
       method: 'POST',
@@ -245,8 +324,12 @@ export async function sendNotification({ config, title, message, actions, priori
       redirect: 'error',
       signal: controller === null ? signal : controller.signal
     });
-    response = timeout === null ? await request : await Promise.race([request, timeout]);
-  } catch {
+    const inFlight = [request];
+    if (timeout !== null) inFlight.push(timeout);
+    if (callerCancellation !== null) inFlight.unshift(callerCancellation);
+    response = inFlight.length === 1 ? await request : await Promise.race(inFlight);
+  } catch (error) {
+    if (cancelledBeforeFetch) throw error;
     // Even anonymous transport errors may echo the topic, message or callback
     // URL. These are approval capabilities, so never forward provider prose.
     throw publishError('NOFAX_NTFY_PUBLISH_NETWORK', 'ambiguous');
@@ -254,9 +337,13 @@ export async function sendNotification({ config, title, message, actions, priori
     if (timeoutId !== undefined) clearTimeout(timeoutId);
     if (forwardAbort !== null) signal.removeEventListener('abort', forwardAbort);
   }
-  if (response === PUBLISH_TIMEOUT || response === PUBLISH_CANCELLED) {
+  if (response === PUBLISH_TIMEOUT || response === PUBLISH_CANCELLED || signal?.aborted) {
     // Some fetch implementations ignore abort and return a body after cancellation or timeout.
-    void Promise.resolve(request).then(releaseResponseBody, () => {});
+    if (response === PUBLISH_TIMEOUT || response === PUBLISH_CANCELLED) {
+      void Promise.resolve(request).then(releaseResponseBody, () => {});
+    } else {
+      releaseResponseBody(response);
+    }
     throw publishError(response === PUBLISH_TIMEOUT
       ? 'NOFAX_NTFY_PUBLISH_TIMEOUT' : 'NOFAX_NTFY_PUBLISH_NETWORK', 'ambiguous');
   }
@@ -268,7 +355,7 @@ export async function sendNotification({ config, title, message, actions, priori
   }
 }
 
-function normalizeOptions(options) {
+export function normalizeOptions(options) {
   if (!Array.isArray(options) || options.length > 3) throw new Error('NOFAX_CHOICE_LIMIT');
   const normalized = options.map((option) => {
     if (typeof option === 'string') {
@@ -285,7 +372,25 @@ function normalizeOptions(options) {
     return { value, label: boundChoiceLabel(label) };
   });
   if (new Set(normalized.map((option) => option.value)).size !== normalized.length) throw new Error('NOFAX_CHOICE_DUPLICATE');
-  if (new Set(normalized.map((option) => option.label)).size !== normalized.length) throw new Error('NOFAX_CHOICE_DUPLICATE');
+  // Phones without Unicode tag support render distinct subdivision flags as
+  // identical black flags. Compare that fallback as well as NFKC, while
+  // preserving the actual action labels and exact decision values.
+  const displayKey = (label, originalOption) => {
+    let displayLabel = label;
+    const sourceLabel = typeof originalOption === 'string' ? originalOption.trim() : originalOption.label.trim();
+    // Only fold generated tag captions to a black flag, not literal visible
+    // captions supplied by the caller, which remain distinct phone choices.
+    for (const { segment } of actionGraphemeSegmenter.segment(sourceLabel)) {
+      const code = emojiTagCode(segment);
+      if (code !== null && !RGI_EMOJI_TAG_FLAGS.has(code)) {
+        displayLabel = displayLabel.replace(`\u{1f3f4}[tag:${code}]`, '\u{1f3f4}');
+      }
+    }
+    return displayLabel.normalize('NFKC').replace(/[\u{e0020}-\u{e007f}]/gu, '');
+  };
+  if (new Set(normalized.map((option, index) => displayKey(option.label, options[index]))).size !== normalized.length) {
+    throw new Error('NOFAX_CHOICE_DUPLICATE');
+  }
   return normalized;
 }
 
@@ -305,7 +410,9 @@ export async function createRemoteRequest({
   validateTopic(config.topic);
   const normalized = normalizeOptions(options);
   if (includeRefine && normalized.some((option) => option.value === 'refine')) throw new Error('NOFAX_CHOICE_DUPLICATE');
-  if (includeRefine && normalized.some((option) => option.label === 'Refine')) throw new Error('NOFAX_CHOICE_DUPLICATE');
+  if (includeRefine && normalized.some((option) => option.label.normalize('NFKC') === 'Refine')) {
+    throw new Error('NOFAX_CHOICE_DUPLICATE');
+  }
   const totalActions = normalized.length + (includeRefine ? 1 : 0);
   if (totalActions < 1 || totalActions > 3) throw new Error('NOFAX_CHOICE_LIMIT');
 

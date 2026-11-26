@@ -2,6 +2,373 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildAgentSummary, createRequestId, createResponseTopic, redactAndBound } from '../src/protocol.mjs';
 
+test('inline interpreter argv previews mask credential targets and retain benign context', () => {
+  const marker = 'NOFAX_SYNTHETIC_INTERPRETER_X95';
+  const python = [
+    "import os; os.environ['API_KEY']='" + marker + "'",
+    "import os; os.putenv('TOKEN','" + marker + "')",
+    "import os; os.environ['API_'+'KEY']='" + marker + "'",
+    "from os import environ as e; e['API_KEY']='" + marker + "'",
+    "import os as x; x.environ['API_KEY']='" + marker + "'",
+    "import os; os.environ.update({'API_KEY':'" + marker + "'})",
+    "import os; os.environ[name]='" + marker + "'",
+    "import os; os.environ.setdefault('API_KEY','" + marker + "')",
+    "import os; getattr(os,'environ')['API_KEY']='" + marker + "'",
+    "import os as x; getattr(x, attr)[name]='" + marker + "'",
+    "from os import putenv as p; p('API_KEY','" + marker + "')",
+    "import os; e=os.environ; e['API_KEY']='" + marker + "'",
+    "import os; os.environ['API\\x5fKEY']='" + marker + "'",
+    "import os; os.environ['API_KEY'] += '" + marker + "'",
+    "import os; os.environb[b'API_KEY']=b'" + marker + "'",
+    "import os; os.environ['API_KEY']=sys.argv[1]",
+    "import os; os.environ.setdefault(name,'" + marker + "')",
+    "__import__('os').environ['API_KEY']='" + marker + "'",
+  ];
+  const node = [
+    "process.env['API_KEY']='" + marker + "'",
+    "process.env[key]='" + marker + "'",
+    "const e=process.env; e.API_KEY='" + marker + "'",
+    "const {env:e}=require('process'); e['API_KEY']='" + marker + "'",
+    "Reflect.set(process.env,'API_KEY','" + marker + "')",
+    "process['env']['API_KEY']='" + marker + "'",
+    "process.env['API_'+'KEY']='" + marker + "'",
+    "process.env.API_KEY += '" + marker + "'",
+    "const p=process; p.env.API_KEY='" + marker + "'",
+    "globalThis['process'].env.API_KEY='" + marker + "'",
+    "const p=require('node:process'); p.env.API_KEY='" + marker + "'",
+    "Object.defineProperty(process.env,'API_KEY',{value:'" + marker + "'})",
+    "process.env['API\\x5fKEY']='" + marker + "'",
+    "process[env][key]='" + marker + "'",
+    "process.env.API_KEY=process.argv[1]",
+    "Reflect.set(process['env'],key,'" + marker + "')",
+    "const p = globalThis.process; p.env.API_KEY='" + marker + "'",
+  ];
+  const sensitive = [
+    ...python.map(code => ['python', '-c', code, marker]),
+    ...node.map(code => ['node', '-e', code, marker]),
+    ['C:\\Python\\python3.11.exe', '-W', 'ignore', '-c', python[0]],
+    ['py', '-3.11', '-c' + python[1]],
+    ['node', '-r', 'example-module', '--eval', node[0]],
+    ['node.exe', '--eval=' + node[1]],
+    ['node', '-pe', node[0]],
+    ['node', '--print', node[2]],
+    ['python', '-Ic', python[0]],
+    ['pythonw.exe', '-c', python[0]],
+    ['pyw.exe', '-c', python[0]],
+    ['nodejs', '-e', node[0]],
+    ['python', '-IW', 'ignore', '-c', python[0]],
+    ['node', '-e', 'console.log(1)', '-e', node[0]],
+    ['node', '--experimental-policy', 'policy.json', '-e', node[0]],
+    ['node', '-e', "const r=/[//]/; " + node[0]],
+    ['node', '-e', "const p=require('pro'+'cess'); p.env['API_KEY']='" + marker + "'"],
+    ['node', '-e', "globalThis[which].env['API_KEY']='" + marker + "'"],
+  ];
+  const benign = [
+    ['python', '-c', "import os; os.environ['NOTE']='" + marker + "'"],
+    ['python', '-c', "print('" + marker + " os.environ')"],
+    ['python', '-c', "# os.environ['API_KEY']\nprint('" + marker + "')"],
+    ['python', '-c', "import os; os.putenv('NOTE','" + marker + "')"],
+    ['python', '-c', "import os; print(os.environ.get('NOTE'),'" + marker + "')"],
+    ['python', '-c', "import os; print(os.getcwd(),'" + marker + "')"],
+    ['python', '-c', "print('''" + marker + " os.environ['API_KEY']''')"],
+    ['python', '-c', "import os as x; x.environ['NOTE']='" + marker + "'"],
+    ['node', '-e', "process.env.NOTE='" + marker + "'"],
+    ['node', '-e', "console.log('" + marker + " process.env')"],
+    ['node', '-e', "// process.env.API_KEY\nconsole.log('" + marker + "')"],
+    ['node', '-e', "process.env['NOTE']='" + marker + "'"],
+    ['node', '-e', "process['env']['NOTE']='" + marker + "'"],
+    ['node', '-e', "console.log(process.cwd(),'" + marker + "')"],
+    ['node', '-e', "/* process.env.API_KEY */console.log('" + marker + "')"],
+    ['node', '-e', "console.log('" + marker + "')"],
+    ['echo', 'node', marker],
+    ['python', 'script.py', '-c', "print('" + marker + "')"],
+    ['node', 'script.js', '-e', marker],
+    ['python', '-Ic', "print('" + marker + "')"],
+    ['pythonw.exe', '-c', "print('" + marker + "')"],
+    ['nodejs', '-e', "console.log('" + marker + "')"],
+    ['python', '-IW', 'ignore', '-c', "print('" + marker + "')"],
+    ['node', '-r', 'example-module', '-e', "console.log('" + marker + "')"],
+    ['node', '-e', "const r=/hello/; console.log('" + marker + "')"],
+    ['node', '-e', "console.log(4 / 2, '" + marker + "')"],
+  ];
+  for (const [argv, masked] of [...sensitive.map(a => [a, true]), ...benign.map(a => [a, false])]) {
+    const object = { command: argv, note: 'safe sibling' };
+    for (const input of [argv, object, JSON.stringify(argv), JSON.stringify(object), JSON.stringify(JSON.stringify(object)), JSON.stringify({ nested: JSON.stringify(object), note: 'safe sibling' })]) {
+      for (const output of [JSON.stringify(redactAndBound(input)), buildAgentSummary({ toolInput: input })]) {
+        assert.equal(output.includes(marker), !masked, 'interpreter preview privacy or benign context: ' + argv[0]);
+        if (masked) assert.match(output, /REDACTED/);
+        if (input !== argv && input !== JSON.stringify(argv)) assert.match(output, /safe sibling/);
+      }
+    }
+  }
+  const duplicate = '{"argv":["\\u006eode","-e",' + JSON.stringify(node[0]) + '],"mode":"one","mode":"two"}';
+  assert.ok(!redactAndBound(duplicate).includes(marker));
+  assert.match(redactAndBound(duplicate), /"mode":"one","mode":"two"/);
+});
+
+test('split executable and argument fields protect credential previews without hiding benign context', () => {
+  const marker = 'NOFAX_SYNTHETIC_SPLIT_X202';
+  const sensitive = [
+    ['setx', ['API_KEY', marker]],
+    ['setx.exe', ['TOKEN', marker]],
+    ['Set-Item', ['Env:API_KEY', marker]],
+    ['Set-Variable', ['API_KEY', marker]],
+    ['python', ['-c', "import os; os.environ['API_KEY']='" + marker + "'"]],
+    ['node', ['-e', "process.env.API_KEY='" + marker + "'"]],
+  ];
+  const benign = [
+    ['setx', ['NOTE', marker]],
+    ['Set-Item', ['Env:NOTE', marker]],
+    ['Set-Variable', ['NOTE', marker]],
+    ['python', ['-c', "print('" + marker + "')"]],
+    ['node', ['-e', "console.log('" + marker + "')"]],
+    ['echo', ['NOTE', marker]],
+  ];
+  const shapes = [
+    ['command', 'args'], ['command', 'arguments'],
+    ['executable', 'args'], ['executable', 'arguments'],
+    ['program', 'argv'], ['file', 'args'],
+  ];
+  const outputs = input => [JSON.stringify(redactAndBound(input)), buildAgentSummary({ toolInput: input })];
+  for (const [commandKey, argsKey] of shapes) {
+    for (const [rows, masked] of [[sensitive, true], [benign, false]]) {
+      for (const [command, args] of rows) {
+        const object = { [commandKey]: command, [argsKey]: args, note: 'safe sibling' };
+        for (const input of [object, JSON.stringify(object), JSON.stringify(JSON.stringify(object)), { nested: JSON.stringify(object) }]) {
+          for (const output of outputs(input)) {
+            assert.equal(output.includes(marker), !masked, commandKey + '+' + argsKey + ': ' + command);
+            if (masked) assert.match(output, /REDACTED/);
+            assert.match(output, /safe sibling/);
+          }
+        }
+      }
+    }
+  }
+  const duplicate = '{"command":"echo","command":"setx","args":["API_KEY","' + marker + '"],"mode":"one","mode":"two","note":"safe sibling"}';
+  const duplicateArgs = '{"command":"setx","args":["NOTE","safe"],"args":["API_KEY","' + marker + '"],"note":"safe sibling"}';
+  const escaped = '{"\\u0063ommand":"setx","\\u0061rgs":["API_KEY","' + marker + '"],"note":"safe sibling"}';
+  for (const input of [
+    duplicate, duplicateArgs, escaped,
+    { CoMmAnD: 'setx', ArGuMeNtS: ['API_KEY', marker], note: 'safe sibling' },
+    { command: 'setx', args: { untyped: marker }, note: 'safe sibling' },
+    { command: 'setx', args: 'API_KEY ' + marker, note: 'safe sibling' },
+    JSON.stringify({ outer: [{ executable: 'node', arguments: ['-e', "process.env.API_KEY='" + marker + "'"] }], note: 'safe sibling' }),
+    JSON.stringify({ nested: JSON.stringify({ file: 'setx', args: ['API_KEY', marker] }), note: 'safe sibling' }),
+  ]) {
+    for (const output of outputs(input)) {
+      assert.ok(!output.includes(marker));
+      assert.match(output, /safe sibling/);
+    }
+  }
+  assert.match(redactAndBound(duplicate), /"mode":"one","mode":"two"/);
+  const separated = { first: { command: 'setx' }, second: { args: ['NOTE', marker] }, note: 'safe sibling' };
+  for (const output of outputs(separated)) assert.match(output, new RegExp(marker));
+});
+
+test('ambiguous command preview boundaries fail closed without treating script data as inline code', () => {
+  const marker = 'NOFAX_SYNTHETIC_BOUNDARY_X203';
+  const nodeCode = "process.env[key]='" + marker + "'";
+  const pythonCode = "os.environ[name]='" + marker + "'";
+  const sensitive = [
+    { command: 'node', args: ['--future-preview-option', 'example', '-e', nodeCode] },
+    { executable: 'node', arguments: ['--experimental-config-file', 'example.json', '-e', nodeCode] },
+    { command: 'node', args: ['-e', 'console.log(1)', '-e', nodeCode] },
+    { command: 'python', args: ['-c', pythonCode] },
+    ...['--cpu-prof-dir', '--heap-prof-name', '--localstorage-file', '--report-dir', '--trace-event-file-pattern', '--experimental-default-type', '--test-reporter-destination', '--tls-cipher-list'].map(option => ({ command: 'node', args: [option, 'example', '-e', nodeCode] })),
+  ];
+  const benign = [
+    { command: 'node', args: ['--no-warnings', 'script.js', '-e', nodeCode] },
+    { command: 'node', args: ['--', 'script.js', '-e', nodeCode] },
+    { command: 'node', args: ['-e', 'console.log(1)', 'script-data', '-e', nodeCode] },
+    { command: 'python', args: ['-c', 'print(1)', '-c', pythonCode] },
+    { command: 'python', args: ['-I', 'script.py', '-c', pythonCode] },
+  ];
+  for (const [cases, masked] of [[sensitive, true], [benign, false]]) {
+    for (const input of cases) {
+      const object = { ...input, note: 'safe sibling' };
+      for (const value of [object, JSON.stringify(object), { nested: JSON.stringify(object) }]) {
+        for (const output of [JSON.stringify(redactAndBound(value)), buildAgentSummary({ toolInput: value })]) {
+          assert.equal(output.includes(marker), !masked, JSON.stringify(input));
+          assert.match(output, /safe sibling/);
+        }
+      }
+    }
+  }
+  for (const malformed of [
+    '{"command":"setx","args":["API_KEY","' + marker + '"]',
+    '["setx","API_KEY","' + marker + '"',
+    '{"executable":"node","arguments":["-e",' + JSON.stringify(nodeCode) + ']',
+    '{"nested":' + JSON.stringify(JSON.stringify({ command: 'setx', args: ['API_KEY', marker] })),
+    '["safe",' + JSON.stringify(JSON.stringify({ command: 'node', args: ['-e', nodeCode] })),
+  ]) {
+    for (const input of [malformed, JSON.stringify(malformed), { nested: malformed }]) {
+      assert.ok(!JSON.stringify(redactAndBound(input)).includes(marker));
+      assert.ok(!buildAgentSummary({ toolInput: input }).includes(marker));
+    }
+  }
+  const unrelatedMalformed = '{"note":"' + marker + '","command":"echo"';
+  assert.match(redactAndBound(unrelatedMalformed), new RegExp(marker));
+  let nested = JSON.stringify({ command: 'setx', args: ['API_KEY', marker] });
+  for (let i = 0; i < 6; i++) nested = JSON.stringify(nested);
+  const deepMalformed = '{"nested":' + JSON.stringify(nested);
+  for (const value of [nested, deepMalformed]) {
+    const output = redactAndBound(value);
+    assert.match(output, /REDACTED/);
+    assert.ok(!output.includes(marker));
+  }
+});
+
+test('typed PowerShell provider argv preserves privacy and benign review context', () => {
+  const marker = 'NOFAX_SYNTHETIC_PS_ARGV_X92';
+  const sensitive = [
+    ['Set-Item', 'Env:API_KEY', marker],
+    ['Set-Item', '-Path', 'Env:TOKEN', '-Value', marker],
+    ['Set-Item', '-Value', marker, '-LiteralPath', 'Variable:API_KEY'],
+    ['New-Item', '-Path', 'Env:', '-Name', 'API_KEY', '-Value', marker],
+    ['New-Item', '-Path', 'Env:', '-Value', marker],
+    ['Set-Content', '-Path:Environment::API_KEY', '-Value:' + marker],
+    ['Set-Variable', 'API_KEY', marker],
+    ['Set-Variable', '-Value', marker, '-Name', 'API_KEY'],
+    ['Set-Variable', '-Name', 'NOTE', 'API_KEY', '-Value', marker],
+    ['Set-Item', '-Path', ['Env:NOTE', 'Env:API_KEY'], '-Value', marker],
+    ['Set-Item', '-Path', 'Env:NOTE', 'Env:API_KEY', '-Value', marker],
+    ['Set-Item', '-Path', 'Env:NOTE', '-Path', 'Env:API_KEY', '-Value', marker],
+    ['Set-Item', '-P', 'Env:API_KEY', '-V', marker],
+    ['Microsoft.PowerShell.Management\\Set-Item', '-Path', 'Environment::API_KEY', '-Value', marker],
+    ['Set-Variable', '-Name', 'NOTE', '-Credential', marker, '-Value', 'safe'],
+    ['Set-Item', '-Path', 'Env:$name', '-Value', marker],
+  ];
+  for (const argv of sensitive) {
+    const object = { command: argv, note: 'safe sibling' };
+    for (const input of [argv, object, JSON.stringify(argv), JSON.stringify(object), JSON.stringify(JSON.stringify(object)), JSON.stringify({ nested: JSON.stringify(object), note: 'safe sibling' })]) {
+      for (const output of [JSON.stringify(redactAndBound(input)), buildAgentSummary({ toolInput: input })]) {
+        assert.ok(!output.includes(marker), 'credential argv leaked for ' + argv[0]);
+        assert.match(output, /REDACTED/);
+        if (input !== argv && input !== JSON.stringify(argv)) assert.match(output, /safe sibling/);
+      }
+    }
+  }
+  const duplicate = '{"argv":["\\u0053et-Item","Env:API_KEY","' + marker + '"],"mode":"one","mode":"two"}';
+  assert.ok(!redactAndBound(duplicate).includes(marker));
+  assert.match(redactAndBound(duplicate), /"mode":"one","mode":"two"/);
+  for (const argv of [
+    ['Set-Item', 'Env:NOTE', marker],
+    ['Set-Item', '-Path', 'Env:NOTE', '-Value', marker],
+    ['Set-Variable', '-Value', marker, '-Name', 'NOTE'],
+    ['Set-Variable', 'NOTE', marker],
+    ['New-Item', '-Path', 'Env:', '-Name', 'NOTE', '-Value', marker],
+    ['Set-Content', '-Value', marker, '-Path', 'notes with spaces.txt'],
+    ['Microsoft.PowerShell.Management\\Set-Item', '-Path', 'Environment::NOTE', '-Value', marker],
+    ['echo', 'Set-Item', marker],
+  ]) {
+    assert.deepEqual(redactAndBound(argv), argv);
+    const serialized = JSON.stringify({ command: argv, note: 'safe sibling' });
+    assert.equal(redactAndBound(serialized), serialized);
+    assert.match(buildAgentSummary({ toolInput: { command: argv } }), new RegExp(marker));
+  }
+});
+
+test('structured setx credential argv is private in typed and serialized previews', () => {
+  const marker = 'NOFAX_SYNTHETIC_ARGV_X91';
+  const cases = [
+    ['setx', 'API_KEY', marker],
+    ['SETX.EXE', 'GITHUB_PAT', marker, '/m'],
+    ['C:\\Windows\\System32\\setx.exe', 'TOKEN', marker],
+    ['setx', '/m', 'API_KEY', marker],
+    ['setx', '/s', 'example.invalid', '/u', 'synthetic', '/p', marker, 'NOTE', 'safe'],
+    ['setx', 'API_KEY', { value: marker }],
+  ];
+  for (const argv of cases) {
+    const object = { command: argv, note: 'safe sibling' };
+    for (const input of [argv, object, JSON.stringify(argv), JSON.stringify(object), JSON.stringify(JSON.stringify(object)), JSON.stringify({ nested: JSON.stringify(object), note: 'safe sibling' })]) {
+      const bounded = JSON.stringify(redactAndBound(input));
+      const summary = buildAgentSummary({ toolInput: input });
+      for (const output of [bounded, summary]) {
+        assert.ok(!output.includes(marker), 'credential argv leaked');
+        assert.match(output, /REDACTED/);
+        if (input !== argv && input !== JSON.stringify(argv)) assert.match(output, /safe sibling/);
+      }
+    }
+  }
+  const duplicate = `{"argv":["\\u0073etx","API_KEY","${marker}"],"mode":"first","mode":"second"}`;
+  const output = redactAndBound(duplicate);
+  assert.ok(!output.includes(marker));
+  assert.match(output, /"mode":"first","mode":"second"/);
+  for (const argv of [['setx', 'NOTE', marker], ['setx.exe', 'NOTE', marker, '/m'], ['echo', 'API_KEY', marker], ['setx', '/?']]) {
+    assert.deepEqual(redactAndBound(argv), argv);
+    const serialized = JSON.stringify({ command: argv, note: 'safe sibling' });
+    assert.equal(redactAndBound(serialized), serialized);
+  }
+});
+
+test('PowerShell provider credential command previews omit sensitive arguments', () => {
+  const marker = 'NOFAX_CANARY_X91';
+  const commands = [
+    `Set-Item Env:API_KEY '${marker}'`,
+    `Set-Item -Path 'Env:API_KEY' -Value '${marker}'`,
+    `Set-Item -Value '${marker}' -LiteralPath Env:API_KEY`,
+    `Set-Item -Confirm:$false -Path Env:API_KEY -Value '${marker}'`,
+    `Set-Item -WhatIf -Path:Env:API_KEY -Value:'${marker}'`,
+    `New-Item -Path Env:API_KEY -Value '${marker}' -Force`,
+    `Set-Content -Value '${marker}' -LiteralPath 'Variable:API_KEY'`,
+    `Set-Variable API_KEY '${marker}'`,
+    `Set-Variable -Value '${marker}' -Name API_KEY -Scope Global`,
+    `Set-Variable -Name:API_KEY -Value:'${marker}'`,
+    `Set-Variable -Confirm:$false -Name API_KEY -Value '${marker}'`,
+    `Set-Item Env:API_KEY ('${marker};nested')`,
+    `Set-Item -P:Env:API_KEY -V:'${marker}'`,
+    `New-Item -Path Env: -Name API_KEY -Value '${marker}'`,
+    `Set-Item -Path @('Env:NOTE','Env:API_KEY') -Value '${marker}'`,
+    `Set-Item -Path (Join-Path Env: API_KEY) -Value '${marker}'`,
+    `Microsoft.PowerShell.Management\\Set-Item -Path Environment::API_KEY -Value '${marker}'`,
+  ];
+  for (const command of commands) {
+    const input = `${command}; echo mode=safe`;
+    for (const preview of [input, JSON.stringify(input), JSON.stringify(JSON.stringify(input))]) {
+      const bounded = redactAndBound(preview);
+      const summary = buildAgentSummary({ source: 'Codex', toolName: 'shell', toolInput: { command: preview } });
+      for (const output of [bounded, summary]) {
+        assert.ok(!output.includes(marker), `credential value leaked for ${command.split(' ')[0]}`);
+        assert.match(output, /REDACTED/);
+        assert.match(output, /mode=safe/);
+      }
+    }
+  }
+  for (const malformed of [`Set-Item Env:API_KEY '${marker}`, `Set-Variable -Name API_KEY -Value '${marker}`]) {
+    assert.ok(!redactAndBound(malformed).includes(marker));
+  }
+  const hereString = ["Set-Item Env:API_KEY @'", "unpaired ' quote", marker, "'@", 'echo mode=safe'].join('\n');
+  for (const input of [hereString, JSON.stringify(hereString)]) {
+    const output = redactAndBound(input);
+    assert.ok(!output.includes(marker));
+    assert.match(output, /mode=safe/);
+  }
+  const serialized = JSON.stringify({
+    command: commands[2],
+    mode: 'safe',
+    nested: JSON.stringify({ command: commands[8], note: 'safe sibling' }),
+  });
+  for (const input of [serialized, JSON.stringify(serialized)]) {
+    const output = redactAndBound(input);
+    assert.ok(!output.includes(marker));
+    assert.match(output, /safe sibling/);
+    assert.match(output, /mode/);
+  }
+  const duplicateFields = '{"command":"Set-Item Env:NOTE harmless","mode":"one","mode":"two"}';
+  assert.equal(redactAndBound(duplicateFields), duplicateFields);
+  for (const benign of [
+    `Set-Item Env:NOTE '${marker}'; echo mode=safe`,
+    `Set-Content -Value '${marker}' -Path 'notes.txt'`,
+    `Set-Variable -Value '${marker}' -Name NOTE`,
+    `Set-Variable NOTE '${marker}'`,
+    `Set-Variable -Value 'api_key' -Name NOTE`,
+    `New-Item -Path Env: -Name NOTE -Value '${marker}'`,
+    `Microsoft.PowerShell.Management\\Set-Item -Path Environment::NOTE -Value '${marker}'`,
+  ]) {
+    assert.equal(redactAndBound(benign), benign);
+  }
+});
+
 test('approval summaries expose display-control characters literally instead of executing them', () => {
   const input = 'echo safe\rOVERWRITE\u001b[2K\u202e--hidden\u2066\u0000\u2028Spoofed heading\u2029';
   const marker = 'NOFAX_SYNTHETIC_DISPLAY_CONTROL_SECRET_12345';
@@ -17,6 +384,33 @@ test('approval summaries expose display-control characters literally instead of 
   }
   assert.doesNotMatch(summary, new RegExp(marker));
   assert.match(summary, /api_key=\[REDACTED\]/);
+});
+
+test('control-interrupted credential labels cannot expose values in serialized approval previews', () => {
+  const marker = 'NOFAX_SYNTHETIC_CONTROL_KEY_SECRET_20261122';
+  for (const key of ['api\u001b[0m_key', 'to\u001b[0mken', 'api\u0000_key']) {
+    const object = { [key]: marker, note: 'safe detail' };
+    assert.equal(redactAndBound(object)[key], '[REDACTED]', 'structured credential keys must be classified');
+    assert.equal(redactAndBound({ name: key, value: marker }).value, '[REDACTED]');
+    for (const fixture of [`${key}=${marker} mode=safe`, JSON.stringify(object), `echo ${JSON.stringify(object)}`]) {
+      for (const input of [fixture, JSON.stringify(fixture), JSON.stringify(JSON.stringify(fixture))]) {
+        for (const output of [redactAndBound(input), buildAgentSummary({ toolInput: { command: input } })]) {
+          assert.equal(output.includes(marker), false, 'control-interrupted key must mask its value');
+          assert.match(output, /safe/, 'benign approval context must survive');
+        }
+      }
+    }
+  }
+
+  const benign = `no\u001b[0mte=${marker} mode=safe`;
+  for (const input of [benign, JSON.stringify(benign), JSON.stringify(JSON.stringify(benign))]) {
+    assert.match(redactAndBound(input), new RegExp(marker), 'nonsecret control-interrupted keys remain readable');
+  }
+
+  const malformed = `echo {"api\\u001b[0m_key":${marker},"note":"safe detail"}`;
+  for (const output of [redactAndBound(malformed), buildAgentSummary({ toolInput: { command: malformed } })]) {
+    assert.equal(output.includes(marker), false, 'malformed encoded control-key context must fail closed');
+  }
 });
 
 test('approval summaries visibly escape hidden format marks but preserve emoji joiners', () => {
@@ -57,6 +451,140 @@ test('approval summaries expose non-emoji joiners without breaking emoji sequenc
   }
 });
 
+test('YAML anchors referenced by credential aliases hide their source values in approval previews', () => {
+  const marker = 'NOFAX_YAML_ALIAS_SYNTHETIC_SECRET_8642';
+  const fixtures = [
+    `metadata: &shared ${marker}\napi_key: *shared\nmode: safe`,
+    `config:\n  note: &shared "${marker}"\n  token: *shared\n  mode: safe`,
+    `config:\n  note: &shared |\n    ${marker}\n  password: *shared\n  mode: safe`,
+    `metadata: &shared >\r\n  ${marker}\r\nauthorization: *shared\r\nmode: safe`
+  ];
+  for (const fixture of fixtures) {
+    for (const input of [fixture, JSON.stringify(fixture), JSON.stringify(JSON.stringify(fixture))]) {
+      for (const output of [redactAndBound(input), buildAgentSummary({ toolInput: { command: input } })]) {
+        assert.equal(output.includes(marker), false, 'a credential alias must taint its anchor definition');
+        assert.match(output, /mode: safe/, 'unrelated approval context remains readable');
+      }
+    }
+  }
+  const benign = `metadata: &safe ${marker}\nmode: *safe`;
+  for (const input of [benign, JSON.stringify(benign), JSON.stringify(JSON.stringify(benign))]) {
+    assert.match(redactAndBound(input), new RegExp(marker), 'unreferenced benign anchor remains readable');
+  }
+});
+
+test('YAML flow mappings cannot expose source values referenced by credential aliases', () => {
+  const marker = 'NOFAX_YAML_FLOW_ALIAS_SYNTHETIC_SECRET_4912';
+  const fixtures = [
+    `metadata: &shared ${marker}\nconfig: {api_key: *shared, mode: safe}\nmode: safe`,
+    `metadata: &shared "${marker}"\nconfig: {"token": *shared}\nmode: safe`,
+    `metadata: &shared ${marker}\nconfig: {'password': *shared, note: okay}\nmode: safe`,
+    `metadata: &shared ${marker}\nconfig: [{authorization: *shared}]\nmode: safe`,
+    `metadata: &shared ${marker}\nconfig: {note: okay,\n  api_key: *shared}\nmode: safe`
+  ];
+  for (const fixture of fixtures) {
+    for (const input of [fixture, JSON.stringify(fixture), JSON.stringify(JSON.stringify(fixture))]) {
+      for (const output of [redactAndBound(input), buildAgentSummary({ toolInput: { command: input } })]) {
+        assert.equal(output.includes(marker), false, 'flow-map credential aliases must taint their anchor definition');
+        // Escaped multiline flow maps may conservatively suppress a following
+        // scalar; their preceding nonsecret mapping must remain visible.
+        assert.match(output, fixture.includes('note: okay,\n') ? /note: okay/ : /mode: safe/,
+          'independent nonsecret context remains readable');
+      }
+    }
+  }
+  const benign = `metadata: &shared ${marker}\nconfig: {mode: *shared}`;
+  for (const input of [benign, JSON.stringify(benign), JSON.stringify(JSON.stringify(benign))]) {
+    assert.match(redactAndBound(input), new RegExp(marker), 'nonsecret flow aliases must not taint their anchor');
+  }
+});
+
+test('serialized credential previews retain independent YAML sibling context', () => {
+  const marker = 'NOFAX_SERIALIZED_CONTEXT_SYNTHETIC_SECRET_6427';
+  const fixtures = [
+    `metadata: &shared ${marker}\nconfig: {note: okay,\n  api_key: *shared}\nmode: safe`,
+    `metadata: &shared "${marker}"\nconfig: {"token": *shared,\n  hint: clear}\nmode: safe`,
+    `api_key: ${marker}\nmode: safe`
+  ];
+  for (const fixture of fixtures) {
+    for (const input of [JSON.stringify(fixture), JSON.stringify(JSON.stringify(fixture))]) {
+      for (const output of [redactAndBound(input), buildAgentSummary({ toolInput: { command: input } })]) {
+        assert.equal(output.includes(marker), false, 'serialized credential content remains masked');
+        assert.match(output, /mode: safe/, 'an independent YAML sibling remains readable');
+      }
+    }
+  }
+});
+
+test('TOML and dotenv multiline credentials hide their bodies without hiding safe sibling fields', () => {
+  const marker = 'NOFAX_TOML_MULTILINE_SYNTHETIC_SECRET_4197';
+  const fixtures = [
+    `api_key = """\n${marker}\n"""\nmode = safe`,
+    `token = '''\r\n${marker}\r\n'''\r\nmode = safe`,
+    `credentials.password = """\nquoted \\""" then ${marker}\n"""\nmode = safe`,
+    `export PRIVATE_KEY="first line\n${marker}\nlast line"\nmode = safe`,
+    `TOKEN='first line\n${marker}\nlast line'\nmode = safe`,
+    `password = """\n${marker}\nmode = safe`
+  ];
+
+  for (const fixture of fixtures) {
+    for (const input of [fixture, JSON.stringify(fixture), JSON.stringify(JSON.stringify(fixture))]) {
+      for (const output of [redactAndBound(input), buildAgentSummary({ toolInput: { command: input } })]) {
+        assert.equal(output.includes(marker), false, 'multiline credential body must not appear in approval preview');
+        if (fixture.includes('last line') || fixture.includes('"""\nmode') || fixture.includes("'''\r\nmode")) {
+          assert.match(output, /mode = safe/, 'valid nonsecret sibling must remain readable');
+        }
+      }
+    }
+  }
+
+  const benign = `notes = """\n${marker}\n"""\nmode = safe`;
+  for (const input of [benign, JSON.stringify(benign), JSON.stringify(JSON.stringify(benign))]) {
+    assert.match(redactAndBound(input), new RegExp(marker), 'nonsecret multiline text remains readable');
+    assert.match(redactAndBound(input), /mode = safe/);
+  }
+});
+
+test('shell heredoc and PowerShell here-string credentials hide bodies but retain safe commands', () => {
+  const marker = 'NOFAX_SHELL_MULTILINE_SYNTHETIC_SECRET_5729';
+  const fixtures = [
+    `export TOKEN=$(cat <<'SECRET_END'\n${marker}\nSECRET_END\n)\nmode=safe`,
+    `API_KEY=$(cat <<-EOF\r\n\tNOT_EOF\r\n\t${marker}\r\n\tEOF\r\n)\r\nmode=safe`,
+    `$env:PRIVATE_KEY = @'\n${marker}\n'@\nmode=safe`,
+    `$password = @"\r\n${marker}\r\n"@\r\nmode=safe`
+  ];
+
+  for (const fixture of fixtures) {
+    for (const input of [fixture, JSON.stringify(fixture), JSON.stringify(JSON.stringify(fixture))]) {
+      for (const output of [redactAndBound(input), buildAgentSummary({ toolInput: { command: input } })]) {
+        assert.equal(output.includes(marker), false, 'credential block contents must be hidden');
+        assert.match(output, /mode=safe/, 'a command after the terminator must stay visible');
+      }
+    }
+  }
+
+  const unclosed = `TOKEN=$(cat <<EOF\n${marker}\nNOT_EOF\nmode=safe`;
+  for (const output of [redactAndBound(unclosed), buildAgentSummary({ message: unclosed })]) {
+    assert.equal(output.includes(marker), false, 'unterminated credential blocks fail closed');
+  }
+
+  const deceptiveClosingLine = "$password = @'\n" + marker + "\n  '@\n" + marker + "\n'@\nmode=safe";
+  const deceptiveHeredoc = 'TOKEN=$(cat <<EOF\n  EOF\n' + marker + '\nEOF\n)\nmode=safe';
+  for (const fixture of [deceptiveClosingLine, deceptiveHeredoc]) {
+    for (const input of [fixture, JSON.stringify(fixture), JSON.stringify(JSON.stringify(fixture))]) {
+      const output = buildAgentSummary({ toolInput: { command: input } });
+      assert.equal(output.includes(marker), false, 'an indented false terminator must not expose remaining secrets');
+      assert.match(output, /mode=safe/);
+    }
+  }
+
+  const benign = `notes=$(cat <<'END'\n${marker}\nEND\n)\nmode=safe`;
+  for (const input of [benign, JSON.stringify(benign), JSON.stringify(JSON.stringify(benign))]) {
+    assert.match(redactAndBound(input), new RegExp(marker), 'nonsecret heredocs remain readable');
+    assert.match(redactAndBound(input), /mode=safe/);
+  }
+});
+
 test('redacts credentials from escaped and double-escaped JSON in agent summaries', () => {
   const marker = 'NOFAX_SYNTHETIC_ESCAPED_JSON_SECRET_CANARY_12345';
   const object = JSON.stringify({ api_key: marker, accessToken: marker, note: 'run tests' });
@@ -94,6 +622,113 @@ test('redacts credentials whose JSON property names use Unicode escapes', () => 
   }
   const benign = '{"he\\u006clo":"safe detail"}';
   assert.match(redactAndBound(benign), /safe detail/, 'unrelated Unicode escapes remain visible');
+});
+
+test('redacts compatibility-width credential labels without changing benign approval context', () => {
+  const marker = 'NOFAX_SYNTHETIC_NFKC_CREDENTIAL_CANARY_20261121';
+  const keys = ['ａｐｉ＿ｋｅｙ', 'ａｃｃｅｓｓＴｏｋｅｎ', 'ｐａｓｓｗｏｒｄ', 'ａｕｔｈｏｒｉｚａｔｉｏｎ'];
+  for (const key of keys) {
+    const object = { [key]: marker, notes: 'safe detail' };
+    const boundedObject = redactAndBound(object);
+    const objectSummary = buildAgentSummary({ source: 'Codex', toolInput: object });
+    assert.equal(boundedObject[key], '[REDACTED]', `structured key ${key} must be classified`);
+    assert.doesNotMatch(objectSummary, new RegExp(marker));
+    assert.match(objectSummary, /safe detail/);
+    assert.equal(redactAndBound({ name: key, value: marker, notes: 'safe detail' }).value, '[REDACTED]');
+
+    const encoded = JSON.stringify(object);
+    const samples = [
+      `${key}=${marker} mode=safe`,
+      encoded,
+      JSON.stringify(encoded),
+      JSON.stringify(JSON.stringify(encoded))
+    ];
+    for (const sample of samples) {
+      const outputs = [
+        redactAndBound(sample),
+        buildAgentSummary({ source: 'Claude Code', toolName: 'Bash', toolInput: { command: sample } })
+      ];
+      for (const output of outputs) {
+        assert.equal(output.includes(marker), false, `preview must redact compatibility key ${key}`);
+        assert.match(output, /safe/, 'nonsecret context must remain visible');
+      }
+    }
+
+    const quoted = JSON.stringify({ [key]: `prefix\\"${marker}\\"suffix`, notes: 'safe detail' });
+    for (const sample of [quoted, JSON.stringify(quoted), JSON.stringify(JSON.stringify(quoted))]) {
+      assert.equal(redactAndBound(sample).includes(marker), false, 'nested quoted credential stays redacted');
+      assert.equal(buildAgentSummary({ toolInput: { command: sample } }).includes(marker), false);
+    }
+  }
+
+  const benign = { 'ｎｏｔｅｓ': marker, mode: 'safe' };
+  const benignText = JSON.stringify(benign);
+  assert.equal(redactAndBound(benign)['ｎｏｔｅｓ'], marker);
+  assert.match(redactAndBound(benignText), new RegExp(marker), 'benign compatibility label remains readable');
+  assert.match(buildAgentSummary({ toolInput: benign }), new RegExp(marker));
+});
+
+test('Unicode spacing inside credential labels cannot expose values in serialized previews', () => {
+  const marker = 'NOFAX_SYNTHETIC_UNICODE_SPACING_SECRET_20261123';
+  for (const space of ['\u00a0', '\u2007', '\u2009', '\u202f']) {
+    const key = `api${space}key`;
+    const object = { [key]: marker, note: 'safe detail' };
+    assert.equal(redactAndBound(object)[key], '[REDACTED]');
+
+    const fixtures = [
+      `${key}=${marker} mode=safe`,
+      `${key}="${marker}" mode=safe`,
+      JSON.stringify(object),
+      `echo ${JSON.stringify(object)}`
+    ];
+    for (const fixture of fixtures) {
+      for (const input of [fixture, JSON.stringify(fixture), JSON.stringify(JSON.stringify(fixture))]) {
+        for (const output of [redactAndBound(input), buildAgentSummary({ toolInput: { command: input } })]) {
+          assert.equal(output.includes(marker), false, 'Unicode-spaced credential value must be hidden');
+          assert.match(output, /safe/, 'independent benign context must remain');
+        }
+      }
+    }
+
+    for (const input of [`no${space}te=${marker} mode=safe`, JSON.stringify(`no${space}te=${marker} mode=safe`)]) {
+      assert.match(redactAndBound(input), new RegExp(marker), 'benign Unicode-spaced keys remain readable');
+    }
+  }
+});
+
+test('shell expression credential values stay hidden without erasing benign sibling context', () => {
+  const marker = 'NOFAX_SYNTHETIC_SHELL_EXPANSION_CANARY_20261124';
+  const samples = [
+    `export api_key=$'prefix_${marker}' mode=safe`,
+    `api_key=$"prefix_${marker}" mode=safe`,
+    `api_key=$(printf '%s' '${marker}') mode=safe`,
+    `api_key=prefix$'${marker}' mode=safe`,
+    `api_key=prefix"${marker}" mode=safe`,
+    `api_key=prefix$(printf '%s' '${marker}') mode=safe`,
+    `api_key=prefix\`printf_${marker}\` mode=safe`,
+    `api_key=prefix\\ ${marker} mode=safe`,
+    `api_key="$(printf '%s' '${marker}')" mode=safe`,
+    `api_key=prefix\${UNSET:-${marker}} mode=safe`,
+    `api_key=prefix\${UNSET:-$(printf '%s' '${marker}')} mode=safe`,
+    `api_key=prefix\\\n${marker}\nmode=safe`
+  ];
+
+  for (const sample of samples) {
+    for (const input of [sample, JSON.stringify(sample), JSON.stringify(JSON.stringify(sample))]) {
+      for (const output of [
+        redactAndBound(input),
+        buildAgentSummary({ source: 'Claude Code', toolName: 'Bash', toolInput: { command: input } })
+      ]) {
+        assert.equal(output.includes(marker), false, `shell credential must be redacted: ${sample.split('=')[0]}`);
+        assert.match(output, /mode=safe/, 'independent shell argument must remain visible');
+      }
+    }
+  }
+
+  for (const input of [`api_key=$(printf '%s' '${marker}' mode=safe`, `api_key=$'${marker} mode=safe`]) {
+    assert.equal(redactAndBound(input).includes(marker), false, 'malformed shell expressions must fail closed');
+  }
+  assert.match(redactAndBound(`note=$'${marker}' mode=safe`), new RegExp(marker));
 });
 
 test('redacts credentials hidden by percent-encoded query parameter names', () => {

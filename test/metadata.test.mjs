@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { DEFAULT_TIMEOUT_SECONDS } from "../src/config.mjs";
 
 const root = new URL("../", import.meta.url);
 
@@ -37,4 +38,18 @@ test("published package includes the local documentation linked from README", as
   ]) {
     assert.equal(packagedFiles.has(path), true, `${path} must ship with the npm package`);
   }
+});
+
+test("Gemini BeforeTool example allows the full human-decision window", async () => {
+  const readme = await readFile(new URL("README.md", root), "utf8");
+  const geminiSection = readme.split("### Gemini CLI")[1]?.split("### Pi")[0];
+  assert.ok(geminiSection, "Gemini integration example must exist");
+  const json = /```json\s*([\s\S]*?)```/.exec(geminiSection)?.[1];
+  assert.ok(json, "Gemini hook settings must be valid JSON");
+  const settings = JSON.parse(json);
+  const hookTimeout = settings.hooks.BeforeTool[0].hooks[0].timeout;
+  // Publishing and best-effort confirmation run outside the configured wait.
+  const requiredMs = DEFAULT_TIMEOUT_SECONDS * 1000 + 15_000 + 5_000 + 10_000;
+  assert.ok(hookTimeout >= requiredMs,
+    `Gemini hook must allow at least ${requiredMs} ms, got ${hookTimeout}`);
 });

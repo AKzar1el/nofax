@@ -28,6 +28,21 @@ function boundResponseText(value) {
   return `${text.slice(0, end)}${TRUNCATION_MARKER}`;
 }
 
+function parseRequestTimestamp(value) {
+  if (typeof value !== 'string') return NaN;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return NaN;
+  // Date.parse normalizes impossible ISO calendar days, e.g. February 30.
+  const calendar = /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/.exec(value);
+  if (!calendar) return parsed; // Preserve preexisting non-ISO record compatibility.
+  const year = Number(calendar[1]);
+  const month = Number(calendar[2]);
+  const day = Number(calendar[3]);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+  return day >= 1 && day <= daysInMonth ? parsed : NaN;
+}
+
 function validateRequest(input) {
   if (!input || input.version !== 1) throw new Error('NOFAX_REQUEST_VERSION');
   const requestId = validateRequestId(input.requestId);
@@ -58,7 +73,7 @@ function validateRequest(input) {
     // treat its record as a fresh, unresolved approval request.
     throw new Error('NOFAX_REQUEST_PENDING_TERMINAL_FIELDS_INVALID');
   }
-  const createdAtMs = typeof input.createdAt === 'string' ? Date.parse(input.createdAt) : NaN;
+  const createdAtMs = parseRequestTimestamp(input.createdAt);
   if (!Number.isFinite(createdAtMs)) throw new Error('NOFAX_REQUEST_CREATED_AT_INVALID');
   const hasServer = input.server !== undefined;
   const hasTopic = input.topic !== undefined;
@@ -80,7 +95,7 @@ function validateRequest(input) {
     base.topic = input.topic;
   }
   if (input.status === 'resolved') {
-    const resolvedAtMs = typeof input.resolvedAt === 'string' ? Date.parse(input.resolvedAt) : NaN;
+    const resolvedAtMs = parseRequestTimestamp(input.resolvedAt);
     // A terminal decision cannot precede the request it purportedly resolved.
     if (!Number.isFinite(resolvedAtMs) || resolvedAtMs < createdAtMs) throw new Error('NOFAX_REQUEST_RESOLVED_AT_INVALID');
     if (typeof input.decision !== 'string') throw new Error('NOFAX_REQUEST_DECISION_INVALID');

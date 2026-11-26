@@ -208,6 +208,30 @@ test('local ntfy shows invisible Unicode operators and grapheme joiners as escap
   assert.equal(payload.actions[0].label, 'Allow\\u2064');
 });
 
+test('phone approval text exposes isolate-format and interlinear controls without changing decisions', async () => {
+  const hiddenControls = [0x206a, 0x206b, 0x206c, 0x206d, 0x206e, 0x206f, 0xfff9, 0xfffa, 0xfffb];
+  for (const point of hiddenControls) {
+    const character = String.fromCharCode(point);
+    const escape = `\\u${point.toString(16)}`;
+    let payload;
+    await createRemoteRequest({
+      config,
+      title: `A${character}pproval`,
+      message: `D${character}eny`,
+      options: [{ value: 'allow', label: `Al${character}low` }, { value: 'deny', label: 'Deny' }],
+      fetchImpl: async (_url, init) => {
+        payload = JSON.parse(init.body);
+        return jsonResponse({ id: 'synthetic' });
+      }
+    });
+    assert.equal(payload.title, `A${escape}pproval`);
+    assert.equal(payload.message, `D${escape}eny`);
+    assert.equal(payload.actions[0].label, `Al${escape}low`);
+    assert.equal(JSON.parse(payload.actions[0].body).decision, 'allow');
+    assert.equal(payload.actions[1].label, 'Deny');
+  }
+});
+
 test('local ntfy exposes soft hyphen and Mongolian vowel separator in phone choices', async () => {
   let payload;
   await createRemoteRequest({
@@ -227,6 +251,68 @@ test('local ntfy exposes soft hyphen and Mongolian vowel separator in phone choi
   assert.equal(payload.message, 'Review\\u180enow');
   assert.equal(payload.actions[0].label, 'Al\\u00adlow');
   assert.equal(JSON.parse(payload.actions[0].body).decision, 'first');
+});
+
+test('local ntfy exposes variation selectors hidden in words but keeps emoji variants', async () => {
+  let payload;
+  await createRemoteRequest({
+    config,
+    title: 'Al\ufe0elow',
+    message: 'De\ufe0fny ❤️ 1\ufe0f\u20e3',
+    options: [
+      { value: 'allow', label: 'Allow' },
+      { value: 'deny', label: 'Allo\ufe0fw' }
+    ],
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.equal(payload.title, 'Al\\ufe0elow');
+  assert.equal(payload.message, 'De\\ufe0fny ❤️ 1\ufe0f\u20e3');
+  assert.equal(payload.actions[0].label, 'Allow');
+  assert.equal(payload.actions[1].label, 'Allo\\ufe0fw');
+});
+
+test('notification titles and messages expose supplementary invisible controls without hiding legitimate flags or Han IVS', async () => {
+  const selector = String.fromCodePoint(0xe0100);
+  const tagLetter = String.fromCodePoint(0xe0061);
+  const cancelTag = String.fromCodePoint(0xe007f);
+  const unsupportedFlag = String.fromCodePoint(0x1f3f4, 0xe0078, 0xe007f);
+  const englandFlag = String.fromCodePoint(0x1f3f4, 0xe0067, 0xe0062, 0xe0065, 0xe006e, 0xe0067, 0xe007f);
+  const hanIVS = '\u3402' + selector;
+  let payload;
+  await sendNotification({
+    config,
+    title: 'De' + selector + 'ny ' + hanIVS + ' ' + unsupportedFlag,
+    message: 'Al' + tagLetter + 'low ' + cancelTag + ' ' + englandFlag + ' ' + hanIVS,
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.equal(payload.title, 'De\\u{e0100}ny ' + hanIVS + ' \u{1f3f4}[tag:x]');
+  assert.equal(payload.message, 'Al\\u{e0061}low \\u{e007f} ' + englandFlag + ' ' + hanIVS);
+});
+
+test('supplementary invisible controls expand before ntfy payload limits are enforced', async () => {
+  const hiddenTag = String.fromCodePoint(0xe0061);
+  let payload;
+  await sendNotification({
+    config,
+    title: ('A' + hiddenTag).repeat(100),
+    message: ('De' + hiddenTag + 'ny').repeat(900),
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.ok(payload.title.length <= 120);
+  assert.ok(payload.message.length <= 2200);
+  assert.ok(Buffer.byteLength(payload.message, 'utf8') <= 4096);
+  assert.ok(!payload.title.includes(hiddenTag));
+  assert.ok(!payload.message.includes(hiddenTag));
+  assert.match(payload.message, /\\u\{e0061\}/);
 });
 
 test('local ntfy display escaping still enforces title and UTF-8 message bounds', async () => {
@@ -915,6 +1001,66 @@ test('a caller-managed notification signal remains unchanged without an explicit
   assert.equal(observedSignal, caller.signal);
 });
 
+test('signal-only caller cancellation settles an uncooperative publish and releases its late body', async () => {
+  const caller = new AbortController();
+  let finishFetch;
+  let cancelled = 0;
+  const publication = sendNotification({
+    config, title: 'Build done', message: 'All tests pass', signal: caller.signal,
+    fetchImpl: (_url, init) => {
+      assert.equal(init.signal, caller.signal, 'caller-owned signal identity is preserved');
+      return new Promise((resolve) => { finishFetch = resolve; });
+    }
+  });
+  caller.abort();
+  const outcome = await Promise.race([
+    publication.then(() => 'sent', (error) => `${error.message}:${error.deliveryState}`),
+    new Promise((resolve) => setTimeout(() => resolve('stalled'), 80))
+  ]);
+  assert.equal(outcome, 'NOFAX_NTFY_PUBLISH_NETWORK:ambiguous');
+  finishFetch(new Response(new ReadableStream({ cancel() { cancelled += 1; } })));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(cancelled, 1);
+});
+
+test('abort during listener installation prevents a notification POST entirely', async () => {
+  const caller = new AbortController();
+  const addListener = caller.signal.addEventListener.bind(caller.signal);
+  caller.signal.addEventListener = (...args) => {
+    addListener(...args);
+    caller.abort();
+  };
+  let published = 0;
+  await assert.rejects(() => sendNotification({
+    config, title: 'Build done', message: 'All tests pass',
+    signal: caller.signal, timeoutMs: 1000,
+    fetchImpl: async () => { published += 1; return jsonResponse({ id: 'unexpected' }); }
+  }), (error) => error?.message === 'NOFAX_NTFY_PUBLISH_NETWORK' && error.deliveryState === 'not_applied');
+  assert.equal(published, 0);
+});
+
+test('reentrant and same-turn caller abort cannot report confirmed notification success', async () => {
+  for (const shape of ['sync', 'resolved', 'microtask']) {
+    const caller = new AbortController();
+    const publication = sendNotification({
+      config, title: 'Build done', message: 'All tests pass',
+      signal: caller.signal, timeoutMs: 1000,
+      fetchImpl: () => {
+        if (shape === 'microtask') {
+          queueMicrotask(() => caller.abort());
+          return Promise.resolve(jsonResponse({ id: 'synthetic' }));
+        }
+        caller.abort();
+        const response = jsonResponse({ id: 'synthetic' });
+        return shape === 'sync' ? response : Promise.resolve(response);
+      }
+    });
+    await assert.rejects(publication,
+      (error) => error?.message === 'NOFAX_NTFY_PUBLISH_NETWORK' && error.deliveryState === 'ambiguous',
+      shape);
+  }
+});
+
 test('sendNotification releases a publish body that arrives after its timeout', async () => {
   let resolveRequest;
   let signal;
@@ -1030,6 +1176,42 @@ test('sendNotification preserves Unicode at truncation boundaries', async () => 
   assert.equal(Buffer.from(payload.message, 'utf8').toString('utf8'), payload.message);
   assert.match(payload.title, /…\[truncated\]$/);
   assert.match(payload.message, /…\[truncated\]$/);
+});
+
+test('sendNotification clips approval titles and messages without splitting joined emoji', async () => {
+  const joinedEmoji = '\u{1F469}\u200d\u{1F4BB}';
+  let payload;
+  await sendNotification({
+    config,
+    title: 't'.repeat(103) + joinedEmoji + 'z'.repeat(40),
+    message: 'm'.repeat(2183) + joinedEmoji + 'z'.repeat(60),
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+
+  assert.equal(payload.title, 't'.repeat(103) + '…[truncated]');
+  assert.equal(payload.message, 'm'.repeat(2183) + '…[truncated]');
+  assert.ok(payload.title.length <= 120);
+  assert.ok(payload.message.length <= 2200);
+});
+
+test('sendNotification clips UTF-8 message bytes without splitting joined emoji', async () => {
+  const joinedEmoji = '\u{1F469}\u200d\u{1F4BB}';
+  let payload;
+  await sendNotification({
+    config,
+    title: 'Unicode approval',
+    message: '\u{1F600}'.repeat(1018) + joinedEmoji + '\u{1F600}'.repeat(30),
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+
+  assert.equal(payload.message, '\u{1F600}'.repeat(1018) + '…[truncated]');
+  assert.ok(Buffer.byteLength(payload.message, 'utf8') <= 4096);
 });
 test('requestApproval rejects invalid polling before notification publication', async () => {
   for (const pollIntervalMs of [0, -1, 0.5, NaN, Infinity, 2_147_483_648]) {
@@ -1225,8 +1407,30 @@ test('string choice options use the same validation and bounds as object choices
     }
   });
   assert.deepEqual(remote.allowed, [value]);
-  assert.equal(payload.actions[0].label, value.slice(0, 32));
+  assert.equal(payload.actions[0].label, `${value.slice(0, 31)}…`);
   assert.equal(JSON.parse(payload.actions[0].body).decision, value);
+});
+
+test('long approval action labels visibly indicate clipping without changing decisions', async () => {
+  const value = 'approve-reviewed-migration';
+  const original = 'Approve migration after reviewing all changes';
+  let payload;
+  await createRemoteRequest({
+    config,
+    title: 'Migration approval',
+    message: 'Check the complete request before deciding',
+    options: [{ value, label: original }, { value: 'deny', label: 'N'.repeat(32) }],
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'published' });
+    }
+  });
+  const action = payload.actions[0];
+  assert.ok(action.label.endsWith('…'), 'phone must indicate an abbreviated choice label');
+  assert.ok(action.label.length <= 32, 'ntfy label stays within its 32-unit bound');
+  assert.equal(JSON.parse(action.body).decision, value, 'display clipping never changes the decision');
+  assert.equal(payload.actions[1].label, 'N'.repeat(32), 'an exact-fit label is not marked truncated');
+  assert.equal(JSON.parse(payload.actions[1].body).decision, 'deny');
 });
 
 test('ntfy rejects malformed UTF-16 choice values and labels before any side effects', async () => {
@@ -1296,8 +1500,137 @@ test('choice labels preserve Unicode at the ntfy visible-label boundary', async 
     }
   });
 
-  assert.equal(payload.actions[0].label, 'A'.repeat(31));
+  assert.equal(payload.actions[0].label, `${'A'.repeat(31)}…`);
   assert.equal(Buffer.from(payload.actions[0].label, 'utf8').toString('utf8'), payload.actions[0].label);
+});
+
+test('phone choice clipping never splits an emoji grapheme or changes its decision', async () => {
+  const joinedEmoji = '\u{1f469}\u200d\u{1f4bb}';
+  const flagEmoji = '\u{1f1f8}\u{1f1ee}';
+  const options = [
+    { value: 'joined', label: `${'A'.repeat(28)}${joinedEmoji}` },
+    { value: 'flag', label: `${'B'.repeat(29)}${flagEmoji}` },
+    { value: 'fit', label: `${'C'.repeat(27)}${joinedEmoji}` }
+  ];
+  let payload;
+  const remote = await createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Choose',
+    options,
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.deepEqual(remote.allowed, ['joined', 'flag', 'fit']);
+  assert.deepEqual(payload.actions.map((action) => action.label), [
+    `${'A'.repeat(28)}…`,
+    `${'B'.repeat(29)}…`,
+    `${'C'.repeat(27)}${joinedEmoji}`
+  ]);
+  assert.deepEqual(payload.actions.map((action) => JSON.parse(action.body).decision), remote.allowed);
+  assert.ok(payload.actions.every((action) => action.label.length <= 32));
+});
+
+test('phone choice labels expose non-ASCII Unicode spaces without changing decisions or notification prose', async () => {
+  const unusualSpaces = [
+    '\u00a0', '\u1680', '\u2000', '\u2001', '\u2002', '\u2003',
+    '\u2004', '\u2005', '\u2006', '\u2007', '\u2008', '\u2009',
+    '\u200a', '\u202f', '\u205f', '\u3000'
+  ];
+  for (const space of unusualSpaces) {
+    let payload;
+    const remote = await createRemoteRequest({
+      config,
+      title: `Review${space}now`,
+      message: `Status${space}awaiting`,
+      options: [
+        { value: 'deny', label: 'Deny' },
+        { value: 'review', label: `D${space}eny` }
+      ],
+      fetchImpl: async (_url, init) => {
+        payload = JSON.parse(init.body);
+        return jsonResponse({ id: 'synthetic' });
+      }
+    });
+    const escape = `\\u${space.codePointAt(0).toString(16).padStart(4, '0')}`;
+    assert.deepEqual(payload.actions.map((action) => action.label), ['Deny', `D${escape}eny`]);
+    assert.deepEqual(payload.actions.map((action) => JSON.parse(action.body).decision), ['deny', 'review']);
+    assert.deepEqual(remote.allowed, ['deny', 'review']);
+    assert.equal(payload.title, `Review${space}now`);
+    assert.equal(payload.message, `Status${space}awaiting`);
+    assert.ok(payload.actions.every((action) => action.label.length <= 32));
+  }
+});
+
+test('phone choice labels expose hidden Unicode tags but keep genuine emoji tag flags', async () => {
+  for (const codePoint of [0xe0061, 0xe007f, 0xe0001]) {
+    const hidden = String.fromCodePoint(codePoint);
+    let payload;
+    const remote = await createRemoteRequest({
+      config,
+      title: 'Review',
+      message: 'Choose carefully',
+      options: [
+        { value: 'deny', label: 'Deny' },
+        { value: 'review', label: `De${hidden}ny` }
+      ],
+      fetchImpl: async (_url, init) => {
+        payload = JSON.parse(init.body);
+        return jsonResponse({ id: 'synthetic' });
+      }
+    });
+    assert.deepEqual(payload.actions.map((action) => action.label), [
+      'Deny', `De\\u{${codePoint.toString(16)}}ny`
+    ]);
+    assert.deepEqual(payload.actions.map((action) => JSON.parse(action.body).decision), ['deny', 'review']);
+    assert.deepEqual(remote.allowed, ['deny', 'review']);
+    assert.ok(payload.actions.every((action) => action.label.length <= 32));
+  }
+
+  const englandFlag = String.fromCodePoint(0x1f3f4, 0xe0067, 0xe0062, 0xe0065, 0xe006e, 0xe0067, 0xe007f);
+  let flagPayload;
+  await createRemoteRequest({
+    config,
+    title: 'Review',
+    message: `Flag ${englandFlag}`,
+    options: [{ value: 'flag', label: `Review ${englandFlag}` }],
+    fetchImpl: async (_url, init) => {
+      flagPayload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.equal(flagPayload.actions[0].label, `Review ${englandFlag}`);
+  assert.equal(flagPayload.message, `Flag ${englandFlag}`);
+  assert.equal(JSON.parse(flagPayload.actions[0].body).decision, 'flag');
+});
+
+test('phone choice labels expose supplementary variation selectors without changing decisions', async () => {
+  for (const codePoint of [0xe0100, 0xe0101, 0xe01ef]) {
+    const selector = String.fromCodePoint(codePoint);
+    let payload;
+    const remote = await createRemoteRequest({
+      config,
+      title: 'Review',
+      message: `Choice De${selector}ny is synthetic`,
+      options: [
+        { value: 'deny', label: 'Deny' },
+        { value: 'review', label: `De${selector}ny` }
+      ],
+      fetchImpl: async (_url, init) => {
+        payload = JSON.parse(init.body);
+        return jsonResponse({ id: 'synthetic' });
+      }
+    });
+    assert.deepEqual(payload.actions.map((action) => action.label), [
+      'Deny', `De\\u{${codePoint.toString(16)}}ny`
+    ]);
+    assert.deepEqual(payload.actions.map((action) => JSON.parse(action.body).decision), ['deny', 'review']);
+    assert.deepEqual(remote.allowed, ['deny', 'review']);
+    assert.equal(payload.message, 'Choice De\\u{' + codePoint.toString(16) + '}ny is synthetic');
+    assert.ok(payload.actions.every((action) => action.label.length <= 32));
+  }
 });
 
 test('ntfy choice action labels visibly escape control and bidi characters without changing decisions', async () => {
@@ -1334,6 +1667,148 @@ test('choice transport rejects options that collapse to the same visible label',
     }
   }), /NOFAX_CHOICE_DUPLICATE/);
   assert.equal(fetchCalls, 0);
+});
+
+test('choice transport rejects canonically equivalent visible labels before side effects', async () => {
+  let persisted = 0;
+  let published = 0;
+  await assert.rejects(() => createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Choose',
+    options: [
+      { value: 'deny', label: 'Caf\u00e9' },
+      { value: 'allow', label: 'Cafe\u0301' }
+    ],
+    beforePublish: async () => { persisted += 1; },
+    fetchImpl: async () => { published += 1; return jsonResponse({ id: 'unexpected' }); }
+  }), /NOFAX_CHOICE_DUPLICATE/);
+  assert.equal(persisted, 0);
+  assert.equal(published, 0);
+});
+
+test('choice transport rejects compatibility-equivalent visible labels before side effects', async () => {
+  let persisted = 0;
+  let published = 0;
+  await assert.rejects(() => createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Choose',
+    options: [
+      { value: 'deny', label: 'Allow' },
+      { value: 'allow', label: '\uff21\uff4c\uff4c\uff4f\uff57' }
+    ],
+    beforePublish: async () => { persisted += 1; },
+    fetchImpl: async () => { published += 1; return jsonResponse({ id: 'unexpected' }); }
+  }), /NOFAX_CHOICE_DUPLICATE/);
+  assert.equal(persisted, 0);
+  assert.equal(published, 0);
+});
+
+test('choice transport rejects Unicode tag flags indistinguishable on tag-unaware phones', async () => {
+  const flag = (...tags) => String.fromCodePoint(0x1f3f4, ...[...tags].map((tag) =>
+    0xe0000 + tag.codePointAt(0)), 0xe007f);
+  for (const [first, second] of [
+    [flag('x'), flag('y')], // Complete but invalid one-letter subdivision flags.
+    [flag('gbeng'), flag('gbsct')] // Genuine emoji flags also collapse to the black flag.
+  ]) {
+    let persisted = 0;
+    let published = 0;
+    await assert.rejects(() => createRemoteRequest({
+      config,
+      title: 'Pick',
+      message: 'Choose',
+      options: [
+        { value: 'deny', label: first },
+        { value: 'review', label: second }
+      ],
+      beforePublish: async () => { persisted += 1; },
+      fetchImpl: async () => { published += 1; return jsonResponse({ id: 'unexpected' }); }
+    }), /NOFAX_CHOICE_DUPLICATE/);
+    assert.equal(persisted, 0);
+    assert.equal(published, 0);
+  }
+});
+
+test('phone choice labels show unsupported emoji tag codes without changing decisions', async () => {
+  const tagFlag = (code) => String.fromCodePoint(0x1f3f4,
+    ...[...code].map((letter) => 0xe0000 + letter.codePointAt(0)), 0xe007f);
+
+  for (const code of ['x', 'notreal', 'usca']) {
+    let payload;
+    let persisted = 0;
+    const remote = await createRemoteRequest({
+      config,
+      title: 'Review',
+      message: 'Choose carefully',
+      options: [{ value: 'review', label: `Review ${tagFlag(code)}` }],
+      beforePublish: async () => { persisted += 1; },
+      fetchImpl: async (_url, init) => {
+        payload = JSON.parse(init.body);
+        return jsonResponse({ id: 'synthetic' });
+      }
+    });
+    assert.equal(payload.actions[0].label, `Review \u{1f3f4}[tag:${code}]`);
+    assert.ok(payload.actions[0].label.length <= 32);
+    assert.doesNotMatch(payload.actions[0].label, /[\u{e0061}-\u{e007f}]/u);
+    assert.equal(JSON.parse(payload.actions[0].body).decision, 'review');
+    assert.deepEqual(remote.allowed, ['review']);
+    assert.equal(persisted, 1);
+  }
+
+  // The three RGI subdivision flags keep their real emoji presentation.
+  for (const code of ['gbeng', 'gbsct', 'gbwls']) {
+    let payload;
+    await createRemoteRequest({
+      config,
+      title: 'Review',
+      message: 'Choose carefully',
+      options: [{ value: 'review', label: `Review ${tagFlag(code)}` }],
+      fetchImpl: async (_url, init) => {
+        payload = JSON.parse(init.body);
+        return jsonResponse({ id: 'synthetic' });
+      }
+    });
+    assert.equal(payload.actions[0].label, `Review ${tagFlag(code)}`);
+    assert.equal(JSON.parse(payload.actions[0].body).decision, 'review');
+  }
+});
+
+test('literal visible flag-code captions remain distinguishable phone choices', async () => {
+  let payload;
+  await createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Two explicit captions',
+    options: [
+      { value: 'first', label: '\u{1f3f4}[tag:x]' },
+      { value: 'second', label: '\u{1f3f4}[tag:y]' }
+    ],
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.deepEqual(payload.actions.map(({ label }) => label),
+    ['\u{1f3f4}[tag:x]', '\u{1f3f4}[tag:y]']);
+  assert.deepEqual(payload.actions.map(({ body }) => JSON.parse(body).decision),
+    ['first', 'second']);
+});
+
+test('choice transport rejects labels compatible with the built-in Refine action', async () => {
+  let persisted = 0;
+  let published = 0;
+  await assert.rejects(() => createRemoteRequest({
+    config,
+    title: 'Pick',
+    message: 'Choose',
+    options: [{ value: 'allow', label: '\uff32\uff45\uff46\uff49\uff4e\uff45' }],
+    includeRefine: true,
+    beforePublish: async () => { persisted += 1; },
+    fetchImpl: async () => { published += 1; return jsonResponse({ id: 'unexpected' }); }
+  }), /NOFAX_CHOICE_DUPLICATE/);
+  assert.equal(persisted, 0);
+  assert.equal(published, 0);
 });
 
 test('requestChoice confirms reserved option words as choices rather than approval semantics', async () => {

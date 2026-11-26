@@ -183,6 +183,100 @@ test('Gemini BeforeTool adapter forces native confirmation on timeout or transpo
   assert.deepEqual(errors, ['offline']);
 });
 
+test('provider credential command previews remain private without changing human denial or timeout semantics', async () => {
+  const marker = 'NOFAX_CANARY_ADAPTER_P91';
+  const cases = [
+    `Set-Item -Value '${marker}' -LiteralPath Env:API_KEY; echo mode=safe`,
+    `Set-Variable -Confirm:$false -Name:API_KEY -Value:'${marker}'; echo mode=safe`,
+    `New-Item -Path Env: -Name API_KEY -Value '${marker}'; echo mode=safe`,
+  ];
+  for (const command of cases) {
+    for (const decision of ['deny', 'timeout']) {
+      const seen = [];
+      const options = { config, requestApprovalImpl: async ({ message }) => { seen.push(message); return { decision }; } };
+      const tool_input = { command, note: 'review context' };
+      const claude = await handleClaudePermissionRequest({ ...claudeInput, tool_input }, options);
+      const codex = await handleCodexPermissionRequest({ ...codexInput, tool_input }, options);
+      const gemini = await handleGeminiHook({ hook_event_name: 'BeforeTool', tool_name: 'run_shell_command', tool_input }, options);
+      assert.equal(seen.length, 3);
+      for (const message of seen) {
+        assert.ok(!message.includes(marker));
+        assert.match(message, /REDACTED/);
+        assert.match(message, /mode=safe/);
+        assert.match(message, /review context/);
+      }
+      if (decision === 'deny') {
+        assert.equal(claude.hookSpecificOutput.decision.behavior, 'deny');
+        assert.equal(codex.hookSpecificOutput.decision.behavior, 'deny');
+        assert.equal(gemini.decision, 'deny');
+      } else {
+        assert.equal(claude, null);
+        assert.equal(codex, null);
+        assert.deepEqual(gemini, { decision: 'ask' });
+      }
+    }
+  }
+});
+
+test('structured credential command previews preserve deny, timeout and transport-error decisions', async () => {
+  const marker = 'NOFAX_SYNTHETIC_ADAPTER_ARGV_X91';
+  const sensitive = ['setx', 'API_KEY', marker];
+  const benign = ['setx', 'NOTE', marker];
+  const cases = [
+    { command: sensitive, masked: true },
+    { command: JSON.stringify({ argv: sensitive }), masked: true },
+    { command: benign, masked: false },
+    { command: JSON.stringify({ argv: benign }), masked: false },
+    { command: ['Set-Item', '-Value', marker, '-Path', 'Env:API_KEY'], masked: true },
+    { command: JSON.stringify({ argv: ['Set-Variable', '-Name', 'API_KEY', '-Value', marker] }), masked: true },
+    { command: ['New-Item', '-Path', 'Env:', '-Value', marker], masked: true },
+    { command: ['Set-Variable', '-Value', marker, '-Name', 'NOTE'], masked: false },
+    { command: JSON.stringify({ argv: ['Set-Content', '-Path', 'notes with spaces.txt', '-Value', marker] }), masked: false },
+    { command: ['python', '-c', "import os; os.environ['API_KEY']='" + marker + "'"], masked: true },
+    { command: JSON.stringify({ argv: ['node', '-e', "const e=process.env; e['TOKEN']='" + marker + "'"] }), masked: true },
+    { command: ['node', '--eval', "process.env[key]=process.argv[1]", marker], masked: true },
+    { command: ['python', '-c', "import os; os.environ['NOTE']='" + marker + "'"], masked: false },
+    { command: JSON.stringify({ argv: ['node', '-e', "console.log('" + marker + " process.env')"] }), masked: false },
+    { toolInput: { command: 'setx', args: ['API_KEY', marker] }, masked: true },
+    { toolInput: { executable: 'Set-Item', arguments: ['Env:API_KEY', marker] }, masked: true },
+    { toolInput: { command: 'node', args: ['--experimental-config-file', 'example.json', '-e', "process.env[key]='" + marker + "'"] }, masked: true },
+    { command: JSON.stringify({ command: 'python', args: ['-c', "os.environ[name]='" + marker + "'"] }), masked: true },
+    { toolInput: { command: 'setx', args: ['NOTE', marker] }, masked: false },
+    { toolInput: { executable: 'node', arguments: ['-e', "console.log('" + marker + "')"] }, masked: false },
+  ];
+  for (const { command, toolInput, masked } of cases) {
+    for (const decision of ['deny', 'timeout', 'error']) {
+      const seen = [];
+      const errors = [];
+      const options = { config, onError: error => errors.push(error.message), requestApprovalImpl: async ({ message }) => {
+        seen.push(message);
+        if (decision === 'error') throw new Error('synthetic offline');
+        return { decision };
+      } };
+      const tool_input = { ...(toolInput ?? { command }), note: 'safe sibling' };
+      const claude = await handleClaudePermissionRequest({ ...claudeInput, tool_input }, options);
+      const codex = await handleCodexPermissionRequest({ ...codexInput, tool_input }, options);
+      const gemini = await handleGeminiHook({ hook_event_name: 'BeforeTool', tool_name: 'run_shell_command', tool_input }, options);
+      assert.equal(seen.length, 3);
+      for (const message of seen) {
+        assert.equal(message.includes(marker), !masked);
+        if (masked) assert.match(message, /REDACTED/);
+        assert.match(message, /safe sibling/);
+      }
+      if (decision === 'deny') {
+        assert.equal(claude.hookSpecificOutput.decision.behavior, 'deny');
+        assert.equal(codex.hookSpecificOutput.decision.behavior, 'deny');
+        assert.equal(gemini.decision, 'deny');
+      } else {
+        assert.equal(claude, null);
+        assert.equal(codex, null);
+        assert.deepEqual(gemini, { decision: 'ask' });
+      }
+      assert.equal(errors.length, decision === 'error' ? 3 : 0);
+    }
+  }
+});
+
 test('adapter notification titles redact untrusted credential-bearing event fields', async () => {
   const secret = 'NOFAX_SYNTHETIC_TITLE_SECRET_12345';
   const toolName = `Bash api_key=${secret}`;

@@ -1,6 +1,6 @@
 {
   "name": "nofax",
-  "version": "0.2.50",
+  "version": "0.2.51",
   "mcpName": "io.github.AKzar1el/nofax",
   "description": "Human-in-the-loop approvals and notifications for AI coding agents via CLI, MCP, and agent hooks.",
   "type": "module",
@@ -20,7 +20,10 @@
     "CHANGELOG.md",
     "CONTRIBUTING.md",
     "docs/architecture.md",
-    "docs/remote-mcp.md"
+    "docs/remote-mcp.md",
+    "manifest.json",
+    "PRIVACY.md",
+    "docs/desktop-extension.md"
   ],
   "scripts": {
     "test": "node --test test/*.test.mjs",

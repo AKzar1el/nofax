@@ -5,19 +5,37 @@ import { listPendingRequests } from './requests.mjs';
 import { handleClaudePermissionRequest } from './adapters/claude.mjs';
 import { handleCodexPermissionRequest } from './adapters/codex.mjs';
 import { handleGeminiHook } from './adapters/gemini.mjs';
+import { redactDiagnosticSecrets } from './protocol.mjs';
 
-const HELP = `nofax - remote approvals and notifications for coding agents\n\nUsage:\n  nofax --version\n  nofax init [--server URL] [--topic TOPIC] [--timeout SECONDS] [--force]\n  nofax test\n  nofax pending [--limit N]\n  nofax notify [--title TITLE] MESSAGE...\n  nofax approve [--title TITLE] MESSAGE...\n  nofax refine [--title TITLE] MESSAGE...\n  nofax mcp\n  nofax config\n  nofax hook claude\n  nofax hook codex\n  nofax hook gemini\n\nEnvironment:\n  NOFAX_HOME   Override ~/.nofax\n`;
+const HELP = `nofax - remote approvals and notifications for coding agents\n\nUsage:\n  nofax --version\n  nofax init [--server URL] [--topic TOPIC] [--timeout SECONDS] [--force]\n  nofax doctor\n  nofax test\n  nofax pending [--limit N]\n  nofax notify [--title TITLE] MESSAGE...\n  nofax approve [--title TITLE] MESSAGE...\n  nofax refine [--title TITLE] MESSAGE...\n  nofax mcp\n  nofax config [--show-topic]\n  nofax hook claude\n  nofax hook codex\n  nofax hook gemini\n\nEnvironment:\n  NOFAX_HOME   Override ~/.nofax\n`;
 
 const PACKAGE_JSON_URL = new URL('../package.json', import.meta.url);
 const MAX_HOOK_STDIN_BYTES = 1024 * 1024;
+const MAX_DIAGNOSTIC_CHARS = 4096;
+const DIAGNOSTIC_TRUNCATION = '...[truncated]';
+const DIAGNOSTIC_CONTROLS = /[\x00-\x1f\x7f-\x9f\u00ad\u034f\u061c\u115f-\u1160\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\u2800\u3164\ufe00-\ufe0f\ufeff\uffa0\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/u;
 
 function safeDiagnostic(error) {
   // Untrusted transport errors may contain line controls or invisible marks
-  // that disguise decision words. Render both explicitly in terminal logs.
-  return String(error?.message ?? error).replace(
-    /[\x00-\x1f\x7f-\x9f\u00ad\u034f\u061c\u115f-\u1160\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\u2800\u3164\ufe0e-\ufe0f\ufeff\uffa0]/gu,
-    (character) => '\\u' + character.codePointAt(0).toString(16).padStart(4, '0')
-  );
+  // that disguise decision words or flood logs after escape expansion.
+  const chunks = [];
+  let length = 0;
+  for (const character of redactDiagnosticSecrets(String(error?.message ?? error))) {
+    const point = character.codePointAt(0);
+    const rendered = DIAGNOSTIC_CONTROLS.test(character)
+      ? (point <= 0xffff ? '\\u' + point.toString(16).padStart(4, '0') : '\\u{' + point.toString(16) + '}')
+      : character;
+    if (length + rendered.length > MAX_DIAGNOSTIC_CHARS) {
+      // Back off whole escaped characters; never split a Unicode pair or escape.
+      while (length > MAX_DIAGNOSTIC_CHARS - DIAGNOSTIC_TRUNCATION.length) {
+        length -= chunks.pop().length;
+      }
+      return chunks.join('') + DIAGNOSTIC_TRUNCATION;
+    }
+    chunks.push(rendered);
+    length += rendered.length;
+  }
+  return chunks.join('');
 }
 
 async function readPackageVersion() {
@@ -33,9 +51,18 @@ function parseArgs(args, allowedFlags = []) {
   const positionals = [];
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
+    if (value === '--') {
+      positionals.push(...args.slice(index + 1));
+      break;
+    }
     if (value === '--force') {
       if (!allowedFlags.includes(value)) throw new Error(`NOFAX_UNKNOWN_FLAG:${value}`);
       flags.force = true;
+      continue;
+    }
+    if (value === '--show-topic') {
+      if (!allowedFlags.includes(value)) throw new Error(`NOFAX_UNKNOWN_FLAG:${value}`);
+      flags.showTopic = true;
       continue;
     }
     if (['--title', '--server', '--topic', '--timeout', '--limit'].includes(value)) {
@@ -46,14 +73,16 @@ function parseArgs(args, allowedFlags = []) {
       index += 1;
       continue;
     }
-    if (value.startsWith('--')) throw new Error(`NOFAX_UNKNOWN_FLAG:${value}`);
+    // Unknown arguments may carry credentials (--token=...), so do not echo
+    // their caller-controlled text into logs or captured approval output.
+    if (value.startsWith('--')) throw new Error('NOFAX_UNKNOWN_FLAG');
     positionals.push(value);
   }
   return { flags, positionals };
 }
 
 function rejectUnexpectedArgs(positionals) {
-  if (positionals.length > 0) throw new Error(`NOFAX_UNEXPECTED_ARGUMENT:${positionals[0]}`);
+  if (positionals.length > 0) throw new Error('NOFAX_UNEXPECTED_ARGUMENT');
 }
 
 async function readStdin(stdinText, stdinStream = process.stdin) {
@@ -146,7 +175,7 @@ async function runHook(adapter, deps) {
       onError
     });
   } else {
-    throw new Error(`NOFAX_HOOK_UNSUPPORTED:${adapter}`);
+    throw new Error('NOFAX_HOOK_UNSUPPORTED');
   }
 
   if (output === null) {
@@ -187,11 +216,17 @@ export async function runCli(args, overrides = {}) {
 
   try {
     if (args.length === 0 || args[0] === '--help' || args[0] === '-h' || args[0] === 'help') {
+      if (args.length > 0) {
+        const { positionals } = parseArgs(args.slice(1));
+        rejectUnexpectedArgs(positionals);
+      }
       deps.stdout.write(HELP);
       return 0;
     }
 
     if (args[0] === '--version' || args[0] === '-v') {
+      const { positionals } = parseArgs(args.slice(1));
+      rejectUnexpectedArgs(positionals);
       deps.stdout.write(`${await readPackageVersion()}\n`);
       return 0;
     }
@@ -201,32 +236,70 @@ export async function runCli(args, overrides = {}) {
       const { flags, positionals } = parseArgs(args.slice(1), ['--server', '--topic', '--timeout', '--force']);
       rejectUnexpectedArgs(positionals);
       const timeoutSeconds = flags.timeout === undefined ? undefined : Number(flags.timeout);
+      let created = false;
       const config = await deps.initConfigImpl({
         env: deps.env,
         ...(flags.server === undefined ? {} : { server: flags.server }),
         ...(flags.topic === undefined ? {} : { topic: flags.topic }),
         ...(timeoutSeconds === undefined ? {} : { timeoutSeconds }),
-        force: flags.force === true
+        force: flags.force === true,
+        rejectExisting: flags.force !== true &&
+          (flags.server !== undefined || flags.topic !== undefined || flags.timeout !== undefined),
+        onCreated: () => { created = true; }
       });
       if (isLegacyRepeatedTopic(config?.topic)) {
         throw new Error('NOFAX_LEGACY_TOPIC_ROTATION_REQUIRED: run nofax init --force');
       }
-      deps.stdout.write('Nofax ready.\n');
-      deps.stdout.write(`Subscribe your ntfy app to: ${config.server}/${config.topic}\n`);
-      deps.stdout.write('Then run: nofax test\n');
+      if (created) {
+        deps.stdout.write('Nofax ready.\n');
+        deps.stdout.write(`Subscribe your ntfy app to: ${config.server}/${config.topic}\n`);
+        deps.stdout.write('Then run: nofax test\n');
+      } else {
+        deps.stdout.write('Nofax ready (already initialized).\n');
+        deps.stdout.write('To view your existing subscription topic, run nofax config --show-topic privately.\n');
+      }
       return 0;
     }
 
     if (command === 'config') {
-      rejectUnexpectedArgs(args.slice(1));
+      const { flags, positionals } = parseArgs(args.slice(1), ['--show-topic']);
+      rejectUnexpectedArgs(positionals);
       const config = await rawLoadConfig({ env: deps.env });
       if (isLegacyRepeatedTopic(config?.topic)) {
         deps.stderr.write('nofax: legacy topic requires rotation; run nofax init --force.\n');
         deps.stdout.write(`${JSON.stringify({ ...config, topic: '[ROTATION_REQUIRED]' }, null, 2)}\n`);
       } else {
-        deps.stdout.write(`${JSON.stringify(config, null, 2)}\n`);
+        deps.stdout.write(`${JSON.stringify(flags.showTopic ? config : { ...config, topic: '[REDACTED]' }, null, 2)}\n`);
       }
       return 0;
+    }
+
+    if (command === 'doctor') {
+      rejectUnexpectedArgs(args.slice(1));
+      let localConfig;
+      let nextStep;
+      let errorCode;
+      try {
+        const config = await rawLoadConfig({ env: deps.env });
+        localConfig = isLegacyRepeatedTopic(config.topic) ? 'legacy_topic' : 'valid';
+        nextStep = localConfig === 'valid' ? 'nofax test' : 'nofax init --force';
+      } catch (error) {
+        localConfig = error?.message === 'NOFAX_NOT_INITIALIZED' ? 'not_initialized' : 'invalid';
+        nextStep = localConfig === 'not_initialized' ? 'nofax init' : 'review local configuration';
+        if (localConfig === 'invalid') {
+          // Never echo untrusted filesystem errors, paths, or credential contents.
+          errorCode = /^NOFAX_[A-Z0-9_]+$/.test(error?.message ?? '')
+            ? error.message : 'NOFAX_CONFIG_UNAVAILABLE';
+        }
+      }
+      writeJson(deps.stdout, {
+        localConfig,
+        ...(errorCode === undefined ? {} : { errorCode }),
+        notificationDelivery: 'not_tested',
+        humanApproval: 'not_tested',
+        nextStep
+      });
+      return localConfig === 'valid' ? 0 : 1;
     }
 
     if (command === 'pending') {
@@ -332,7 +405,7 @@ export async function runCli(args, overrides = {}) {
       }
     }
 
-    throw new Error(`NOFAX_UNKNOWN_COMMAND:${command}`);
+    throw new Error('NOFAX_UNKNOWN_COMMAND');
   } catch (error) {
     deps.stderr.write(`nofax: ${safeDiagnostic(error)}\n`);
     return 1;

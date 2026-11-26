@@ -22,6 +22,16 @@ function visibleNotificationText(value: string): string {
   // Preserve emoji ZWJ sequences, but expose hidden joiners inside words.
   const characters = [...value];
   return characters.map((character, index) => {
+    if (character === "\ufe0e" || character === "\ufe0f") {
+      // Keep genuine emoji presentation and keycaps, not invisible selectors
+      // inserted into ordinary words that describe approval decisions.
+      let previous = index - 1;
+      while (previous >= 0 && /\p{Emoji_Modifier}/u.test(characters[previous])) previous--;
+      if (/\p{Extended_Pictographic}/u.test(characters[previous] ?? "") ||
+          (character === "\ufe0f" && /^[0-9#*]$/.test(characters[index - 1] ?? "") &&
+           characters[index + 1] === "\u20e3")) return character;
+      return `\\u${character.codePointAt(0)!.toString(16).padStart(4, "0")}`;
+    }
     if (character === "\u200c" || character === "\u200d") {
       let before = index - 1;
       while (before >= 0 && /[\ufe0e\ufe0f\p{Emoji_Modifier}]/u.test(characters[before])) before--;
