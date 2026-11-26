@@ -16,6 +16,7 @@ test("MCP Registry metadata matches the published package contract", async () =>
 
   assert.equal(packageJson.name, "nofax");
   assert.equal(packageJson.mcpName, serverJson.name);
+  assert.equal(serverJson.websiteUrl, "https://tomiseregi.si/projects/nofax");
   assert.equal(packageJson.version, serverJson.version);
   assert.equal(registryPackage.registryType, "npm");
   assert.equal(registryPackage.identifier, packageJson.name);
