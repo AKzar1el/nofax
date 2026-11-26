@@ -363,6 +363,28 @@ test('unsafe cleartext ntfy servers fail before publish, approval persistence, o
   assert.equal(persisted, 0);
 });
 
+test('non-string ntfy servers fail before publish, approval persistence, or polling', async () => {
+  const unsafe = { ...config, server: ['https://safe.example.invalid\n.other.invalid'] };
+  let networkCalls = 0;
+  let persisted = 0;
+  const fetchImpl = async () => { networkCalls += 1; return jsonResponse({ id: 'synthetic' }); };
+  const authToken = 'SYNTHETIC_TEST_ONLY';
+  await assert.rejects(() => sendNotification({
+    config: unsafe, title: 'Private notification', message: 'Synthetic', authToken, fetchImpl
+  }), /NOFAX_SERVER_INVALID/);
+  await assert.rejects(() => createRemoteRequest({
+    config: unsafe, title: 'Private approval', message: 'Synthetic',
+    options: ['allow', 'deny'], authToken, fetchImpl,
+    beforePublish: async () => { persisted += 1; }
+  }), /NOFAX_SERVER_INVALID/);
+  await assert.rejects(() => pollRemoteResponse({
+    config: unsafe, responseTopic: 'synthetic_response_capability',
+    requestId: 'synthetic-request-id', allowed: ['allow', 'deny'], kind: 'approval', fetchImpl
+  }), /NOFAX_SERVER_INVALID/);
+  assert.equal(networkCalls, 0);
+  assert.equal(persisted, 0);
+});
+
 test('guessable phone topics fail before publishing or saving an approval', async () => {
   const weak = { ...config, topic: 'a'.repeat(32) };
   let published = 0;
