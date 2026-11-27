@@ -149,7 +149,8 @@ function boundChoiceLabel(value) {
       segments.push({ text: '…', hasContent: false });
       break;
     }
-    const hasContent = /[\p{L}\p{N}\p{P}\p{S}]/u.test(segment);
+    // Escaped blank fillers are diagnostic captions, not meaningful choices.
+    const hasContent = /[\p{L}\p{N}\p{P}\p{S}]/u.test(segment.replace(/[\u115f\u1160\u2800\u3164\uffa0]/gu, ''));
     segments.push({ text: visible, hasContent });
     renderedLength += visible.length;
     if (hasContent) visibleContent += 1;
