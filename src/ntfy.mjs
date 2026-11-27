@@ -598,19 +598,31 @@ export async function pollRemoteResponse({ config, responseTopic, requestId, all
   }
 }
 
-export async function sendResponseConfirmation({ config, response, kind, title = 'Nofax', timeoutMs = 5000, fetchImpl = fetch }) {
+// Receipts are best-effort notifications of an already accepted response, not
+// authorization. Direct callers must specify kind: 'choice' for custom values.
+export async function sendResponseConfirmation({ config, response, kind = 'approval', title = 'Nofax', timeoutMs = 5000, fetchImpl = fetch }) {
   // Reject timer overflow and zero/fractional delays before any phone side effect.
   validateTimeoutMs(timeoutMs, 'NOFAX_CONFIRMATION_TIMEOUT_INVALID');
+  const decision = response?.decision;
+  if (!response || typeof response !== 'object' || Array.isArray(response) ||
+      !['approval', 'choice', 'refinement'].includes(kind) ||
+      typeof decision !== 'string' || !decision || decision !== decision.trim() ||
+      decision.length > 80 || !decision.isWellFormed() ||
+      (kind === 'approval' && !['allow', 'deny', 'refine'].includes(decision)) ||
+      (kind === 'refinement' && decision !== 'refine') ||
+      (kind !== 'choice' && decision === 'refine' &&
+        (typeof response.text !== 'string' || !response.text.trim() || !response.text.isWellFormed()))) {
+    throw new Error('NOFAX_CONFIRMATION_RESPONSE_INVALID');
+  }
   let confirmationTitle = 'Response received';
   let tag = 'white_check_mark';
   if (kind === 'choice') confirmationTitle = 'Choice received';
   else if (kind === 'refinement') confirmationTitle = 'Refinement received';
-  else if (response.decision === 'allow') confirmationTitle = 'Approved';
-  else if (response.decision === 'deny') {
+  else if (decision === 'allow') confirmationTitle = 'Approved';
+  else if (decision === 'deny') {
     confirmationTitle = 'Denied';
     tag = 'no_entry';
-  } else if (response.decision === 'refine') confirmationTitle = 'Refinement received';
-  else confirmationTitle = 'Choice received';
+  } else confirmationTitle = 'Refinement received';
 
   const controller = new AbortController();
   let timeoutId;
@@ -623,9 +635,9 @@ export async function sendResponseConfirmation({ config, response, kind, title =
   const delivery = sendNotification({
       config,
       title: `${confirmationTitle} - ${title}`,
-      message: kind !== 'choice' && response.decision === 'refine'
-          ? 'Your refinement was sent back to the agent.'
-          : `Nofax recorded: ${response.decision}`,
+        message: kind !== 'choice' && decision === 'refine'
+            ? 'Your refinement was sent back to the agent.'
+            : `Nofax recorded: ${decision}`,
       priority: 2,
       tags: [tag],
       signal: controller.signal,
