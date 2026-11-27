@@ -83,6 +83,42 @@ test('ntfy approval titles cannot forge extra lines while message paragraphs rem
   assert.equal(payload.message, 'Line one\nLine two');
 });
 
+test('notification truncation does not display partial Unicode control escapes', async () => {
+  for (const fixture of [
+    { field: 'title', prefix: 'A'.repeat(104), control: '\u202e' },
+    { field: 'title', prefix: 'A'.repeat(102), control: '\u{e0001}' },
+    { field: 'message', prefix: '\u754c'.repeat(1360), control: '\u202e' }
+  ]) {
+    let payload;
+    await sendNotification({
+      config,
+      title: 'Synthetic notification',
+      message: 'Synthetic message',
+      [fixture.field]: fixture.prefix + fixture.control + 'tail'.repeat(12),
+      fetchImpl: async (_url, init) => {
+        payload = JSON.parse(init.body);
+        return jsonResponse({ id: 'synthetic' });
+      }
+    });
+    assert.equal(payload[fixture.field], fixture.prefix + '\u2026[truncated]');
+  }
+});
+
+test('notification truncation preserves a complete control escape that fits', async () => {
+  let payload;
+  const prefix = 'A'.repeat(100);
+  await sendNotification({
+    config,
+    title: prefix + '\u202e' + 'tail'.repeat(12),
+    message: 'Synthetic message',
+    fetchImpl: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return jsonResponse({ id: 'synthetic' });
+    }
+  });
+  assert.equal(payload.title, prefix + '\\u202e\u2026[truncated]');
+});
+
 test('local ntfy notifications visibly escape Unicode line and paragraph separators', async () => {
   let payload;
   const fetchImpl = async (_url, init) => {

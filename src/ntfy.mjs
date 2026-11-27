@@ -105,6 +105,20 @@ function safeSliceEnd(text, end) {
   return text.length;
 }
 
+function completeEscapeEnd(text, end) {
+  // The visible control escapes are ASCII graphemes, but a partial escape
+  // would conceal which control was present. Inspect only the cut boundary.
+  const start = Math.max(0, end - 9);
+  const window = text.slice(start, end + 9);
+  for (const match of window.matchAll(/\\u(?:[0-9a-fA-F]{4}|\{[0-9a-fA-F]{1,6}\})/g)) {
+    const offset = start + match.index;
+    if (offset < end && offset + match[0].length > end) {
+      return safeSliceEnd(text, offset);
+    }
+  }
+  return end;
+}
+
 function boundChoiceLabel(value) {
   const segments = [];
   let renderedLength = 0;
@@ -150,7 +164,7 @@ function boundText(value, max, name) {
   // JSON serialization substitutes lone surrogates, changing what the human sees.
   if (!text.isWellFormed()) throw new Error(`NOFAX_${name}_INVALID_UTF8`);
   if (text.length <= max) return text;
-  const end = safeSliceEnd(text, max - 14);
+  const end = completeEscapeEnd(text, safeSliceEnd(text, max - 14));
   return `${text.slice(0, end)}…[truncated]`;
 }
 
@@ -168,7 +182,7 @@ function boundMessageText(value) {
     bytes += segmentBytes;
     end += segment.length;
   }
-  return `${text.slice(0, end)}${marker}`;
+  return `${text.slice(0, completeEscapeEnd(text, end))}${marker}`;
 }
 
 function sleep(ms) {
