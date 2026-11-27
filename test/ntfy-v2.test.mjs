@@ -356,3 +356,61 @@ test('sendResponseConfirmation aborts the stalled confirmation transport at its 
   assert.equal(outcome, false);
   assert.equal(aborted, true);
 });
+
+test('sendResponseConfirmation rejects malformed or incompatible responses before transport', async () => {
+  const invalid = [
+    ['approval', { decision: 'pending' }],
+    [undefined, null],
+    ['approval', {}],
+    ['approval', { decision: 'timeout' }],
+    ['approval', { decision: 'allow ' }],
+    ['approval', { decision: 'refine' }],
+    ['approval', { decision: 'refine', text: '  ' }],
+    ['approval', { decision: 'refine', text: '\ud800' }],
+    ['refinement', { decision: 'allow' }],
+    ['refinement', { decision: 'refine' }],
+    ['unknown', { decision: 'allow' }],
+    [null, { decision: 'allow' }],
+    [undefined, { decision: 'arbitrary-choice' }],
+    ['choice', { decision: '' }],
+    ['choice', { decision: 1 }],
+    ['choice', { decision: 'x'.repeat(81) }],
+    ['choice', { decision: '\ud800' }]
+  ];
+  let publishes = 0;
+  const fetchImpl = async () => { publishes++; return { ok: true, status: 200 }; };
+  for (const [kind, response] of invalid) {
+    await assert.rejects(sendResponseConfirmation({
+      config: { ...config, server: 'https://example.invalid' }, kind, response, fetchImpl
+    }), /NOFAX_CONFIRMATION_RESPONSE_INVALID/, JSON.stringify([kind, response]));
+  }
+  assert.equal(publishes, 0);
+});
+
+test('sendResponseConfirmation preserves legacy approval and explicit terminal choice captions', async () => {
+  const valid = [
+    [undefined, { decision: 'allow' }, 'Approved'],
+    [undefined, { decision: 'deny' }, 'Denied'],
+    [undefined, { decision: 'refine', text: 'Change this' }, 'Refinement received'],
+    ['approval', { decision: 'allow' }, 'Approved'],
+    ['approval', { decision: 'deny' }, 'Denied'],
+    ['approval', { decision: 'refine', text: 'Change this' }, 'Refinement received'],
+    ['refinement', { decision: 'refine', text: 'Change this' }, 'Refinement received'],
+    ...['allow', 'deny', 'refine', 'pending', 'timeout', 'x'.repeat(80), '\u{1f600}'].map(
+      decision => ['choice', { decision }, 'Choice received'])
+  ];
+  const payloads = [];
+  const fetchImpl = async (_url, init) => {
+    payloads.push(JSON.parse(init.body));
+    return { ok: true, status: 200 };
+  };
+  for (const [kind, response, caption] of valid) {
+    assert.equal(await sendResponseConfirmation({
+      config: { ...config, server: 'https://example.invalid' }, kind, response, fetchImpl
+    }), true);
+    assert.equal(payloads.at(-1).title, `${caption} - Nofax`);
+    assert.equal(payloads.at(-1).message, kind !== 'choice' && response.decision === 'refine'
+      ? 'Your refinement was sent back to the agent.' : `Nofax recorded: ${response.decision}`);
+  }
+  assert.equal(payloads.length, valid.length);
+});
