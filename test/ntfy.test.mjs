@@ -1528,6 +1528,53 @@ test('choice transport rejects labels without visible content before publishing 
   assert.equal(sideEffects, 0);
 });
 
+test('choice transport rejects blank filler-only labels and clipped filler prefixes', async () => {
+  const fillers = ['\u115f', '\u1160', '\u2800', '\u3164', '\uffa0'];
+  const invalid = [
+    ...fillers,
+    fillers.join(''),
+    '\u3164'.repeat(6) + 'Ship',
+    '\u2800'.repeat(6) + 'Deny',
+    '\u3164\u0301'
+  ];
+  for (const label of invalid) {
+    for (const options of [[label], [{ value: 'ship', label }]]) {
+      let persisted = 0;
+      let published = 0;
+      await assert.rejects(() => createRemoteRequest({
+        config,
+        title: 'Pick',
+        message: 'Choose',
+        options,
+        beforePublish: async () => { persisted += 1; },
+        fetchImpl: async () => { published += 1; return jsonResponse({ id: 'unexpected' }); }
+      }), /NOFAX_CHOICE_INVALID/);
+      assert.equal(persisted, 0);
+      assert.equal(published, 0);
+    }
+  }
+});
+
+test('choice transport keeps visible filler escapes alongside meaningful content', async () => {
+  for (const filler of ['\u115f', '\u1160', '\u2800', '\u3164', '\uffa0']) {
+    let payload;
+    const value = 'Ship' + filler;
+    const remote = await createRemoteRequest({
+      config,
+      title: 'Pick',
+      message: 'Choose',
+      options: [value],
+      fetchImpl: async (_url, init) => {
+        payload = JSON.parse(init.body);
+        return jsonResponse({ id: 'synthetic' });
+      }
+    });
+    assert.deepEqual(remote.allowed, [value]);
+    assert.equal(payload.actions[0].label, 'Ship\\u' + filler.codePointAt(0).toString(16).padStart(4, '0'));
+    assert.equal(JSON.parse(payload.actions[0].body).decision, value);
+  }
+});
+
 test('choice labels may consist entirely of a visible joined emoji', async () => {
   let payload;
   await createRemoteRequest({
