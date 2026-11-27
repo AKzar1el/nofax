@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { createRemoteRequest, pollRemoteResponse, requestApproval, requestChoice, sendNotification, waitRemoteResponse } from '../src/ntfy.mjs';
+import { createRemoteRequest, normalizeOptions, pollRemoteResponse, requestApproval, requestChoice, sendNotification, waitRemoteResponse } from '../src/ntfy.mjs';
 
 const config = { version: 1, server: 'https://ntfy.sh', topic: 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF', timeoutSeconds: 300 };
 
@@ -1876,6 +1876,65 @@ test('phone choice labels show unsupported emoji tag codes without changing deci
     });
     assert.equal(payload.actions[0].label, `Review ${tagFlag(code)}`);
     assert.equal(JSON.parse(payload.actions[0].body).decision, 'review');
+  }
+});
+
+test('choice transport rejects rendered and position-correct fallback caption collisions', async () => {
+  const flag = String.fromCodePoint(0x1f3f4, 0xe0078, 0xe007f);
+  const black = '\u{1f3f4}';
+  const literal = black + '[tag:x]';
+  for (const [first, second] of [
+    [flag, literal],
+    [literal, flag],
+    [literal + flag, literal + black],
+    [literal + black, literal + flag],
+    [flag + literal, black + literal],
+    [black + literal, flag + literal]
+  ]) {
+    let persisted = 0;
+    let published = 0;
+    await assert.rejects(() => createRemoteRequest({
+      config,
+      title: 'Pick',
+      message: 'Choose',
+      options: [{ value: 'first', label: first }, { value: 'second', label: second }],
+      beforePublish: async () => { persisted += 1; },
+      fetchImpl: async () => { published += 1; return jsonResponse({ id: 'unexpected' }); }
+    }), /NOFAX_CHOICE_DUPLICATE/);
+    assert.equal(persisted, 0);
+    assert.equal(published, 0);
+  }
+});
+
+test('choice transport preserves literal captions at their original positions', async () => {
+  const flag = String.fromCodePoint(0x1f3f4, 0xe0078, 0xe007f);
+  const black = '\u{1f3f4}';
+  const literal = black + '[tag:x]';
+  for (const [first, second, expected] of [
+    [literal + flag, black + literal, [literal + literal, black + literal]],
+    [black + literal, literal + flag, [black + literal, literal + literal]],
+    [literal + 'A'.repeat(22) + flag, black + 'A'.repeat(22) + '\u2026',
+      [literal + 'A'.repeat(22) + '\u2026', black + 'A'.repeat(22) + '\u2026']]
+  ]) {
+    const options = [{ value: 'first', label: first }, { value: 'second', label: second }];
+    const normalized = normalizeOptions(options);
+    // CLI and MCP prevalidate before the transport normalizes again.
+    assert.deepEqual(normalized, expected.map((label, index) => ({ value: options[index].value, label })));
+    assert.deepEqual(normalizeOptions(normalized), normalized);
+    let payload;
+    const remote = await createRemoteRequest({
+      config,
+      title: 'Pick',
+      message: 'Choose',
+      options,
+      fetchImpl: async (_url, init) => {
+        payload = JSON.parse(init.body);
+        return jsonResponse({ id: 'synthetic' });
+      }
+    });
+    assert.deepEqual(payload.actions.map(({ label }) => label), expected);
+    assert.deepEqual(payload.actions.map(({ body }) => JSON.parse(body).decision), ['first', 'second']);
+    assert.deepEqual(remote.allowed, ['first', 'second']);
   }
 });
 
