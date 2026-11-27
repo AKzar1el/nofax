@@ -78,9 +78,51 @@ test('doctor reports malformed local data without overwriting or echoing its con
   assert.deepEqual(JSON.parse(stdout.read()), {
     localConfig: 'invalid', errorCode: 'NOFAX_CONFIG_INVALID_JSON',
     notificationDelivery: 'not_tested', humanApproval: 'not_tested',
-    nextStep: 'review local configuration'
+    nextStep: 'review local configuration; if replacing, use nofax init --force --server URL'
   });
   assert.equal(await readFile(join(home, 'config.json'), 'utf8'), original);
+  assert.doesNotMatch(stdout.read() + stderr.read(), /SYNTHETIC_PRIVATE_MARKER/);
+});
+
+test('doctor advises explicit server selection for invalid saved endpoints without disclosing or changing them', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-doctor-server-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const path = join(home, 'config.json');
+  const topic = 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF';
+  for (const [server, errorCode] of [
+    [null, 'NOFAX_SERVER_INVALID'],
+    ['ftp://private.example.invalid', 'NOFAX_SERVER_PROTOCOL'],
+    ['https://private.example.invalid/secret', 'NOFAX_SERVER_PATH'],
+    ['https://private:secret@example.invalid', 'NOFAX_SERVER_CREDENTIALS'],
+    ['http://private.example.invalid', 'NOFAX_SERVER_INSECURE_HTTP']
+  ]) {
+    const original = JSON.stringify({ version: 1, server, topic, timeoutSeconds: 300 });
+    await writeFile(path, original);
+    const stdout = capture();
+    const stderr = capture();
+    const noEffect = async () => { throw new Error('MUST_NOT_RECOVER_OR_SEND'); };
+    assert.equal(await runCli(['doctor'], {
+      env: { NOFAX_HOME: home }, stdout, stderr,
+      initConfigImpl: noEffect, sendNotificationImpl: noEffect
+    }), 1);
+    assert.deepEqual(JSON.parse(stdout.read()), {
+      localConfig: 'invalid', errorCode,
+      notificationDelivery: 'not_tested', humanApproval: 'not_tested',
+      nextStep: 'review local configuration; if replacing, use nofax init --force --server URL'
+    });
+    assert.equal(await readFile(path, 'utf8'), original);
+    assert.doesNotMatch(stdout.read() + stderr.read(), /private|secret|abcdefghijklmnopqrstuvwxyzABCDEF/);
+  }
+});
+
+test('doctor does not expose unrecognized strings resembling diagnostic codes', async () => {
+  const stdout = capture();
+  const stderr = capture();
+  assert.equal(await runCli(['doctor'], {
+    stdout, stderr,
+    loadConfigImpl: async () => { throw new Error('NOFAX_SYNTHETIC_PRIVATE_MARKER'); }
+  }), 1);
+  assert.equal(JSON.parse(stdout.read()).errorCode, 'NOFAX_CONFIG_UNAVAILABLE');
   assert.doesNotMatch(stdout.read() + stderr.read(), /SYNTHETIC_PRIVATE_MARKER/);
 });
 

@@ -13,6 +13,14 @@ const PACKAGE_JSON_URL = new URL('../package.json', import.meta.url);
 const MAX_HOOK_STDIN_BYTES = 1024 * 1024;
 const MAX_DIAGNOSTIC_CHARS = 4096;
 const DIAGNOSTIC_TRUNCATION = '...[truncated]';
+const DOCTOR_EXPLICIT_SERVER_ERRORS = new Set([
+  'NOFAX_CONFIG_VERSION', 'NOFAX_CONFIG_INVALID_JSON', 'NOFAX_CONFIG_INVALID_UTF8',
+  'NOFAX_CONFIG_TOO_LARGE', 'NOFAX_SERVER_INVALID', 'NOFAX_SERVER_PROTOCOL',
+  'NOFAX_SERVER_CREDENTIALS', 'NOFAX_SERVER_PATH', 'NOFAX_SERVER_INSECURE_HTTP'
+]);
+const DOCTOR_CONFIG_ERRORS = new Set([
+  ...DOCTOR_EXPLICIT_SERVER_ERRORS, 'NOFAX_TOPIC_INVALID', 'NOFAX_TIMEOUT_INVALID', 'NOFAX_HOME_EMPTY'
+]);
 const DIAGNOSTIC_CONTROLS = /[\x00-\x1f\x7f-\x9f\u00ad\u034f\u061c\u115f-\u1160\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\u2800\u3164\ufe00-\ufe0f\ufeff\uffa0\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/u;
 
 function safeDiagnostic(error) {
@@ -290,8 +298,11 @@ export async function runCli(args, overrides = {}) {
         nextStep = localConfig === 'not_initialized' ? 'nofax init' : 'review local configuration';
         if (localConfig === 'invalid') {
           // Never echo untrusted filesystem errors, paths, or credential contents.
-          errorCode = /^NOFAX_[A-Z0-9_]+$/.test(error?.message ?? '')
+          errorCode = DOCTOR_CONFIG_ERRORS.has(error?.message)
             ? error.message : 'NOFAX_CONFIG_UNAVAILABLE';
+          if (DOCTOR_EXPLICIT_SERVER_ERRORS.has(errorCode)) {
+            nextStep = 'review local configuration; if replacing, use nofax init --force --server URL';
+          }
         }
       }
       writeJson(deps.stdout, {

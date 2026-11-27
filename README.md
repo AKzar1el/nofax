@@ -68,6 +68,11 @@ missing, invalid, or requires legacy topic rotation. Exit code `0` means
 output never includes the topic or private server URL. A successful local
 check does **not** prove the phone receives notifications or that anyone has
 approved a request; use the next step to test delivery explicitly.
+If the saved server is invalid or the configuration cannot be read, the
+diagnostic reminds you to choose your intended server explicitly if replacing
+the configuration with `nofax init --force --server URL`. Replace `URL` with
+your trusted endpoint; `--force` rotates the subscription topic. The doctor
+command itself never changes your configuration.
 
 ### 3. Test
 
