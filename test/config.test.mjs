@@ -152,6 +152,32 @@ test('force recovery of corrupt saved config requires explicit server instead of
   assert.deepEqual(await loadConfig({ home }), recovered);
 });
 
+test('force recovery rejects an explicit null server without replacing the saved config', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-null-server-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const path = join(home, 'config.json');
+  const valid = JSON.stringify({ version: 1, server: 'https://private.example.invalid',
+    topic: 'nofax_abcdefghijklmnopqrstuvwxyzABCDEF', timeoutSeconds: 725 });
+  const malformed = JSON.stringify({ ...JSON.parse(valid), server: [] });
+  for (const saved of [malformed, '{', valid]) {
+    await writeFile(path, saved);
+    await assert.rejects(() => initConfig({ home, force: true, server: null }), /NOFAX_SERVER_INVALID/);
+    assert.equal(await readFile(path, 'utf8'), saved);
+    assert.deepEqual(await readdir(home), ['config.json']);
+  }
+  const recovered = await initConfig({ home, force: true });
+  assert.equal(recovered.server, 'https://private.example.invalid');
+  assert.equal(recovered.timeoutSeconds, 725);
+});
+
+test('first initialization rejects an explicit null server rather than using the public default', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'nofax-config-null-init-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  await assert.rejects(() => initConfig({ home, server: null }), /NOFAX_SERVER_INVALID/);
+  assert.deepEqual(await readdir(home), []);
+  assert.equal((await initConfig({ home })).server, 'https://ntfy.sh');
+});
+
 test('force recovery of unsupported saved config version requires explicit server', async (t) => {
   const home = await mkdtemp(join(tmpdir(), 'nofax-config-version-private-'));
   t.after(() => rm(home, { recursive: true, force: true }));

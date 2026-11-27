@@ -193,7 +193,8 @@ export async function initConfig({ home, env, server, topic, timeoutSeconds, for
 
   const config = validateConfig({
     version: 1,
-    server: server ?? savedConfig?.server ?? DEFAULT_SERVER,
+    // Only omission permits fallback; an explicit null is not a destination.
+    server: server === undefined ? (savedConfig?.server ?? DEFAULT_SERVER) : server,
     topic: topic ?? createPhoneTopic(),
     timeoutSeconds: timeoutSeconds ?? savedConfig?.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS
   });
