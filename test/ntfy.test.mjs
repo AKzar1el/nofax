@@ -652,6 +652,41 @@ test('direct ntfy poll rejects invalid timeout hints before network access', asy
   assert.equal(fetches, 0, 'invalid poll deadlines must never contact ntfy');
 });
 
+test('direct ntfy poll rejects malformed response-topic segments before transport', async () => {
+  const calls = [];
+  const options = {
+    config: { ...config, server: 'https://example.invalid' },
+    requestId: 'synthetic-request-id',
+    allowed: ['allow', 'deny'],
+    kind: 'approval',
+    fetchImpl: async (url) => { calls.push(String(url)); return jsonResponse(''); }
+  };
+  let coerced = false;
+  const invalid = [undefined, null, 123, ['synthetic'], { toString() { coerced = true; return 'synthetic'; } },
+    '', '.', '..', 'private/other', 'private\\other', 'private,other', 'private?other', 'private#other',
+    'private%2Fother', 'private\n', 'private\t', ' private', 'private ', 'priv\u00e9', 'a'.repeat(129)];
+  for (const responseTopic of invalid) {
+    await assert.rejects(() => pollRemoteResponse({ ...options, responseTopic }),
+      { message: 'NOFAX_RESPONSE_TOPIC_INVALID' });
+  }
+  assert.equal(coerced, false);
+  assert.deepEqual(calls, []);
+});
+
+test('direct ntfy poll preserves generated and legacy single-segment response topics', async () => {
+  const calls = [];
+  const topics = ['a', 'synthetic_response-capability', 'nofax_r_abcdefghijklmnopqrstuvwxyz123456', 'a'.repeat(128)];
+  for (const responseTopic of topics) {
+    const result = await pollRemoteResponse({
+      config: { ...config, server: 'https://example.invalid' }, responseTopic,
+      requestId: 'synthetic-request-id', allowed: ['allow', 'deny'], kind: 'approval',
+      fetchImpl: async (url) => { calls.push(String(url)); return jsonResponse(''); }
+    });
+    assert.equal(result, null);
+  }
+  assert.deepEqual(calls, topics.map(topic => `https://example.invalid/${topic}/json?poll=1&since=all`));
+});
+
 test('malformed UTF-8 in an ntfy poll event cannot produce an approval', async () => {
   const requestId = 'synthetic-request-id';
   const decision = JSON.stringify({ v: 1, requestId, decision: 'allow' });

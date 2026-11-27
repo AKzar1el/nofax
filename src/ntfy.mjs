@@ -538,6 +538,12 @@ async function readPollText(response, signal) {
 
 export async function pollRemoteResponse({ config, responseTopic, requestId, allowed, kind, timeoutMs, fetchImpl = fetch }) {
   const server = normalizeServer(config.server);
+  // Direct callers need not use a generated NoFax topic, but the response
+  // capability must remain one literal path segment (including saved topics).
+  if (typeof responseTopic !== 'string' || responseTopic.length === 0 ||
+      responseTopic.length > 128 || /[^A-Za-z0-9_-]/.test(responseTopic)) {
+    throw new Error('NOFAX_RESPONSE_TOPIC_INVALID');
+  }
   // MCP callers pass fractional remaining milliseconds; reject only invalid
   // or overflowing delays that Node timers would silently clamp.
   if (timeoutMs !== undefined &&
