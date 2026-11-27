@@ -151,12 +151,15 @@ function boundChoiceLabel(value) {
     }
     // Escaped blank fillers are diagnostic captions, not meaningful choices.
     const hasContent = /[\p{L}\p{N}\p{P}\p{S}]/u.test(segment.replace(/[\u115f\u1160\u2800\u3164\uffa0]/gu, ''));
-    segments.push({ text: visible, hasContent });
+    segments.push({ text: visible, fallback: tagCode === null ? visible : '\u{1f3f4}', hasContent });
     renderedLength += visible.length;
     if (hasContent) visibleContent += 1;
   }
   if (!visibleContent) throw new Error('NOFAX_CHOICE_INVALID');
-  return segments.map((segment) => segment.text).join('');
+  return {
+    label: segments.map((segment) => segment.text).join(''),
+    fallback: segments.map((segment) => segment.fallback ?? segment.text).join('')
+  };
 }
 
 function boundText(value, max, name) {
@@ -376,7 +379,7 @@ export function normalizeOptions(options) {
     if (typeof option === 'string') {
       const value = option.trim();
       if (!value || value.length > 80 || !value.isWellFormed()) throw new Error('NOFAX_CHOICE_INVALID');
-      return { value, label: boundChoiceLabel(value) };
+      return { value, ...boundChoiceLabel(value) };
     }
     if (!option || typeof option.value !== 'string' || typeof option.label !== 'string') throw new Error('NOFAX_CHOICE_INVALID');
     const value = option.value.trim();
@@ -384,29 +387,20 @@ export function normalizeOptions(options) {
     if (!value || !label || value.length > 80 || !value.isWellFormed() || !label.isWellFormed()) {
       throw new Error('NOFAX_CHOICE_INVALID');
     }
-    return { value, label: boundChoiceLabel(label) };
+    return { value, ...boundChoiceLabel(label) };
   });
   if (new Set(normalized.map((option) => option.value)).size !== normalized.length) throw new Error('NOFAX_CHOICE_DUPLICATE');
   // Phones without Unicode tag support render distinct subdivision flags as
   // identical black flags. Compare that fallback as well as NFKC, while
   // preserving the actual action labels and exact decision values.
-  const displayKey = (label, originalOption) => {
-    let displayLabel = label;
-    const sourceLabel = typeof originalOption === 'string' ? originalOption.trim() : originalOption.label.trim();
-    // Only fold generated tag captions to a black flag, not literal visible
-    // captions supplied by the caller, which remain distinct phone choices.
-    for (const { segment } of actionGraphemeSegmenter.segment(sourceLabel)) {
-      const code = emojiTagCode(segment);
-      if (code !== null && !RGI_EMOJI_TAG_FLAGS.has(code)) {
-        displayLabel = displayLabel.replace(`\u{1f3f4}[tag:${code}]`, '\u{1f3f4}');
-      }
-    }
-    return displayLabel.normalize('NFKC').replace(/[\u{e0020}-\u{e007f}]/gu, '');
-  };
-  if (new Set(normalized.map((option, index) => displayKey(option.label, options[index]))).size !== normalized.length) {
+  // Track fallback captions at the rendered grapheme's actual position;
+  // replacing a matching literal caption can fold the wrong choice segment.
+  const displayKey = (label) => label.normalize('NFKC');
+  if (new Set(normalized.map((option) => displayKey(option.label))).size !== normalized.length ||
+      new Set(normalized.map((option) => displayKey(option.fallback))).size !== normalized.length) {
     throw new Error('NOFAX_CHOICE_DUPLICATE');
   }
-  return normalized;
+  return normalized.map(({ value, label }) => ({ value, label }));
 }
 
 export async function createRemoteRequest({
