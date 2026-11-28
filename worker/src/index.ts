@@ -1,6 +1,7 @@
 import { authorizeMcpRequest } from "./auth";
 import type { Env } from "./env";
 import { createRemoteMcpHandler } from "./mcp";
+import { isTrustedMcpAuthority } from "./request-authority";
 export { NofaxRequestStore } from "./request-store";
 
 type McpImpl = (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response>;
@@ -32,9 +33,20 @@ function unauthorized(): Response {
   });
 }
 
+function forbidden(): Response {
+  return new Response("Forbidden", {
+    status: 403,
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff"
+    }
+  });
+}
+
 async function defaultMcpImpl(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const handler = createRemoteMcpHandler(env, new URL(request.url).origin);
-  return handler(request, env, ctx);
+  return handler.fetch(request);
 }
 
 export async function routeRequest(
@@ -57,6 +69,7 @@ export async function routeRequest(
   }
 
   if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
+    if (!isTrustedMcpAuthority(request, env)) return forbidden();
     const authorization = authorizeMcpRequest(request, env);
     if (!authorization.authorized) {
       return url.pathname === "/mcp" ? unauthorized() : notFound();
